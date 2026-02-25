@@ -1,0 +1,64 @@
+@import url("https://fonts.googleapis.com/css2?family=Pacifico&display=swap");
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root{
+  --ring: rgba(249,115,22,.35);
+}
+
+html, body { height: 100%; }
+body { @apply bg-bg text-ink; }
+
+.card {
+  @apply bg-white rounded-xl2 shadow-soft border border-slate-100;
+}
+.input {
+  @apply w-full bg-white border border-slate-200 rounded-xl px-4 py-3 outline-none
+         focus:ring-4 focus:ring-[var(--ring)] focus:border-brand-500 transition;
+}
+.btn {
+  @apply inline-flex items-center justify-center rounded-xl px-4 py-3 font-semibold transition;
+}
+.btn-primary {
+  @apply btn bg-brand-500 text-white hover:bg-brand-600;
+}
+.btn-ghost {
+  @apply btn bg-white border border-slate-200 hover:bg-slate-50;
+}
+.badge {
+  @apply inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold border;
+}
+.input{
+  @apply w-full h-11 px-4 rounded-xl bg-slate-50 border border-slate-200 outline-none focus:bg-white focus:border-orange-300 transition;
+}
+
+/* Jobs page range slider (match orange style) */
+.jg-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: #ffe2cc;
+  outline: none;
+}
+.jg-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #ff7a00;
+  box-shadow: 0 8px 18px rgba(255, 122, 0, 0.35);
+  cursor: pointer;
+  border: 3px solid #fff;
+}
+.jg-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #ff7a00;
+  box-shadow: 0 8px 18px rgba(255, 122, 0, 0.35);
+  cursor: pointer;
+  border: 3px solid #fff;
+}

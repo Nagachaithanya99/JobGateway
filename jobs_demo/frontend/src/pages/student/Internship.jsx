@@ -1,0 +1,728 @@
+import { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  FiBookmark,
+  FiCheckCircle,
+  FiChevronDown,
+  FiMapPin,
+  FiSearch,
+  FiPhoneCall,
+  FiExternalLink,
+} from "react-icons/fi";
+import Modal from "../../components/common/Modal";
+import useAuth from "../../hooks/useAuth.js";
+import api from "../../services/api.js";
+import {
+  studentApplyJob,
+  studentGetSavedJobs,
+  studentToggleSaveJob,
+} from "../../services/studentService.js";
+
+import illTop from "../../assets/images/student-internship/internship-illustration-top.png";
+import illBottom from "../../assets/images/student-internship/internship-illustration-bottom.png";
+
+const CHIP_TABS = ["All Internships", "IT & Software", "Marketing", "Engineering", "Finance"];
+const internshipTaxonomy = {
+  "IT & Software": {
+    Development: ["Frontend Intern", "Backend Intern", "Full Stack Intern", "Mobile Intern"],
+    Testing: ["Manual Testing Intern", "Automation Testing Intern"],
+    Data: ["Data Analyst Intern", "Data Engineer Intern", "ML Intern"],
+    DevOps: ["DevOps Intern", "Cloud Intern"],
+    "Cyber Security": ["SOC Intern", "VAPT Intern"],
+  },
+  "Medical & Healthcare": {
+    Nursing: ["Nursing Intern", "ICU Intern"],
+    Pharmacy: ["Pharmacy Intern"],
+    Lab: ["Lab Intern"],
+    "Hospital Admin": ["Admin Intern"],
+  },
+  Marketing: {
+    "Digital Marketing": ["SEO Intern", "Social Media Intern"],
+    Sales: ["Sales Intern"],
+    Content: ["Content Writing Intern"],
+  },
+  Education: {
+    Teaching: ["Teaching Intern", "Tutor Intern"],
+    Administration: ["Admin Intern"],
+  },
+  Finance: {
+    Banking: ["Banking Intern"],
+    Accounts: ["Accounts Intern"],
+  },
+};
+
+const badgeCls = {
+  Internship: "bg-emerald-50 border-emerald-200 text-emerald-700",
+  New: "bg-blue-50 border-blue-200 text-[#2563EB]",
+};
+
+function toInitials(name = "") {
+  return name
+    .split(" ")
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((x) => x[0])
+    .join("")
+    .toUpperCase();
+}
+
+function money(n) {
+  const v = Number(n || 0);
+  return `₹${v.toLocaleString("en-IN")}`;
+}
+
+function mapFromApi(x) {
+  if (!x) return null;
+  return {
+    id: x.id || x._id,
+    title: x.title || "",
+    company: x.company || x.companyName || "",
+    location: x.location || "",
+    stipendMin: Number(x.stipendMin || 0),
+    stipendMax: Number(x.stipendMax || 0),
+    duration: x.duration || "",
+    tags: Array.isArray(x.tags) ? x.tags : [],
+    category: x.category || "",
+    subCategory: x.subCategory || x.subcategory || x.role || "",
+    stream: x.stream || "",
+    workMode: x.workMode || "",
+    type: x.type || "",
+    createdAt: x.createdAt || null,
+    phone: x.phone || x.companyPhone || "",
+  };
+}
+
+function daysAgo(dt) {
+  if (!dt) return "";
+  const d = new Date(dt);
+  if (Number.isNaN(d.getTime())) return "";
+  const diff = Date.now() - d.getTime();
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  if (days <= 0) return "Today";
+  if (days === 1) return "1 day ago";
+  return `${days} days ago`;
+}
+
+function isNew(createdAt) {
+  if (!createdAt) return false;
+  const d = new Date(createdAt);
+  if (Number.isNaN(d.getTime())) return false;
+  const diffDays = Math.floor((Date.now() - d.getTime()) / (1000 * 60 * 60 * 24));
+  return diffDays <= 7;
+}
+
+export default function Internship() {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const completion = Number(user?.profileCompletion ?? 0);
+
+  const [q, setQ] = useState("");
+  const [location, setLocation] = useState("");
+  const [activeTab, setActiveTab] = useState("All Internships");
+  const [selectedMainStream, setSelectedMainStream] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedSubCategory, setSelectedSubCategory] = useState("");
+
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
+  const [items, setItems] = useState([]);
+  const [meta, setMeta] = useState({ total: 0, pages: 1, page: 1, limit: 10 });
+
+  const [savedMap, setSavedMap] = useState({});
+  const [savedBusy, setSavedBusy] = useState({});
+  const [applyModal, setApplyModal] = useState({ open: false, item: null });
+  const [profileModal, setProfileModal] = useState(false);
+  const [successModal, setSuccessModal] = useState(false);
+
+  const mainStreamOptions = useMemo(() => Object.keys(internshipTaxonomy), []);
+  const categoryOptions = useMemo(() => {
+    if (!selectedMainStream) return [];
+    return Object.keys(internshipTaxonomy[selectedMainStream] || {});
+  }, [selectedMainStream]);
+  const subCategoryOptions = useMemo(() => {
+    if (!selectedMainStream || !selectedCategory) return [];
+    return internshipTaxonomy[selectedMainStream]?.[selectedCategory] || [];
+  }, [selectedMainStream, selectedCategory]);
+
+  const fetchList = async (
+    nextPage = 1,
+    overrides = {}
+  ) => {
+    try {
+      setErr("");
+      setLoading(true);
+      const mainStream = overrides.mainStream ?? selectedMainStream;
+      const category = overrides.category ?? selectedCategory;
+      const subCategory = overrides.subCategory ?? selectedSubCategory;
+      const streamParam = mainStream || (activeTab !== "All Internships" ? activeTab : undefined);
+
+      const params = {
+        page: nextPage,
+        limit: meta.limit,
+        q: q || undefined,
+        location: location || undefined,
+        stream: streamParam,
+        category: category || undefined,
+        subCategory: subCategory || undefined,
+        subcategory: subCategory || undefined,
+      };
+
+      const res = await api.get("/student/internships", { params });
+      const payload = res?.data || {};
+      const list = Array.isArray(payload.items)
+        ? payload.items.map(mapFromApi).filter(Boolean)
+        : [];
+
+      setItems(list);
+      setMeta({
+        total: Number(payload.total || list.length || 0),
+        pages: Number(payload.pages || 1),
+        page: Number(payload.page || nextPage),
+        limit: Number(payload.limit || meta.limit),
+      });
+    } catch (e) {
+      console.error("internships fetch error:", e);
+      setErr(e?.response?.data?.message || "Failed to load internships.");
+      setItems([]);
+      setMeta((m) => ({ ...m, total: 0, pages: 1, page: 1 }));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchList(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await studentGetSavedJobs();
+        const rows = Array.isArray(res?.data) ? res.data : [];
+        const next = {};
+        rows.forEach((r) => {
+          const id = String(r?._id || r?.id || "");
+          if (id) next[id] = true;
+        });
+        if (mounted) setSavedMap(next);
+      } catch {
+        if (mounted) setSavedMap({});
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const onApply = (item) => {
+    if (completion < 100) {
+      setProfileModal(true);
+      return;
+    }
+    setApplyModal({ open: true, item });
+  };
+
+  const onSearch = () => fetchList(1);
+
+  const toggleSaved = async (id) => {
+    try {
+      setSavedBusy((p) => ({ ...p, [id]: true }));
+      const res = await studentToggleSaveJob(id);
+      setSavedMap((p) => ({ ...p, [id]: !!res?.data?.saved }));
+    } catch (e) {
+      setErr(e?.response?.data?.message || "Failed to update saved jobs.");
+    } finally {
+      setSavedBusy((p) => ({ ...p, [id]: false }));
+    }
+  };
+
+  return (
+    <div className="bg-[#F6F8FF] pb-24 md:pb-10">
+      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <div className="absolute -top-24 left-1/2 h-[26rem] w-[52rem] -translate-x-1/2 rounded-full bg-blue-200/45 blur-3xl" />
+        <div className="absolute top-28 right-[-12rem] h-[22rem] w-[22rem] rounded-full bg-orange-200/35 blur-3xl" />
+        <div className="absolute bottom-[-10rem] left-[-10rem] h-[28rem] w-[28rem] rounded-full bg-violet-200/25 blur-3xl" />
+        <div className="absolute inset-0 opacity-[0.35] [background-image:radial-gradient(rgba(15,23,42,0.08)_1px,transparent_1px)] [background-size:18px_18px]" />
+      </div>
+
+      <div className="mx-auto max-w-[1200px] px-4 py-6 sm:px-6 lg:px-8">
+        <div className="mb-4">
+          <p className="text-xs text-slate-500">
+            <Link to="/student" className="hover:text-[#2563EB]">
+              Home
+            </Link>{" "}
+            <span className="px-1.5">/</span>
+            <span className="text-slate-700">Internships</span>
+          </p>
+          <h1 className="mt-2 text-3xl font-extrabold text-[#0F172A]">Internships</h1>
+          <p className="mt-1 text-sm text-slate-500">Find your ideal internship opportunity</p>
+          {err ? <p className="mt-2 text-sm font-semibold text-red-600">{err}</p> : null}
+        </div>
+
+        <div className="rounded-2xl border border-white/60 bg-white/70 p-3 shadow-sm backdrop-blur">
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_220px_220px_170px]">
+            <div className="relative">
+              <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search internships..."
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none focus:border-orange-300"
+              />
+            </div>
+
+            <div className="relative">
+              <select
+                value={activeTab}
+                onChange={(e) => setActiveTab(e.target.value)}
+                className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-9 text-sm font-semibold text-slate-700"
+              >
+                {CHIP_TABS.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+              <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500" />
+            </div>
+
+            <div className="relative">
+              <input
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="Location"
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 pr-9 text-sm font-semibold text-slate-700"
+              />
+              <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 opacity-0" />
+            </div>
+
+            <button
+              type="button"
+              onClick={onSearch}
+              className="h-11 rounded-xl bg-[#F97316] px-4 text-sm font-extrabold text-white shadow-sm hover:bg-orange-600"
+            >
+              Search Internships
+            </button>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {CHIP_TABS.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => {
+                  setActiveTab(t);
+                  fetchList(1);
+                }}
+                className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                  activeTab === t
+                    ? "border-orange-200 bg-orange-50 text-[#F97316]"
+                    : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)_320px]">
+                    <aside className="space-y-3">
+            <div className="rounded-2xl border border-white/60 bg-white/70 p-4 shadow-sm backdrop-blur">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-extrabold text-[#0F172A]">Filter Internships</h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedMainStream("");
+                    setSelectedCategory("");
+                    setSelectedSubCategory("");
+                    fetchList(1, { mainStream: "", category: "", subCategory: "" });
+                  }}
+                  className="text-xs font-extrabold text-[#F97316] hover:text-orange-600"
+                >
+                  Clear
+                </button>
+              </div>
+
+              <div className="mt-3">
+                <p className="text-xs font-bold text-slate-700">Main Stream</p>
+                <div className="relative mt-2">
+                  <select
+                    value={selectedMainStream}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setSelectedMainStream(value);
+                      setSelectedCategory("");
+                      setSelectedSubCategory("");
+                      fetchList(1, { mainStream: value, category: "", subCategory: "" });
+                    }}
+                    className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-9 text-sm font-semibold text-slate-700 outline-none focus:border-orange-300"
+                  >
+                    <option value="">Select Main Stream</option>
+                    {mainStreamOptions.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                  <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <p className="text-xs font-bold text-slate-700">Category</p>
+                <div className="relative mt-2">
+                  <select
+                    value={selectedCategory}
+                    disabled={!selectedMainStream}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setSelectedCategory(value);
+                      setSelectedSubCategory("");
+                      fetchList(1, {
+                        mainStream: selectedMainStream,
+                        category: value,
+                        subCategory: "",
+                      });
+                    }}
+                    className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-9 text-sm font-semibold text-slate-700 outline-none focus:border-orange-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                  >
+                    <option value="">Select Category</option>
+                    {categoryOptions.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                  <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <p className="text-xs font-bold text-slate-700">Sub Category</p>
+                <div className="relative mt-2">
+                  <select
+                    value={selectedSubCategory}
+                    disabled={!selectedCategory}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setSelectedSubCategory(value);
+                      fetchList(1, {
+                        mainStream: selectedMainStream,
+                        category: selectedCategory,
+                        subCategory: value,
+                      });
+                    }}
+                    className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-9 text-sm font-semibold text-slate-700 outline-none focus:border-orange-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
+                  >
+                    <option value="">Select Sub Category</option>
+                    {subCategoryOptions.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                  <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => fetchList(1)}
+                className="mt-4 w-full rounded-xl bg-[#F97316] px-4 py-2.5 text-sm font-extrabold text-white hover:bg-orange-600"
+              >
+                Apply Filter
+              </button>
+
+              <div className="mt-3 rounded-[16px] border border-slate-200/70 bg-white/70 p-3 text-[12px] font-semibold text-slate-600">
+                Tip: Choose Main Stream &rarr; Category &rarr; Sub Category for exact results.
+              </div>
+            </div>
+          </aside>
+
+          <main className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <div className="text-sm font-extrabold text-[#0F172A]">
+                {meta.total.toLocaleString("en-IN")} Internship Opportunities
+              </div>
+            </div>
+
+            {loading ? (
+              <div className="rounded-2xl border border-white/60 bg-white/70 p-5 text-sm text-slate-600 shadow-sm backdrop-blur">
+                Loading internships...
+              </div>
+            ) : null}
+
+            {!loading && items.length === 0 ? (
+              <div className="rounded-2xl border border-white/60 bg-white/70 p-5 text-sm text-slate-600 shadow-sm backdrop-blur">
+                No internships found.
+              </div>
+            ) : null}
+
+            {!loading &&
+              items.map((it) => (
+                <article
+                  key={it.id}
+                  className="rounded-2xl border border-white/60 bg-white/70 p-4 shadow-sm backdrop-blur transition hover:shadow-md"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 font-bold text-[#2563EB]">
+                        {toInitials(it.company)}
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${badgeCls.Internship}`}
+                          >
+                            Internship
+                          </span>
+                          {isNew(it.createdAt) ? (
+                            <span
+                              className={`inline-flex rounded-full border px-2.5 py-1 text-[11px] font-extrabold ${badgeCls.New}`}
+                            >
+                              NEW
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <Link
+                          to={`/student/internship/${it.id}`}
+                          className="mt-2 block truncate text-base font-extrabold text-[#0F172A] hover:text-[#2563EB]"
+                        >
+                          {it.title || "Internship"}
+                        </Link>
+
+                        <p className="text-sm font-semibold text-slate-600">
+                          {it.company || "Company"}
+                        </p>
+
+                        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-600">
+                          {it.location ? (
+                            <span className="inline-flex items-center gap-1">
+                              <FiMapPin /> {it.location}
+                            </span>
+                          ) : null}
+                          {(it.stipendMin || it.stipendMax) ? (
+                            <span className="font-extrabold text-[#F97316]">
+                              {money(it.stipendMin)} - {money(it.stipendMax)}/month
+                            </span>
+                          ) : null}
+                          {it.duration ? <span className="text-slate-500">{it.duration}</span> : null}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-xs font-semibold text-slate-400">
+                      {daysAgo(it.createdAt)}
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/student/internship/${it.id}`)}
+                      className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50"
+                    >
+                      <FiExternalLink /> View Details
+                    </button>
+
+                    {it.phone ? (
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-extrabold text-[#2563EB] hover:bg-blue-100"
+                        onClick={() => {
+                          window.open(`tel:${it.phone}`, "_self");
+                        }}
+                      >
+                        <FiPhoneCall /> Call HR
+                      </button>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      onClick={() => onApply(it)}
+                      className="ml-auto inline-flex items-center justify-center rounded-full bg-[#F97316] px-5 py-2 text-xs font-extrabold text-white hover:bg-orange-600"
+                    >
+                      Quick Apply
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => toggleSaved(it.id)}
+                      disabled={!!savedBusy[it.id]}
+                      className={`inline-flex h-9 w-9 items-center justify-center rounded-full border transition ${
+                        savedMap[it.id]
+                          ? "border-blue-200 bg-blue-50 text-[#2563EB]"
+                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      }`}
+                      title="Save"
+                    >
+                      <FiBookmark />
+                    </button>
+                  </div>
+                </article>
+              ))}
+
+            <div className="flex items-center justify-center gap-1 pt-1">
+              <span className="mr-2 text-xs text-slate-500">
+                Showing {(meta.page - 1) * meta.limit + (items.length ? 1 : 0)} -{" "}
+                {(meta.page - 1) * meta.limit + items.length} of {meta.total.toLocaleString("en-IN")} internships
+              </span>
+              {Array.from({ length: Math.min(5, meta.pages || 1) }).map((_, idx) => {
+                const p = idx + 1;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => fetchList(p)}
+                    className={`h-8 min-w-8 rounded-lg border px-2 text-xs font-extrabold transition ${
+                      p === meta.page
+                        ? "border-orange-200 bg-orange-50 text-[#F97316]"
+                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                    }`}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
+              <button
+                type="button"
+                onClick={() => fetchList(Math.min(meta.pages || 1, meta.page + 1))}
+                className="h-8 rounded-lg border border-slate-200 bg-white px-3 text-xs font-extrabold text-slate-600 hover:bg-slate-50"
+                disabled={meta.page >= meta.pages}
+              >
+                Next
+              </button>
+            </div>
+          </main>
+
+          <aside className="space-y-3">
+            <div className="rounded-2xl border border-white/60 bg-white/70 p-4 shadow-sm backdrop-blur">
+              <img src={illTop} alt="tips" className="h-40 w-full object-contain" draggable="false" />
+              <h3 className="mt-2 text-sm font-extrabold text-[#0F172A]">Manage Your Job Alerts</h3>
+              <ul className="mt-2 space-y-2 text-xs font-semibold text-slate-600">
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-[#F97316]" /> Resume Tips
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-[#F97316]" /> Interview Questions
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-[#F97316]" /> Career Advice
+                </li>
+              </ul>
+            </div>
+
+            <div className="rounded-2xl border border-white/60 bg-white/70 p-4 shadow-sm backdrop-blur">
+              <img src={illBottom} alt="resources" className="h-40 w-full object-contain" draggable="false" />
+              <h3 className="mt-2 text-sm font-extrabold text-[#0F172A]">Tips & Resources</h3>
+              <ul className="mt-2 space-y-2 text-xs font-semibold text-slate-600">
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-[#2563EB]" /> Resume Tips
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-[#2563EB]" /> Interview Questions
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-[#2563EB]" /> Career Advice
+                </li>
+              </ul>
+            </div>
+          </aside>
+        </div>
+      </div>
+
+      <Modal
+        open={applyModal.open}
+        onClose={() => setApplyModal({ open: false, item: null })}
+        title="Confirm Application"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setApplyModal({ open: false, item: null })}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await studentApplyJob(applyModal.item?.id);
+                  setApplyModal({ open: false, item: null });
+                  setSuccessModal(true);
+                } catch (e) {
+                  setApplyModal({ open: false, item: null });
+                  setErr(e?.response?.data?.message || "Apply failed. Please try again.");
+                }
+              }}
+              className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Confirm Apply
+            </button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          We will use your saved profile and resume for{" "}
+          <span className="font-semibold text-[#0F172A]">{applyModal.item?.title}</span>.
+        </p>
+      </Modal>
+
+      <Modal
+        open={profileModal}
+        onClose={() => setProfileModal(false)}
+        title="Complete your profile to apply"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setProfileModal(false)}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              Close
+            </button>
+            <Link
+              to="/student/profile"
+              className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Complete Profile
+            </Link>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          Your profile completion is below 100%. Complete your profile before applying.
+          <span className="ml-2 font-semibold text-[#F97316]">{completion}%</span>
+        </p>
+      </Modal>
+
+      <Modal
+        open={successModal}
+        onClose={() => setSuccessModal(false)}
+        title="Application Submitted"
+        footer={
+          <button
+            type="button"
+            onClick={() => setSuccessModal(false)}
+            className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            Done
+          </button>
+        }
+      >
+        <div className="flex items-center gap-2 text-sm text-slate-700">
+          <FiCheckCircle className="text-green-600" />
+          Internship application submitted successfully.
+        </div>
+      </Modal>
+    </div>
+  );
+}
+

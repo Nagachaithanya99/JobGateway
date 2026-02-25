@@ -1,0 +1,16 @@
+export default function Badge({ tone = "default", children }) {
+  const toneCls =
+    tone === "orange"
+      ? "bg-brand-50 text-brand-700 border-brand-100"
+      : tone === "green"
+      ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+      : tone === "red"
+      ? "bg-rose-50 text-rose-700 border-rose-100"
+      : "bg-slate-50 text-slate-700 border-slate-100";
+
+  return (
+    <span className={`inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full border ${toneCls}`}>
+      {children}
+    </span>
+  );
+}
