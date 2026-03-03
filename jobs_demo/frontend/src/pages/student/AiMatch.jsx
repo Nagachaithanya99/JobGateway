@@ -6,7 +6,7 @@ import Modal from "../../components/common/Modal";
 const score = 78;
 const keywords = ["React", "Node.js", "REST APIs", "MongoDB", "AWS", "Docker"];
 
-export default function AiMatch() {
+export function AiMatch() {
   const [whyOpen, setWhyOpen] = useState(false);
   const [added, setAdded] = useState({});
   const [toast, setToast] = useState("");
@@ -22,7 +22,7 @@ export default function AiMatch() {
 
   return (
     <div className="bg-[#F8FAFC] pb-20 md:pb-8">
-      <div className="mx-auto max-w-[1200px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="w-full space-y-5 px-4 py-6 sm:px-6 lg:px-8">
         <section>
           <h1 className="text-3xl font-bold text-[#0F172A]">AI Match Results</h1>
           <p className="mt-1 text-sm text-slate-500">See how your resume matches this job and what to improve</p>
@@ -186,4 +186,7 @@ export default function AiMatch() {
     </div>
   );
 }
+
+export default AiMatch;
+
 

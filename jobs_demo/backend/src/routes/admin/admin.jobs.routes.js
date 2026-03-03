@@ -1,6 +1,7 @@
 // backend/src/routes/admin/admin.jobs.routes.js
 import { Router } from "express";
 import {
+  adminCreateJob,
   adminListJobs,
   adminGetJobById,
   adminUpdateJobStatus,
@@ -16,6 +17,7 @@ router.use(requireAdminClerk);
  * Base mounted in app.js: /api/admin
  */
 router.get("/jobs", adminListJobs);
+router.post("/jobs", adminCreateJob);
 router.get("/jobs/:id", adminGetJobById);
 router.patch("/jobs/:id/status", adminUpdateJobStatus);
 router.delete("/jobs/:id", adminDeleteJob);

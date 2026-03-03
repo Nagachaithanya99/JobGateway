@@ -6,8 +6,10 @@ import FilterBar from "../../components/admin/companies/FilterBar";
 import SummaryCard from "../../components/admin/companies/SummaryCard";
 import CompanyTable from "../../components/admin/companies/CompanyTable";
 import CompanyDetailsDrawer from "../../components/admin/companies/CompanyDetailsDrawer";
+import Modal from "../../components/common/Modal";
 
 import {
+  adminCreateCompany,
   adminGetCompanyDetails,
   adminListCompanies,
   adminToggleCompanyStatus,
@@ -29,30 +31,36 @@ export default function Companies() {
 
   const [error, setError] = useState("");
   const [busyId, setBusyId] = useState("");
+  const [addOpen, setAddOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    website: "",
+    category: "General",
+    location: "",
+    address: "",
+    status: "active",
+  });
+
+  const loadCompanies = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const rows = await adminListCompanies();
+      setList(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || "Failed to load companies.");
+      setList([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let mounted = true;
-
-    async function load() {
-      setLoading(true);
-      setError("");
-      try {
-        const rows = await adminListCompanies();
-        if (!mounted) return;
-        setList(Array.isArray(rows) ? rows : []);
-      } catch (e) {
-        if (!mounted) return;
-        setError(e?.response?.data?.message || e?.message || "Failed to load companies.");
-        setList([]);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    }
-
-    load();
-    return () => {
-      mounted = false;
-    };
+    loadCompanies();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const categories = useMemo(() => {
@@ -145,6 +153,43 @@ export default function Companies() {
     }
   };
 
+  const onAddCompany = async () => {
+    if (!form.name.trim() || !form.email.trim()) {
+      setError("Company name and email are required.");
+      return;
+    }
+    setAdding(true);
+    setError("");
+    try {
+      await adminCreateCompany({
+        name: form.name,
+        email: form.email,
+        phone: form.phone,
+        website: form.website,
+        category: form.category,
+        location: form.location,
+        address: form.address,
+        status: form.status,
+      });
+      setAddOpen(false);
+      setForm({
+        name: "",
+        email: "",
+        phone: "",
+        website: "",
+        category: "General",
+        location: "",
+        address: "",
+        status: "active",
+      });
+      await loadCompanies();
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || "Failed to add company.");
+    } finally {
+      setAdding(false);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <section>
@@ -168,7 +213,7 @@ export default function Companies() {
         onStatusChange={setStatus}
         onPlanTypeChange={setPlanType}
         onCategoryChange={setCategory}
-        onAddCompany={() => console.log("Add company")}
+        onAddCompany={() => setAddOpen(true)}
       />
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -198,6 +243,103 @@ export default function Companies() {
         onResetPlan={() => console.log("Reset plan", selectedCompany?.id)}
         onUpgradePlan={() => console.log("Upgrade plan", selectedCompany?.id)}
       />
+
+      <Modal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        title="Add Company"
+        widthClass="max-w-2xl"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setAddOpen(false)}
+              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={adding}
+              onClick={onAddCompany}
+              className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {adding ? "Saving..." : "Create Company"}
+            </button>
+          </>
+        }
+      >
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <label className="text-sm font-medium text-slate-700">
+            Company Name*
+            <input
+              value={form.name}
+              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+              className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Email*
+            <input
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+              className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Phone
+            <input
+              value={form.phone}
+              onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
+              className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Website
+            <input
+              value={form.website}
+              onChange={(e) => setForm((p) => ({ ...p, website: e.target.value }))}
+              className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Category
+            <input
+              value={form.category}
+              onChange={(e) => setForm((p) => ({ ...p, category: e.target.value }))}
+              className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Status
+            <select
+              value={form.status}
+              onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))}
+              className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3"
+            >
+              <option value="active">Active</option>
+              <option value="suspended">Suspended</option>
+            </select>
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Location
+            <input
+              value={form.location}
+              onChange={(e) => setForm((p) => ({ ...p, location: e.target.value }))}
+              className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3"
+            />
+          </label>
+          <label className="text-sm font-medium text-slate-700 md:col-span-2">
+            Address
+            <input
+              value={form.address}
+              onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))}
+              className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3"
+            />
+          </label>
+        </div>
+      </Modal>
     </div>
   );
 }

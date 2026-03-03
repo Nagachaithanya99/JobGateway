@@ -126,6 +126,7 @@ function normalizeJob(j) {
       j.applications ??
       0,
     aiEnabled: Boolean(j.enableAiRanking),
+    experienceText: String(j.experience || "").trim(),
     weights: {
       skills: Number(j.skillsWeight ?? 35),
       experience: Number(j.experienceWeight ?? 25),
@@ -133,6 +134,7 @@ function normalizeJob(j) {
       screening: Number(j.screeningWeight ?? 25),
       top10: Boolean(j.autoHighlightTop10 ?? true),
       autoTag: Boolean(j.autoTagMatch ?? true),
+      aiExperienceBand: String(j.aiExperienceBand || "Auto"),
     },
   };
 }
@@ -189,6 +191,7 @@ export default function AICandidateScoring() {
     screening: 15,
     top10: true,
     autoTag: true,
+    aiExperienceBand: "Auto",
   });
 
   const showToast = (message) => {
@@ -237,6 +240,9 @@ export default function AICandidateScoring() {
           experience: Number(w.experience ?? prev.experience),
           education: Number(w.education ?? prev.education),
           screening: Number(w.screening ?? prev.screening),
+          aiExperienceBand: String(
+            w.aiExperienceBand ?? res?.job?.aiExperienceBand ?? prev.aiExperienceBand
+          ),
         }));
       }
     } catch (e) {
@@ -305,6 +311,7 @@ export default function AICandidateScoring() {
         screening: weights.screening,
         top10: weights.top10,
         autoTag: weights.autoTag,
+        aiExperienceBand: weights.aiExperienceBand || "Auto",
       });
       showToast("AI settings saved");
       // refresh jobs list local state
@@ -365,6 +372,13 @@ export default function AICandidateScoring() {
       showToast("Failed to rerun AI");
     }
   };
+
+  const selectedExperiencePoint = useMemo(() => {
+    if (weights.aiExperienceBand && weights.aiExperienceBand !== "Auto") {
+      return weights.aiExperienceBand;
+    }
+    return selectedJob?.experienceText || "Not set";
+  }, [weights.aiExperienceBand, selectedJob]);
 
   const exportCSV = () => {
     const rows = [
@@ -788,7 +802,9 @@ export default function AICandidateScoring() {
                       {item.label}
                     </span>
                     <span className="font-semibold text-[#0F172A]">
-                      {weights[item.key]}%
+                      {item.key === "experience"
+                        ? `${weights[item.key]}% • ${selectedExperiencePoint}`
+                        : `${weights[item.key]}%`}
                     </span>
                   </div>
                   <input
@@ -806,6 +822,35 @@ export default function AICandidateScoring() {
                   />
                 </div>
               ))}
+
+              <div>
+                <p className="mb-1 text-xs font-semibold text-slate-600">
+                  Experience Selection Point (Yearly)
+                </p>
+                <select
+                  value={weights.aiExperienceBand}
+                  onChange={(e) =>
+                    setWeights((prev) => ({
+                      ...prev,
+                      aiExperienceBand: e.target.value,
+                    }))
+                  }
+                  className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300"
+                >
+                  <option value="Auto">Auto (Use Job Experience)</option>
+                  <option value="Fresher">Fresher</option>
+                  <option value="1 Year">1 Year</option>
+                  <option value="2 Years">2 Years</option>
+                  <option value="3 Years">3 Years</option>
+                  <option value="4 Years">4 Years</option>
+                  <option value="5 Years">5 Years</option>
+                  <option value="6 Years">6 Years</option>
+                  <option value="7 Years">7 Years</option>
+                  <option value="8 Years">8 Years</option>
+                  <option value="9 Years">9 Years</option>
+                  <option value="10+ Years">10+ Years</option>
+                </select>
+              </div>
 
               <label className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2">
                 <span className="text-xs font-semibold text-slate-700">

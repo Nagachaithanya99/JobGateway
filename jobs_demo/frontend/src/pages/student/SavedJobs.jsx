@@ -92,7 +92,7 @@ export default function SavedJobs() {
 
   return (
     <div className="bg-[#F8FAFC]">
-      <div className="mx-auto max-w-[1200px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="w-full space-y-5 px-4 py-6 sm:px-6 lg:px-8">
         <section>
           <h1 className="text-3xl font-bold text-[#0F172A]">
             Saved Jobs
@@ -251,3 +251,4 @@ export default function SavedJobs() {
     </div>
   );
 }
+

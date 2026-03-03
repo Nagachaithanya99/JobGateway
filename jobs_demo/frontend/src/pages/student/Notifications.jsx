@@ -239,6 +239,21 @@ export default function Notifications() {
     }
   };
 
+  const markAsRead = async (id) => {
+    try {
+      const target = items.find((x) => x.id === id);
+      if (!target || target.status !== "Unread") return;
+
+      await studentToggleNotificationRead(id);
+      setItems((prev) =>
+        prev.map((x) => (x.id === id ? { ...x, status: "Read" } : x))
+      );
+      setApiUnread((n) => Math.max(0, n - 1));
+    } catch (e) {
+      setErr(e?.response?.data?.message || e?.message || "Failed to update notification");
+    }
+  };
+
   const savePrefs = async () => {
     try {
       await studentSaveNotificationPrefs(prefs);
@@ -293,7 +308,10 @@ export default function Notifications() {
       return (
         <button
           type="button"
-          onClick={() => onAction(item, action)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAction(item, action);
+          }}
           className="rounded-md border border-blue-200 px-2.5 py-1 text-xs font-semibold text-[#2563EB] hover:bg-blue-50"
         >
           Reply
@@ -304,7 +322,10 @@ export default function Notifications() {
       return (
         <button
           type="button"
-          onClick={() => onAction(item, action)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAction(item, action);
+          }}
           className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
         >
           <FiBookmark />
@@ -315,7 +336,10 @@ export default function Notifications() {
     return (
       <button
         type="button"
-        onClick={() => onAction(item, action)}
+        onClick={(e) => {
+          e.stopPropagation();
+          onAction(item, action);
+        }}
         className="rounded-md px-1 py-1 text-xs font-semibold text-[#2563EB] hover:underline"
       >
         {action}
@@ -331,6 +355,7 @@ export default function Notifications() {
         {data.map((item) => (
           <article
             key={item.id}
+            onClick={() => markAsRead(item.id)}
             className={`rounded-2xl border p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${
               item.status === "Unread"
                 ? "border-blue-200 bg-blue-50/50"
@@ -368,7 +393,10 @@ export default function Notifications() {
                 ) : null}
                 <button
                   type="button"
-                  onClick={() => toggleRead(item.id)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleRead(item.id);
+                  }}
                   className="rounded-md p-1 text-slate-500 hover:bg-slate-100"
                   title={item.status === "Unread" ? "Mark as read" : "Mark as unread"}
                 >
@@ -384,7 +412,7 @@ export default function Notifications() {
 
   return (
     <div className="bg-[#F8FAFC] pb-20 md:pb-8">
-      <div className="mx-auto max-w-[1200px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="w-full space-y-5 px-4 py-6 sm:px-6 lg:px-8">
         <section className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-3xl font-bold text-[#0F172A]">Notifications</h1>
@@ -689,3 +717,4 @@ export default function Notifications() {
     </div>
   );
 }
+

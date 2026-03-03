@@ -230,7 +230,7 @@ export default function StudentSettings() {
   if (loading) {
     return (
       <div className="bg-[#F8FAFC]">
-        <div className="mx-auto max-w-[1200px] px-4 py-10 sm:px-6 lg:px-8">
+        <div className="w-full px-4 py-10 sm:px-6 lg:px-8">
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <p className="text-sm text-slate-600">Loading settings...</p>
           </div>
@@ -241,7 +241,7 @@ export default function StudentSettings() {
 
   return (
     <div className="bg-[#F8FAFC] pb-24 md:pb-8">
-      <div className="mx-auto max-w-[1200px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="w-full space-y-5 px-4 py-6 sm:px-6 lg:px-8">
         <section>
           <p className="text-xs font-semibold text-slate-500">
             <Link to="/student" className="hover:text-[#2563EB]">
@@ -675,7 +675,7 @@ export default function StudentSettings() {
 
       {dirty ? (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur">
-          <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-center justify-between gap-2 px-1">
+          <div className="w-full flex flex-wrap items-center justify-between gap-2 px-1">
             <p className="text-sm font-semibold text-slate-700">You have unsaved changes</p>
             <div className="flex gap-2">
               <button
@@ -741,3 +741,4 @@ export default function StudentSettings() {
     </div>
   );
 }
+

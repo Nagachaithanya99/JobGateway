@@ -3,6 +3,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import User from "../models/User.js";
+import { uploadBufferToCloudinary } from "../utils/cloudinaryUpload.js";
 
 // ---------- helpers ----------
 function safeObj(x) {
@@ -132,6 +133,64 @@ export const uploadResume = async (req, res, next) => {
       resumeUrl: updated.resumeUrl,
       resumeMeta: updated.studentProfile?.resumeMeta || resumeMeta,
       profileCompletion,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const uploadMessageAttachment = async (req, res, next) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ message: "File is required" });
+
+    const result = await uploadBufferToCloudinary(file.buffer, {
+      folder: "jobgateway/messages",
+      resource_type: "auto",
+      use_filename: true,
+      unique_filename: true,
+      overwrite: false,
+    });
+
+    return res.json({
+      ok: true,
+      fileUrl: result?.secure_url || "",
+      fileName: file.originalname || result?.original_filename || "attachment",
+      fileSize: `${Math.max(1, Math.round((file.size || result?.bytes || 0) / 1024))} KB`,
+      mimeType: file.mimetype || "",
+      publicId: result?.public_id || "",
+      resourceType: result?.resource_type || "",
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const uploadContentImage = async (req, res, next) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ message: "Image file is required" });
+
+    if (!String(file.mimetype || "").startsWith("image/")) {
+      return res.status(400).json({ message: "Only image files are allowed" });
+    }
+
+    const result = await uploadBufferToCloudinary(file.buffer, {
+      folder: "jobgateway/content",
+      resource_type: "image",
+      use_filename: true,
+      unique_filename: true,
+      overwrite: false,
+    });
+
+    return res.json({
+      ok: true,
+      imageUrl: result?.secure_url || "",
+      fileName: file.originalname || result?.original_filename || "image",
+      publicId: result?.public_id || "",
+      mimeType: file.mimetype || "",
+      width: Number(result?.width || 0),
+      height: Number(result?.height || 0),
     });
   } catch (err) {
     next(err);

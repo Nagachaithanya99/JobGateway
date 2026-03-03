@@ -207,7 +207,7 @@ export default function MyJobs() {
         <div className="absolute inset-0 opacity-[0.18] [background-image:radial-gradient(rgba(15,23,42,0.18)_1px,transparent_1px)] [background-size:18px_18px]" />
       </div>
 
-      <div className="mx-auto max-w-[1100px] px-4 py-6 sm:px-6 lg:px-8">
+      <div className="w-full px-4 py-6 sm:px-6 lg:px-8">
         <div className="text-xs text-slate-500">
           <Link className="hover:text-slate-700" to="/student">
             Home
@@ -547,3 +547,4 @@ export default function MyJobs() {
     </div>
   );
 }
+

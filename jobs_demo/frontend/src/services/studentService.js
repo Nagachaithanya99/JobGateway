@@ -120,3 +120,6 @@ export const studentGetNotificationPrefs = async () =>
 
 export const studentSaveNotificationPrefs = async (payload = {}) =>
   api.put("/student/notifications/preferences", payload);
+
+export const studentListInterviews = async (params = {}) =>
+  api.get("/student/interviews", { params });

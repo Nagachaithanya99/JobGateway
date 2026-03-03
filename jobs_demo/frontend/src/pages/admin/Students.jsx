@@ -3,7 +3,9 @@ import {
   FiCheckCircle,
   FiClock,
   FiDownload,
+  FiFilter,
   FiMail,
+  FiSearch,
   FiTrash2,
   FiUser,
   FiUserCheck,
@@ -12,6 +14,7 @@ import {
 } from "react-icons/fi";
 
 import StudentsTable from "../../components/admin/students/StudentsTable";
+import { getJobTaxonomy } from "../../data/jobTaxonomy";
 import {
   adminDeleteStudent,
   adminGetStudent,
@@ -91,36 +94,50 @@ export default function Students() {
   const [drawerLoading, setDrawerLoading] = useState(false);
   const [drawerTab, setDrawerTab] = useState("overview");
   const [selectedStudent, setSelectedStudent] = useState(null);
+  const taxonomyStreams = useMemo(() => Object.keys(getJobTaxonomy() || {}), []);
+  const knownStreams = useMemo(() => new Set(taxonomyStreams.map((x) => String(x).trim())), [taxonomyStreams]);
 
   useEffect(() => {
     let mounted = true;
-
-    async function load() {
+    const timer = setTimeout(async () => {
       try {
         setLoading(true);
         setError("");
-        const res = await adminListStudents({ limit: 100 });
+        const params = {
+          status: filters.status,
+          stream: filters.stream === "other" ? "all" : filters.stream,
+          location: filters.location,
+          limit: 100,
+        };
+        const res = await adminListStudents(params, { withMeta: true });
         if (!mounted) return;
-        setList(normalizeStudents(Array.isArray(res) ? res : []));
+        let rows = normalizeStudents(Array.isArray(res?.rows) ? res.rows : []);
+        if (filters.stream === "other") {
+          rows = rows.filter((x) => !knownStreams.has(String(x?.preferred?.stream || "").trim()));
+        }
+        setList(rows);
       } catch (e) {
         if (!mounted) return;
         setError(e?.response?.data?.message || e?.message || "Failed to load students.");
       } finally {
         if (mounted) setLoading(false);
       }
-    }
+    }, 250);
 
-    load();
     return () => {
       mounted = false;
+      clearTimeout(timer);
     };
-  }, []);
+  }, [filters.status, filters.stream, filters.location, knownStreams]);
 
   const options = useMemo(() => {
-    const streams = Array.from(new Set(list.map((x) => x.preferred?.stream).filter(Boolean))).sort();
+    const dataStreams = list.map((x) => String(x.preferred?.stream || "").trim()).filter(Boolean);
+    const streams = Array.from(new Set([...taxonomyStreams, ...dataStreams, "Other"])).sort((a, b) =>
+      a === "Other" ? 1 : b === "Other" ? -1 : a.localeCompare(b),
+    );
     const locations = Array.from(new Set(list.map((x) => x.location).filter(Boolean))).sort();
     return { streams, locations };
-  }, [list]);
+  }, [list, taxonomyStreams]);
 
   const filtered = useMemo(() => {
     const q = filters.q.trim().toLowerCase();
@@ -131,7 +148,10 @@ export default function Students() {
       const matchStatus = filters.status === "all" || String(row.status).toLowerCase() === filters.status;
       const matchCompletion =
         filters.completion === "all" || completionBucket(row.completion) === filters.completion;
-      const matchStream = filters.stream === "all" || row.preferred?.stream === filters.stream;
+      const streamValue = String(row.preferred?.stream || "").trim();
+      const matchStream =
+        filters.stream === "all" ||
+        (filters.stream === "other" ? !knownStreams.has(streamValue) : streamValue === filters.stream);
       const matchExperience =
         filters.experience === "all" || experienceLevel(row.experience) === filters.experience;
       const matchLocation = filters.location === "all" || row.location === filters.location;
@@ -147,7 +167,7 @@ export default function Students() {
         matchRegistration
       );
     });
-  }, [list, filters]);
+  }, [list, filters, knownStreams]);
 
   const stats = useMemo(() => {
     const total = list.length;
@@ -158,7 +178,15 @@ export default function Students() {
   }, [list]);
 
   const onFilterChange = (key, value) => {
-    setFilters((prev) => ({ ...prev, [key]: value }));
+    setFilters((prev) => {
+      if (key === "stream") {
+        return {
+          ...prev,
+          stream: String(value || "all").toLowerCase() === "other" ? "other" : value,
+        };
+      }
+      return { ...prev, [key]: value };
+    });
   };
 
   const onReset = () => {
@@ -308,15 +336,8 @@ export default function Students() {
       ) : null}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="grid w-full grid-cols-1 gap-3 lg:grid-cols-3 xl:grid-cols-6">
-            <input
-              value={filters.q}
-              onChange={(e) => onFilterChange("q", e.target.value)}
-              placeholder="Search by student name, email, skill..."
-              className="h-11 rounded-xl border border-slate-200 bg-slate-50 px-4 text-sm outline-none transition focus:border-blue-300 focus:bg-white"
-            />
-
+        <div className="space-y-3">
+          <div className="grid w-full grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
             <select value={filters.status} onChange={(e) => onFilterChange("status", e.target.value)} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-300">
               <option value="all">Account Status: All</option>
               <option value="active">Active</option>
@@ -333,7 +354,7 @@ export default function Students() {
             <select value={filters.stream} onChange={(e) => onFilterChange("stream", e.target.value)} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-300">
               <option value="all">Main Stream: All</option>
               {options.streams.map((opt) => (
-                <option key={opt} value={opt}>{opt}</option>
+                <option key={opt} value={String(opt).toLowerCase() === "other" ? "other" : opt}>{opt}</option>
               ))}
             </select>
 
@@ -344,24 +365,21 @@ export default function Students() {
               <option value="senior">Senior</option>
             </select>
 
-            <div className="grid grid-cols-2 gap-3">
-              <select value={filters.location} onChange={(e) => onFilterChange("location", e.target.value)} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-300">
-                <option value="all">Location</option>
-                {options.locations.map((opt) => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
-
-              <select value={filters.registration} onChange={(e) => onFilterChange("registration", e.target.value)} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-300">
-                <option value="all">Registration Date</option>
-                <option value="last7">Last 7 days</option>
-                <option value="last30">Last 30 days</option>
-                <option value="last90">Last 90 days</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2 xl:justify-end">
+            <select value={filters.location} onChange={(e) => onFilterChange("location", e.target.value)} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-300">
+              <option value="all">Location</option>
+              {options.locations.map((opt) => (
+                <option key={opt} value={opt}>{opt}</option>
+              ))}
+            </select>
+            <select value={filters.registration} onChange={(e) => onFilterChange("registration", e.target.value)} className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-blue-300">
+              <option value="all">Registration Date</option>
+              <option value="last7">Last 7 days</option>
+              <option value="last30">Last 30 days</option>
+              <option value="last90">Last 90 days</option>
+            </select>
+            <button type="button" className="inline-flex h-11 items-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 text-sm font-semibold text-[#F97316]">
+              <FiFilter /> Smart Filter
+            </button>
             <button type="button" onClick={onExport} className="h-11 rounded-xl border border-blue-200 bg-white px-3 text-sm font-semibold text-[#2563EB] hover:bg-blue-50">
               <span className="inline-flex items-center gap-2"><FiDownload /> Export CSV</span>
             </button>
@@ -371,6 +389,16 @@ export default function Students() {
             <button type="button" onClick={onReset} className="h-11 rounded-xl border border-slate-200 px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50">
               Reset
             </button>
+          </div>
+
+          <div className="relative">
+            <FiSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={filters.q}
+              onChange={(e) => onFilterChange("q", e.target.value)}
+              placeholder="Search by student name, email, skill..."
+              className="h-12 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm outline-none transition focus:border-blue-300"
+            />
           </div>
         </div>
       </section>

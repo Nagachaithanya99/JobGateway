@@ -14,6 +14,7 @@ const messages = {
     "nav.internships": "Internships",
     "nav.governmentJobs": "Government Jobs",
     "nav.myJobs": "My Jobs",
+    "nav.interviews": "Interviews",
     "nav.saved": "Saved",
     "nav.resumeBuilder": "Resume Builder",
     "nav.messages": "Messages",
@@ -201,4 +202,3 @@ export function useI18n() {
     t: (key, fallback = "") => fallback || key,
   };
 }
-

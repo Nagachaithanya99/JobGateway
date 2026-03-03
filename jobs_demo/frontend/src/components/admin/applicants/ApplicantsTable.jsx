@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { FiCheck, FiDownload, FiEye, FiPauseCircle, FiTrash2, FiXCircle } from "react-icons/fi";
+import { FiDownload, FiEye, FiTrash2 } from "react-icons/fi";
 
 function statusClass(status) {
   const s = String(status || "").toLowerCase();
@@ -53,7 +53,6 @@ export default function ApplicantsTable({
   onToggleSelect,
   onToggleSelectAll,
   onView,
-  onStatusChange,
   onDelete,
   onDownloadResume,
 }) {
@@ -149,9 +148,6 @@ export default function ApplicantsTable({
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-1.5">
                       <ActionButton title="View Profile" tone="blue" onClick={() => onView(row)} icon={<FiEye />} />
-                      <ActionButton title="Shortlist" tone="green" onClick={() => onStatusChange(row, "shortlisted")} icon={<FiCheck />} />
-                      <ActionButton title="Put on Hold" tone="orange" onClick={() => onStatusChange(row, "hold")} icon={<FiPauseCircle />} />
-                      <ActionButton title="Reject" tone="red" onClick={() => onStatusChange(row, "rejected")} icon={<FiXCircle />} />
                       <ActionButton title="Delete" tone="redOutline" onClick={() => onDelete(row)} icon={<FiTrash2 />} />
                     </div>
                   </td>

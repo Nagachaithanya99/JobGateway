@@ -154,6 +154,8 @@ export const listStudentMessages = async (req, res, next) => {
       text: m.text || "",
       fileName: m.fileName || "",
       fileSize: m.fileSize || "",
+      fileUrl: m.fileUrl || "",
+      mimeType: m.mimeType || "",
       time: new Date(m.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     }));
 
@@ -193,7 +195,14 @@ export const sendStudentMessage = async (req, res, next) => {
     const thread = await MessageThread.findOne({ _id: id, student: studentId }).lean();
     if (!thread) return res.status(404).json({ message: "Conversation not found" });
 
-    const { text, type = "text", fileName = "", fileSize = "" } = req.body || {};
+    const {
+      text,
+      type = "text",
+      fileName = "",
+      fileSize = "",
+      fileUrl = "",
+      mimeType = "",
+    } = req.body || {};
 
     if (type === "text") {
       if (!safeStr(text).trim()) return res.status(400).json({ message: "Message text required" });
@@ -206,6 +215,8 @@ export const sendStudentMessage = async (req, res, next) => {
       text: safeStr(text),
       fileName: safeStr(fileName),
       fileSize: safeStr(fileSize),
+      fileUrl: safeStr(fileUrl),
+      mimeType: safeStr(mimeType),
     });
 
     // update thread last message and increment company unread
@@ -230,6 +241,8 @@ export const sendStudentMessage = async (req, res, next) => {
       text: msg.text || "",
       fileName: msg.fileName || "",
       fileSize: msg.fileSize || "",
+      fileUrl: msg.fileUrl || "",
+      mimeType: msg.mimeType || "",
       time: new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     });
   } catch (err) {

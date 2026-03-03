@@ -1,7 +1,7 @@
 import { Router } from "express";
 import multer from "multer";
 import syncUser from "../middleware/syncUser.js";
-import { uploadResume } from "../controllers/upload.controller.js";
+import { uploadContentImage, uploadMessageAttachment, uploadResume } from "../controllers/upload.controller.js";
 
 const router = Router();
 
@@ -28,6 +28,46 @@ router.post(
     });
   },
   uploadResume
+);
+
+router.post(
+  "/message-attachment",
+  syncUser("company"),
+  (req, res, next) => {
+    upload.single("file")(req, res, (err) => {
+      if (!err) return next();
+
+      if (err instanceof multer.MulterError) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(400).json({ message: "File size must be 5MB or less" });
+        }
+        return res.status(400).json({ message: err.message || "Invalid file upload" });
+      }
+
+      return next(err);
+    });
+  },
+  uploadMessageAttachment
+);
+
+router.post(
+  "/content-image",
+  syncUser("admin"),
+  (req, res, next) => {
+    upload.single("file")(req, res, (err) => {
+      if (!err) return next();
+
+      if (err instanceof multer.MulterError) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(400).json({ message: "File size must be 5MB or less" });
+        }
+        return res.status(400).json({ message: err.message || "Invalid file upload" });
+      }
+
+      return next(err);
+    });
+  },
+  uploadContentImage
 );
 
 export default router;

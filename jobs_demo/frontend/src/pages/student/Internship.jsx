@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   FiBookmark,
   FiCheckCircle,
@@ -112,8 +112,21 @@ function isNew(createdAt) {
 }
 
 export default function Internship() {
-  const { user } = useAuth();
+  const { user, isAuthed, role } = useAuth();
   const navigate = useNavigate();
+  const routeLocation = useLocation();
+  const isStudentView = routeLocation.pathname.startsWith("/student");
+  const withBase = (path) => `${isStudentView ? "/student" : ""}${path}`;
+  const redirectToLogin = () => {
+    const redirect = isStudentView
+      ? `${routeLocation.pathname}${routeLocation.search || ""}`
+      : `/student${routeLocation.pathname === "/" ? "" : routeLocation.pathname}${routeLocation.search || ""}`;
+    if (isStudentView) {
+      navigate("/student/login");
+      return;
+    }
+    navigate(`/login?role=student&redirect=${encodeURIComponent(redirect)}`);
+  };
   const completion = Number(user?.profileCompletion ?? 0);
 
   const [q, setQ] = useState("");
@@ -217,6 +230,10 @@ export default function Internship() {
   }, []);
 
   const onApply = (item) => {
+    if (!isAuthed || role !== "student") {
+      redirectToLogin();
+      return;
+    }
     if (completion < 100) {
       setProfileModal(true);
       return;
@@ -247,10 +264,10 @@ export default function Internship() {
         <div className="absolute inset-0 opacity-[0.35] [background-image:radial-gradient(rgba(15,23,42,0.08)_1px,transparent_1px)] [background-size:18px_18px]" />
       </div>
 
-      <div className="mx-auto max-w-[1200px] px-4 py-6 sm:px-6 lg:px-8">
+      <div className="w-full px-4 py-6 sm:px-6 lg:px-8">
         <div className="mb-4">
           <p className="text-xs text-slate-500">
-            <Link to="/student" className="hover:text-[#2563EB]">
+            <Link to={withBase("/")} className="hover:text-[#2563EB]">
               Home
             </Link>{" "}
             <span className="px-1.5">/</span>
@@ -491,7 +508,7 @@ export default function Internship() {
                         </div>
 
                         <Link
-                          to={`/student/internship/${it.id}`}
+                          to={withBase(`/internship/${it.id}`)}
                           className="mt-2 block truncate text-base font-extrabold text-[#0F172A] hover:text-[#2563EB]"
                         >
                           {it.title || "Internship"}
@@ -525,7 +542,7 @@ export default function Internship() {
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => navigate(`/student/internship/${it.id}`)}
+                      onClick={() => navigate(withBase(`/internship/${it.id}`))}
                       className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-extrabold text-slate-700 hover:bg-slate-50"
                     >
                       <FiExternalLink /> View Details
@@ -658,6 +675,12 @@ export default function Internship() {
                   setApplyModal({ open: false, item: null });
                   setSuccessModal(true);
                 } catch (e) {
+                  const status = Number(e?.response?.status || 0);
+                  if (status === 401 || status === 403) {
+                    setApplyModal({ open: false, item: null });
+                    redirectToLogin();
+                    return;
+                  }
                   setApplyModal({ open: false, item: null });
                   setErr(e?.response?.data?.message || "Apply failed. Please try again.");
                 }
@@ -725,4 +748,5 @@ export default function Internship() {
     </div>
   );
 }
+
 

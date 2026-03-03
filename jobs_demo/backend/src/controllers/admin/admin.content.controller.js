@@ -3,20 +3,34 @@ import ContentItem from "../../models/ContentItem.js";
 import GovernmentUpdate from "../../models/GovernmentUpdate.js";
 
 const SECTION_TO_TYPE = {
+  homeSlides: "HOME_AD",
+  publicPages: "PUBLIC_PAGE",
+  blogs: "BLOG",
+  announcements: "ANNOUNCEMENT",
+  featuredCompanies: "FEATURED_COMPANY",
+
+  // legacy compatibility
   banners: "HOME_AD",
   testimonials: "TESTIMONIAL",
   placed: "PLACED_STUDENT",
   internship: "INTERNSHIP_TIP",
   interviewQuestions: "INTERNSHIP_QA",
   mockTests: "MOCK_TEST",
-  featuredCompanies: "FEATURED_COMPANY",
-  announcements: "ANNOUNCEMENT",
 };
 
-const TYPE_TO_SECTION = Object.entries(SECTION_TO_TYPE).reduce((acc, [section, type]) => {
-  acc[type] = section;
-  return acc;
-}, {});
+const TYPE_TO_SECTION = {
+  HOME_AD: "homeSlides",
+  PUBLIC_PAGE: "publicPages",
+  BLOG: "blogs",
+  ANNOUNCEMENT: "announcements",
+  FEATURED_COMPANY: "featuredCompanies",
+  TESTIMONIAL: "testimonials",
+  PLACED_STUDENT: "placed",
+  INTERNSHIP_TIP: "internship",
+  INTERNSHIP_QA: "interviewQuestions",
+  MOCK_TEST: "mockTests",
+  CATEGORY: "legacyCategories",
+};
 
 const ALL_TYPES = Object.values(SECTION_TO_TYPE);
 
@@ -72,6 +86,9 @@ function normalizeItem(doc) {
     salary: data.salary || "",
     category: data.category || "",
     author: data.author || "",
+    pageSlug: String(data.pageSlug || ""),
+    blockKey: String(data.blockKey || ""),
+    buttonText: String(data.buttonText || ""),
     views: Number(data.views || 0),
     showOnHomepage: data.showOnHomepage !== false,
     image: doc.imageUrl || "",
@@ -91,14 +108,19 @@ function normalizeItem(doc) {
 
 function defaultSections() {
   return {
+    homeSlides: [],
+    publicPages: [],
+    blogs: [],
+    announcements: [],
+    featuredCompanies: [],
+
+    // legacy
     banners: [],
     testimonials: [],
     placed: [],
     internship: [],
     interviewQuestions: [],
     mockTests: [],
-    featuredCompanies: [],
-    announcements: [],
   };
 }
 
@@ -129,7 +151,7 @@ function buildPayload(section, body = {}) {
     linkUrl: String(body.url || body.linkUrl || "").trim(),
     startAt: parseDate(body.startDate || body.publishDate),
     endAt: parseDate(body.endDate),
-    placement: ["banners", "featuredCompanies"].includes(section)
+    placement: ["homeSlides", "banners", "featuredCompanies"].includes(section)
       ? "HOME"
       : ["internship", "interviewQuestions", "mockTests"].includes(section)
       ? "INTERNSHIP"
@@ -145,6 +167,9 @@ function buildPayload(section, body = {}) {
       salary: String(body.salary || "").trim(),
       category: String(body.category || "").trim(),
       author: String(body.author || "").trim(),
+      pageSlug: String(body.pageSlug || "").trim().toLowerCase(),
+      blockKey: String(body.blockKey || "").trim().toLowerCase(),
+      buttonText: String(body.buttonText || "").trim(),
       views: Number(body.views || 0),
       showOnHomepage: body.showOnHomepage !== false,
       priorityLabel: String(body.priority || "medium").toLowerCase(),
@@ -171,7 +196,15 @@ export async function adminGetContent(req, res, next) {
 
     return res.json({
       ...sections,
-      ads: sections.banners,
+      homeSlides: sections.homeSlides,
+      publicPages: sections.publicPages,
+      blogs: sections.blogs,
+      announcements: sections.announcements,
+      featuredCompanies: sections.featuredCompanies,
+
+      // legacy aliases
+      banners: sections.homeSlides,
+      ads: sections.homeSlides,
       testimonials: sections.testimonials,
       placed: sections.placed,
       internship: {

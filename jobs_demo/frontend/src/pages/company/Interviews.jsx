@@ -76,8 +76,14 @@ export default function Interviews() {
     duration: "30 mins",
     mode: "Online",
     link: "",
+    linksText: "",
     location: "",
     message: "",
+    questionsText: "",
+    documentsText: "",
+    verificationDetails: "",
+    additionalDetails: "",
+    verificationStatus: "Pending",
     emailReminder: true,
     smsReminder: false,
     auto24h: true,
@@ -194,6 +200,14 @@ export default function Interviews() {
     });
   }, [rows, filters]);
 
+  const updateFiltersNow = (key, value) => {
+    setFilters((prev) => {
+      const next = { ...prev, [key]: value };
+      load(next);
+      return next;
+    });
+  };
+
   const setStatus = async (id, status) => {
     try {
       const { interview } = await updateCompanyInterviewStatus(id, status);
@@ -230,8 +244,14 @@ export default function Interviews() {
       duration: "30 mins",
       mode: "Online",
       link: "",
+      linksText: "",
       location: "",
       message: "",
+      questionsText: "",
+      documentsText: "",
+      verificationDetails: "",
+      additionalDetails: "",
+      verificationStatus: "Pending",
       emailReminder: true,
       smsReminder: false,
       auto24h: true,
@@ -255,8 +275,14 @@ export default function Interviews() {
         durationMins,
         mode: schedule.mode,
         meetingLink: schedule.mode === "Online" ? schedule.link : "",
+        interviewLinks: schedule.mode === "Online" ? schedule.linksText : "",
         location: schedule.mode === "Onsite" ? schedule.location : "",
         messageToCandidate: schedule.message || "",
+        interviewQuestions: schedule.questionsText || "",
+        documentsRequired: schedule.documentsText || "",
+        verificationDetails: schedule.verificationDetails || "",
+        additionalDetails: schedule.additionalDetails || "",
+        verificationStatus: schedule.verificationStatus || "Pending",
         status: schedule.editId ? "Rescheduled" : "Scheduled",
       };
 
@@ -361,7 +387,7 @@ export default function Interviews() {
 
       <Card title="Filters">
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-6">
-          <select value={filters.jobId} onChange={(e) => setFilters((p) => ({ ...p, jobId: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm">
+          <select value={filters.jobId} onChange={(e) => updateFiltersNow("jobId", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm">
             <option value="">Job Position</option>
             {jobOptions.map((j) => (
               <option key={j.id} value={j.id}>
@@ -369,11 +395,17 @@ export default function Interviews() {
               </option>
             ))}
           </select>
-          <select value={filters.stage} onChange={(e) => setFilters((p) => ({ ...p, stage: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm"><option value="">Interview Stage</option><option>HR</option><option>Technical</option><option>Final</option></select>
-          <select value={filters.mode} onChange={(e) => setFilters((p) => ({ ...p, mode: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm"><option value="">Mode</option><option>Online</option><option>Onsite</option></select>
-          <input type="date" value={filters.from} onChange={(e) => setFilters((p) => ({ ...p, from: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm" />
-          <input type="date" value={filters.to} onChange={(e) => setFilters((p) => ({ ...p, to: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm" />
-          <select value={filters.status} onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm"><option value="">Status</option><option>Scheduled</option><option>Completed</option><option>Cancelled</option><option>Rescheduled</option><option>Pending Confirmation</option></select>
+          <select value={filters.stage} onChange={(e) => updateFiltersNow("stage", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm"><option value="">Interview Stage</option><option>HR</option><option>Technical</option><option>Final</option></select>
+          <select value={filters.mode} onChange={(e) => updateFiltersNow("mode", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm"><option value="">Mode</option><option>Online</option><option>Onsite</option></select>
+          <div>
+            <p className="mb-1 text-xs font-semibold text-slate-600">Applied Date</p>
+            <input type="date" value={filters.from} onChange={(e) => updateFiltersNow("from", e.target.value)} className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm" />
+          </div>
+          <div>
+            <p className="mb-1 text-xs font-semibold text-slate-600">Interview Date</p>
+            <input type="date" value={filters.to} onChange={(e) => updateFiltersNow("to", e.target.value)} className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm" />
+          </div>
+          <select value={filters.status} onChange={(e) => updateFiltersNow("status", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm"><option value="">Status</option><option>Scheduled</option><option>Completed</option><option>Cancelled</option><option>Rescheduled</option><option>Pending Confirmation</option></select>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <button onClick={() => load()} className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white">Apply Filter</button>
@@ -413,7 +445,7 @@ export default function Interviews() {
                       <div className="flex items-center gap-1">
                         <button onClick={() => setDetails({ open: true, item: x, newNote: "" })} className="rounded-md border border-blue-200 p-1.5 text-[#2563EB]"><FiEye /></button>
                         {x.mode === "Online" ? <button onClick={() => (x.meetingLink ? window.open(x.meetingLink, "_blank", "noopener,noreferrer") : ping("No meeting link"))} className="rounded-md border border-blue-200 p-1.5 text-[#2563EB]"><FiMessageCircle /></button> : null}
-                        <button onClick={() => setSchedule({ ...schedule, open: true, editId: x.id, applicationId: x.applicationId || "", candidate: x.candidate, job: x.job, stage: x.stage, date: x.date, time: "", duration: x.duration || "30 mins", mode: x.mode, link: x.meetingLink || "", location: x.location || "" })} className="rounded-md border border-orange-200 p-1.5 text-[#F97316]"><FiEdit2 /></button>
+                        <button onClick={() => setSchedule({ ...schedule, open: true, editId: x.id, applicationId: x.applicationId || "", candidate: x.candidate, job: x.job, stage: x.stage, date: x.date, time: "", duration: x.duration || "30 mins", mode: x.mode, link: x.meetingLink || "", linksText: Array.isArray(x.interviewLinks) ? x.interviewLinks.join("\n") : "", location: x.location || "", message: x.messageToCandidate || "", questionsText: Array.isArray(x.interviewQuestions) ? x.interviewQuestions.join("\n") : "", documentsText: Array.isArray(x.documentsRequired) ? x.documentsRequired.join("\n") : "", verificationDetails: x.verificationDetails || "", additionalDetails: x.additionalDetails || "", verificationStatus: x.verificationStatus || "Pending" })} className="rounded-md border border-orange-200 p-1.5 text-[#F97316]"><FiEdit2 /></button>
                         <button onClick={() => setStatus(x.id, "Completed")} className="rounded-md border border-green-200 p-1.5 text-green-700"><FiCheckCircle /></button>
                         <button onClick={() => setStatus(x.id, "Cancelled")} className="rounded-md border border-red-200 p-1.5 text-red-600"><FiX /></button>
                         <button onClick={() => (x.email ? (window.location.href = `mailto:${x.email}`) : ping("Candidate email not available"))} className="rounded-md border border-blue-200 p-1.5 text-[#2563EB]"><FiMail /></button>
@@ -459,6 +491,11 @@ export default function Interviews() {
               {details.item?.mode === "Online" ? <p><span className="font-semibold text-[#0F172A]">Meeting Link:</span> {details.item?.meetingLink || "-"}</p> : null}
               {details.item?.mode === "Onsite" ? <p><span className="font-semibold text-[#0F172A]">Location:</span> {details.item?.location || "-"}</p> : null}
               <p><span className="font-semibold text-[#0F172A]">Interviewer:</span> {details.item?.interviewer}</p>
+              <p><span className="font-semibold text-[#0F172A]">Verification Status:</span> {details.item?.verificationStatus || "Pending"}</p>
+              {details.item?.interviewQuestions?.length ? <p><span className="font-semibold text-[#0F172A]">Questions:</span> {details.item.interviewQuestions.join(" | ")}</p> : null}
+              {details.item?.documentsRequired?.length ? <p><span className="font-semibold text-[#0F172A]">Required Docs:</span> {details.item.documentsRequired.join(" | ")}</p> : null}
+              {details.item?.verificationDetails ? <p><span className="font-semibold text-[#0F172A]">Verification Details:</span> {details.item.verificationDetails}</p> : null}
+              {details.item?.additionalDetails ? <p><span className="font-semibold text-[#0F172A]">Other Details:</span> {details.item.additionalDetails}</p> : null}
 
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                 <p className="font-semibold text-[#0F172A]">Interview Notes</p>
@@ -470,7 +507,7 @@ export default function Interviews() {
               </div>
 
               <div className="flex flex-wrap gap-2">
-                <button onClick={() => setSchedule({ ...schedule, open: true, editId: details.item?.id, applicationId: details.item?.applicationId || "", candidate: details.item?.candidate, job: details.item?.job, stage: details.item?.stage, date: details.item?.date, time: "", duration: details.item?.duration || "30 mins", mode: details.item?.mode, link: details.item?.meetingLink || "", location: details.item?.location || "" })} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-semibold text-[#F97316]">Reschedule</button>
+                <button onClick={() => setSchedule({ ...schedule, open: true, editId: details.item?.id, applicationId: details.item?.applicationId || "", candidate: details.item?.candidate, job: details.item?.job, stage: details.item?.stage, date: details.item?.date, time: "", duration: details.item?.duration || "30 mins", mode: details.item?.mode, link: details.item?.meetingLink || "", linksText: Array.isArray(details.item?.interviewLinks) ? details.item.interviewLinks.join("\n") : "", location: details.item?.location || "", message: details.item?.messageToCandidate || "", questionsText: Array.isArray(details.item?.interviewQuestions) ? details.item.interviewQuestions.join("\n") : "", documentsText: Array.isArray(details.item?.documentsRequired) ? details.item.documentsRequired.join("\n") : "", verificationDetails: details.item?.verificationDetails || "", additionalDetails: details.item?.additionalDetails || "", verificationStatus: details.item?.verificationStatus || "Pending" })} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-semibold text-[#F97316]">Reschedule</button>
                 <button onClick={() => setStatus(details.item.id, "Cancelled")} className="rounded-lg border border-red-200 px-3 py-2 text-xs font-semibold text-red-600">Cancel</button>
                 <button onClick={() => setStatus(details.item.id, "Completed")} className="rounded-lg border border-green-200 px-3 py-2 text-xs font-semibold text-green-700">Mark Completed</button>
                 <button onClick={() => openMessages(details.item)} disabled={msgBusyId === details.item?.id} className={`rounded-lg border border-blue-200 px-3 py-2 text-xs font-semibold text-[#2563EB] ${msgBusyId === details.item?.id ? "opacity-60 cursor-not-allowed" : ""}`}>Message</button>
@@ -505,6 +542,17 @@ export default function Interviews() {
             <input value={schedule.location} onChange={(e) => setSchedule((p) => ({ ...p, location: e.target.value }))} placeholder="Location" className="h-10 rounded-lg border border-slate-200 px-3 text-sm" />
           )}
           <textarea value={schedule.message} onChange={(e) => setSchedule((p) => ({ ...p, message: e.target.value }))} rows={3} placeholder="Message to candidate" className="rounded-lg border border-slate-200 px-3 py-2 text-sm sm:col-span-2" />
+          <textarea value={schedule.linksText} onChange={(e) => setSchedule((p) => ({ ...p, linksText: e.target.value }))} rows={2} placeholder="Other interview links (comma or new line separated)" className="rounded-lg border border-slate-200 px-3 py-2 text-sm sm:col-span-2" />
+          <textarea value={schedule.questionsText} onChange={(e) => setSchedule((p) => ({ ...p, questionsText: e.target.value }))} rows={3} placeholder="Interview questions (one per line)" className="rounded-lg border border-slate-200 px-3 py-2 text-sm sm:col-span-2" />
+          <textarea value={schedule.documentsText} onChange={(e) => setSchedule((p) => ({ ...p, documentsText: e.target.value }))} rows={3} placeholder="Documents required for verification (one per line)" className="rounded-lg border border-slate-200 px-3 py-2 text-sm sm:col-span-2" />
+          <textarea value={schedule.verificationDetails} onChange={(e) => setSchedule((p) => ({ ...p, verificationDetails: e.target.value }))} rows={2} placeholder="Verification instructions/details" className="rounded-lg border border-slate-200 px-3 py-2 text-sm sm:col-span-2" />
+          <textarea value={schedule.additionalDetails} onChange={(e) => setSchedule((p) => ({ ...p, additionalDetails: e.target.value }))} rows={2} placeholder="Other interview details" className="rounded-lg border border-slate-200 px-3 py-2 text-sm sm:col-span-2" />
+          <select value={schedule.verificationStatus} onChange={(e) => setSchedule((p) => ({ ...p, verificationStatus: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm sm:col-span-2">
+            <option>Pending</option>
+            <option>Submitted</option>
+            <option>Verified</option>
+            <option>Rejected</option>
+          </select>
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 sm:col-span-2">
             <p className="mb-2 font-semibold text-[#0F172A]">Reminder Options</p>
             <label className="mb-1 flex items-center gap-2"><input type="checkbox" checked={schedule.emailReminder} onChange={(e) => setSchedule((p) => ({ ...p, emailReminder: e.target.checked }))} />Send Email Reminder</label>

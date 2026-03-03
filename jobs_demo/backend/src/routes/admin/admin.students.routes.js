@@ -1,10 +1,6 @@
 // backend/src/routes/admin/admin.students.routes.js
 import { Router } from "express";
-import requireAuth from "../../middleware/requireAuth.js";
-import { requireAdmin } from "../../middleware/requireRole.js";
-
-// ⚠️ IMPORTANT: your project must already set req.user from clerkId somewhere.
-// requireRole uses req.user.role. So ensure you have user-sync middleware/controller.
+import requireAdminClerk from "../../middleware/requireAdminClerk.js";
 
 import {
   adminListStudents,
@@ -15,8 +11,7 @@ import {
 
 const router = Router();
 
-router.use(requireAuth);
-router.use(requireAdmin);
+router.use(requireAdminClerk);
 
 router.get("/students", adminListStudents);
 router.get("/students/:id", adminGetStudent);

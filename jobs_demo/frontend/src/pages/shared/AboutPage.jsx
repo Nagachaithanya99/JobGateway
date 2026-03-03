@@ -1,4 +1,7 @@
+import { useEffect, useState } from "react";
 import { FiTarget, FiUsers, FiBriefcase, FiTrendingUp, FiAward } from "react-icons/fi";
+import { getPublicContent } from "../../services/contentService.js";
+import { toAbsoluteMediaUrl } from "../../utils/media.js";
 
 const stats = [
   { label: "Active Students", value: "50,000+", icon: FiUsers },
@@ -29,10 +32,69 @@ export default function AboutPage({ embedded = false }) {
   // embedded = true => when used inside StudentLayout (already has container)
   const wrapCls = embedded ? "" : "bg-slate-50 min-h-screen";
   const innerCls = embedded ? "max-w-6xl mx-auto px-4 py-10" : "max-w-6xl mx-auto px-4 py-12";
+  const [content, setContent] = useState({ banners: [], announcements: [], publicPages: [], blogs: [] });
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await getPublicContent();
+        if (!mounted) return;
+        setContent({
+          banners: Array.isArray(res?.banners) ? res.banners : [],
+          announcements: Array.isArray(res?.announcements) ? res.announcements : [],
+          publicPages: Array.isArray(res?.publicPages) ? res.publicPages : [],
+          blogs: Array.isArray(res?.blogs) ? res.blogs : [],
+        });
+      } catch {
+        if (!mounted) return;
+        setContent({ banners: [], announcements: [], publicPages: [], blogs: [] });
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <div className={wrapCls}>
       <div className={innerCls}>
+        {content.publicPages
+          .filter((x) => (x.pageSlug || "").toLowerCase() === "about")
+          .slice(0, 2)
+          .map((block) => (
+            <div key={block.id} className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h3 className="text-xl font-extrabold text-slate-900">{block.title}</h3>
+              {block.subtitle ? <p className="mt-1 text-sm font-semibold text-slate-600">{block.subtitle}</p> : null}
+              {block.description ? <p className="mt-3 text-sm text-slate-700">{block.description}</p> : null}
+            </div>
+          ))}
+
+        {content.banners[0]?.imageUrl ? (
+          <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <img src={toAbsoluteMediaUrl(content.banners[0].imageUrl)} alt="About banner" className="h-[220px] w-full object-cover" />
+          </div>
+        ) : null}
+
+        {content.announcements.length ? (
+          <div className="mb-6 rounded-2xl border border-orange-200 bg-orange-50 px-4 py-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-[#F97316]">Platform Announcements</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {content.announcements.slice(0, 3).map((a) => (
+                <a
+                  key={a.id}
+                  href={a.linkUrl || "#"}
+                  target={a.linkUrl ? "_blank" : undefined}
+                  rel={a.linkUrl ? "noreferrer" : undefined}
+                  className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700"
+                >
+                  {a.title || a.description}
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         {/* Header */}
         <div className="text-center">
           <h1 className="text-4xl md:text-5xl font-extrabold text-slate-900">
@@ -101,6 +163,23 @@ export default function AboutPage({ embedded = false }) {
             ))}
           </div>
         </div>
+
+        {content.blogs.length ? (
+          <div className="mt-12">
+            <h2 className="text-center text-2xl md:text-3xl font-extrabold text-slate-900">Latest Blogs</h2>
+            <div className="mt-8 grid md:grid-cols-3 gap-5">
+              {content.blogs.slice(0, 3).map((b) => (
+                <article key={b.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  {b.imageUrl ? <img src={toAbsoluteMediaUrl(b.imageUrl)} alt={b.title} className="h-36 w-full object-cover" /> : null}
+                  <div className="p-4">
+                    <h3 className="font-extrabold text-slate-900">{b.title}</h3>
+                    <p className="text-sm text-slate-600 mt-2 line-clamp-3">{b.description}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {!embedded && (
           <p className="text-center text-xs text-slate-500 mt-10">

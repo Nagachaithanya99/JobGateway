@@ -215,9 +215,10 @@ export async function adminUpdatePlanRequest(req, res, next) {
       const end = addDays(start, durationDays);
       activationDate = formatDate(start);
       expiryDate = formatDate(end);
+      const companyId = toId(pr.company);
 
       await Subscription.findOneAndUpdate(
-        { company: pr.company },
+        { company: companyId },
         {
           $set: {
             planName: pr.planName || plan?.name || "Plan",

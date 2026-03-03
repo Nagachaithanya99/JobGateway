@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import {
   FiChevronDown,
   FiMapPin,
@@ -12,37 +12,18 @@ import {
   studentHome,
   studentSearchJobs,
 } from "../../services/studentService.js";
+import {
+  getDefaultHierarchy,
+  getJobTaxonomy,
+  OTHER_OPTION,
+  persistCustomHierarchy,
+  resolveHierarchyValue,
+} from "../../data/jobTaxonomy.js";
 
 const TIPS_BANNER = "/images/jobs/tips-banner.png";
 const TIPS_ILLUS = "/images/jobs/tips-illustration.png";
-const jobTaxonomy = {
-  "IT & Software": {
-    Development: ["Frontend", "Backend", "Full Stack", "Mobile"],
-    Testing: ["Manual Testing", "Automation Testing"],
-    Data: ["Data Analyst", "Data Engineer", "ML Engineer"],
-    DevOps: ["AWS DevOps", "Azure DevOps", "Kubernetes"],
-    "Cyber Security": ["SOC Analyst", "Penetration Tester", "GRC"],
-  },
-  "Medical & Healthcare": {
-    Nursing: ["Staff Nurse", "ICU Nurse", "OT Nurse"],
-    Pharmacy: ["Pharmacist", "Assistant Pharmacist"],
-    Lab: ["Lab Technician", "Phlebotomist"],
-    "Hospital Admin": ["Front Office", "Billing Executive"],
-  },
-  Marketing: {
-    "Digital Marketing": ["SEO", "SEM", "Social Media"],
-    Sales: ["Inside Sales", "Field Sales"],
-    Content: ["Content Writer", "Copywriter"],
-  },
-  Education: {
-    Teaching: ["Primary Teacher", "Lecturer"],
-    Administration: ["Coordinator", "Office Admin"],
-  },
-  Finance: {
-    Banking: ["Teller", "Relationship Manager"],
-    Accounts: ["Accountant", "Junior Accountant"],
-  },
-};
+const INITIAL_TAXONOMY = getJobTaxonomy();
+const DEFAULT_HIERARCHY = getDefaultHierarchy(INITIAL_TAXONOMY);
 
 function moneyRange(job) {
   if (job?.salaryText) return job.salaryText;
@@ -82,16 +63,34 @@ function normalizeItems(payload) {
 }
 
 export default function Jobs() {
+  const locationPath = useLocation();
+  const nav = useNavigate();
   const [searchParams] = useSearchParams();
+  const isStudentView = locationPath.pathname.startsWith("/student");
+  const withBase = (path) => `${isStudentView ? "/student" : ""}${path}`;
+  const redirectToLogin = () => {
+    const redirect = isStudentView
+      ? `${locationPath.pathname}${locationPath.search || ""}`
+      : `/student${locationPath.pathname === "/" ? "" : locationPath.pathname}${locationPath.search || ""}`;
+    if (isStudentView) {
+      nav("/student/login");
+      return;
+    }
+    nav(`/login?role=student&redirect=${encodeURIComponent(redirect)}`);
+  };
   const initialQ = String(searchParams.get("q") || "").trim();
 
   const [q, setQ] = useState(initialQ);
   const [stream, setStream] = useState("");
   const [location, setLocation] = useState("");
   const [pill, setPill] = useState("All Jobs");
-  const [selectedMainStream, setSelectedMainStream] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("");
-  const [selectedSubCategory, setSelectedSubCategory] = useState("");
+  const [taxonomy, setTaxonomy] = useState(INITIAL_TAXONOMY);
+  const [selectedMainStream, setSelectedMainStream] = useState(DEFAULT_HIERARCHY.stream);
+  const [selectedCategory, setSelectedCategory] = useState(DEFAULT_HIERARCHY.category);
+  const [selectedSubCategory, setSelectedSubCategory] = useState(DEFAULT_HIERARCHY.subCategory);
+  const [mainStreamOther, setMainStreamOther] = useState("");
+  const [categoryOther, setCategoryOther] = useState("");
+  const [subCategoryOther, setSubCategoryOther] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
@@ -128,20 +127,33 @@ export default function Jobs() {
     return ["All Jobs", ...fromJobs];
   }, [categories, streamCounts]);
 
-  const taxonomyMainStreams = useMemo(() => Object.keys(jobTaxonomy), []);
+  const taxonomyMainStreams = useMemo(() => Object.keys(taxonomy), [taxonomy]);
   const taxonomyCategories = useMemo(() => {
-    if (!selectedMainStream) return [];
-    return Object.keys(jobTaxonomy[selectedMainStream] || {});
-  }, [selectedMainStream]);
+    if (!selectedMainStream || selectedMainStream === OTHER_OPTION) return [];
+    return Object.keys(taxonomy[selectedMainStream] || {});
+  }, [selectedMainStream, taxonomy]);
   const taxonomySubCategories = useMemo(() => {
     if (!selectedMainStream || !selectedCategory) return [];
-    return jobTaxonomy[selectedMainStream]?.[selectedCategory] || [];
-  }, [selectedMainStream, selectedCategory]);
+    if (selectedMainStream === OTHER_OPTION || selectedCategory === OTHER_OPTION) return [];
+    return taxonomy[selectedMainStream]?.[selectedCategory] || [];
+  }, [selectedMainStream, selectedCategory, taxonomy]);
 
   const buildParams = (page = 1, overrides = {}) => {
-    const mainStream = overrides.mainStream ?? selectedMainStream;
-    const category = overrides.category ?? selectedCategory;
-    const subCategory = overrides.subCategory ?? selectedSubCategory;
+    const mainStream = resolveHierarchyValue(overrides.mainStream ?? selectedMainStream, mainStreamOther);
+    const category = resolveHierarchyValue(overrides.category ?? selectedCategory, categoryOther);
+    const subCategory = resolveHierarchyValue(overrides.subCategory ?? selectedSubCategory, subCategoryOther);
+    const hasHierarchyOverride =
+      Object.prototype.hasOwnProperty.call(overrides, "mainStream") ||
+      Object.prototype.hasOwnProperty.call(overrides, "category") ||
+      Object.prototype.hasOwnProperty.call(overrides, "subCategory");
+    const isOnlyDefaultHierarchySelection =
+      !hasHierarchyOverride &&
+      mainStream === DEFAULT_HIERARCHY.stream &&
+      category === DEFAULT_HIERARCHY.category &&
+      subCategory === DEFAULT_HIERARCHY.subCategory &&
+      !mainStreamOther &&
+      !categoryOther &&
+      !subCategoryOther;
 
     const params = {
       q: q || undefined,
@@ -152,9 +164,9 @@ export default function Jobs() {
 
     const topStream = stream || undefined;
     const pillStream = pill !== "All Jobs" ? pill : undefined;
-    params.stream = mainStream || topStream || pillStream;
-    if (category) params.category = category;
-    if (subCategory) {
+    params.stream = (isOnlyDefaultHierarchySelection ? "" : mainStream) || topStream || pillStream;
+    if (!isOnlyDefaultHierarchySelection && category) params.category = category;
+    if (!isOnlyDefaultHierarchySelection && subCategory) {
       params.subCategory = subCategory;
       params.subcategory = subCategory;
     }
@@ -211,13 +223,39 @@ export default function Jobs() {
     setStream("");
     setLocation("");
     setPill("All Jobs");
-    setSelectedMainStream("");
-    setSelectedCategory("");
-    setSelectedSubCategory("");
-    fetchJobs(1, { mainStream: "", category: "", subCategory: "" });
+    setSelectedMainStream(DEFAULT_HIERARCHY.stream);
+    setSelectedCategory(DEFAULT_HIERARCHY.category);
+    setSelectedSubCategory(DEFAULT_HIERARCHY.subCategory);
+    setMainStreamOther("");
+    setCategoryOther("");
+    setSubCategoryOther("");
+    fetchJobs(1, DEFAULT_HIERARCHY);
   };
 
-  const applyFilters = () => fetchJobs(1);
+  const applyFilters = () => {
+    const resolvedStream = resolveHierarchyValue(selectedMainStream, mainStreamOther);
+    const resolvedCategory = resolveHierarchyValue(selectedCategory, categoryOther);
+    const resolvedSubCategory = resolveHierarchyValue(selectedSubCategory, subCategoryOther);
+
+    if (
+      selectedMainStream === OTHER_OPTION ||
+      selectedCategory === OTHER_OPTION ||
+      selectedSubCategory === OTHER_OPTION
+    ) {
+      setTaxonomy(
+        persistCustomHierarchy({
+          stream: resolvedStream,
+          category: resolvedCategory,
+          subCategory: resolvedSubCategory,
+        })
+      );
+    }
+    fetchJobs(1, {
+      mainStream: selectedMainStream,
+      category: selectedCategory,
+      subCategory: selectedSubCategory,
+    });
+  };
 
   const goto = (p) => {
     const next = Math.max(1, Math.min(meta.pages || 1, p));
@@ -229,6 +267,11 @@ export default function Jobs() {
       if (!jobId) return;
       await studentApplyJob(jobId);
     } catch (e) {
+      const status = Number(e?.response?.status || 0);
+      if (status === 401 || status === 403) {
+        redirectToLogin();
+        return;
+      }
       setErr(e?.response?.data?.message || "Apply failed.");
     }
   };
@@ -240,7 +283,7 @@ export default function Jobs() {
         <div className="absolute inset-0 opacity-[0.16] [background-image:radial-gradient(#000_1px,transparent_1px)] [background-size:18px_18px]" />
       </div>
 
-      <div className="mx-auto max-w-[1180px] px-6 pb-12 pt-7">
+      <div className="w-full px-6 pb-12 pt-7">
         <div className="text-[12px] text-slate-500">
           <span>Home</span>
           <span className="mx-2">/</span>
@@ -342,7 +385,7 @@ export default function Jobs() {
               </button>
             </div>
 
-                        <div className="mt-4 space-y-5">
+            <div className="mt-4 space-y-5">
               <section className="border-t border-slate-200/70 pt-4">
                 <p className="text-[14px] font-extrabold text-[#c45500]">Main Stream</p>
                 <div className="relative mt-2">
@@ -350,22 +393,47 @@ export default function Jobs() {
                     value={selectedMainStream}
                     onChange={(e) => {
                       const value = e.target.value;
+                      if (value && value !== OTHER_OPTION) {
+                        const nextCategories = Object.keys(taxonomy[value] || {});
+                        const nextCategory = nextCategories[0] || "";
+                        const nextSubCategory = nextCategory ? taxonomy[value]?.[nextCategory]?.[0] || "" : "";
+                        setSelectedMainStream(value);
+                        setMainStreamOther("");
+                        setSelectedCategory(nextCategory);
+                        setCategoryOther("");
+                        setSelectedSubCategory(nextSubCategory);
+                        setSubCategoryOther("");
+                        fetchJobs(1, { mainStream: value, category: nextCategory, subCategory: nextSubCategory });
+                        return;
+                      }
                       setSelectedMainStream(value);
+                      if (value !== OTHER_OPTION) setMainStreamOther("");
                       setSelectedCategory("");
+                      setCategoryOther("");
                       setSelectedSubCategory("");
+                      setSubCategoryOther("");
                       fetchJobs(1, { mainStream: value, category: "", subCategory: "" });
                     }}
                     className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-9 text-[13px] font-semibold text-slate-700 outline-none focus:border-orange-300"
                   >
-                    <option value="">Select Main Stream</option>
+                    <option value="">Main Stream (e.g., IT & Software)</option>
                     {taxonomyMainStreams.map((v) => (
                       <option key={v} value={v}>
                         {v}
                       </option>
                     ))}
+                    <option value={OTHER_OPTION}>Other</option>
                   </select>
                   <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
+                {selectedMainStream === OTHER_OPTION ? (
+                  <input
+                    value={mainStreamOther}
+                    onChange={(e) => setMainStreamOther(e.target.value)}
+                    placeholder="Enter custom main stream"
+                    className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-700 outline-none focus:border-orange-300"
+                  />
+                ) : null}
               </section>
 
               <section className="border-t border-slate-200/70 pt-4">
@@ -376,8 +444,28 @@ export default function Jobs() {
                     disabled={!selectedMainStream}
                     onChange={(e) => {
                       const value = e.target.value;
+                      if (
+                        value &&
+                        value !== OTHER_OPTION &&
+                        selectedMainStream &&
+                        selectedMainStream !== OTHER_OPTION
+                      ) {
+                        const nextSubCategory = taxonomy[selectedMainStream]?.[value]?.[0] || "";
+                        setSelectedCategory(value);
+                        setCategoryOther("");
+                        setSelectedSubCategory(nextSubCategory);
+                        setSubCategoryOther("");
+                        fetchJobs(1, {
+                          mainStream: selectedMainStream,
+                          category: value,
+                          subCategory: nextSubCategory,
+                        });
+                        return;
+                      }
                       setSelectedCategory(value);
+                      if (value !== OTHER_OPTION) setCategoryOther("");
                       setSelectedSubCategory("");
+                      setSubCategoryOther("");
                       fetchJobs(1, {
                         mainStream: selectedMainStream,
                         category: value,
@@ -386,15 +474,24 @@ export default function Jobs() {
                     }}
                     className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-9 text-[13px] font-semibold text-slate-700 outline-none focus:border-orange-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
                   >
-                    <option value="">Select Category</option>
+                    <option value="">Category (e.g., Development)</option>
                     {taxonomyCategories.map((v) => (
                       <option key={v} value={v}>
                         {v}
                       </option>
                     ))}
+                    {selectedMainStream ? <option value={OTHER_OPTION}>Other</option> : null}
                   </select>
                   <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
+                {selectedCategory === OTHER_OPTION ? (
+                  <input
+                    value={categoryOther}
+                    onChange={(e) => setCategoryOther(e.target.value)}
+                    placeholder="Enter custom category"
+                    className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-700 outline-none focus:border-orange-300"
+                  />
+                ) : null}
               </section>
 
               <section className="border-t border-slate-200/70 pt-4">
@@ -406,6 +503,7 @@ export default function Jobs() {
                     onChange={(e) => {
                       const value = e.target.value;
                       setSelectedSubCategory(value);
+                      if (value !== OTHER_OPTION) setSubCategoryOther("");
                       fetchJobs(1, {
                         mainStream: selectedMainStream,
                         category: selectedCategory,
@@ -414,15 +512,24 @@ export default function Jobs() {
                     }}
                     className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-9 text-[13px] font-semibold text-slate-700 outline-none focus:border-orange-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
                   >
-                    <option value="">Select Sub Category</option>
+                    <option value="">Sub Category (e.g., Frontend)</option>
                     {taxonomySubCategories.map((v) => (
                       <option key={v} value={v}>
                         {v}
                       </option>
                     ))}
+                    {selectedCategory ? <option value={OTHER_OPTION}>Other</option> : null}
                   </select>
                   <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
+                {selectedSubCategory === OTHER_OPTION ? (
+                  <input
+                    value={subCategoryOther}
+                    onChange={(e) => setSubCategoryOther(e.target.value)}
+                    placeholder="Enter custom sub category"
+                    className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-[13px] font-semibold text-slate-700 outline-none focus:border-orange-300"
+                  />
+                ) : null}
               </section>
 
               <button
@@ -511,7 +618,7 @@ export default function Jobs() {
                           <div className="hidden shrink-0 flex-col items-end gap-2 md:flex">
                             {id ? (
                               <Link
-                                to={`/student/jobs/${id}`}
+                                to={withBase(`/jobs/${id}`)}
                                 className="h-[40px] w-[132px] rounded-[14px] border border-slate-200 bg-white text-center text-[13px] font-extrabold leading-[40px] text-slate-700 hover:bg-slate-50"
                               >
                                 View Details
@@ -531,7 +638,7 @@ export default function Jobs() {
                         <div className="mt-4 flex gap-2 md:hidden">
                           {id ? (
                             <Link
-                              to={`/student/jobs/${id}`}
+                              to={withBase(`/jobs/${id}`)}
                               className="flex-1 rounded-[14px] border border-slate-200 bg-white py-2 text-center text-[13px] font-extrabold text-slate-700"
                             >
                               View Details
@@ -672,4 +779,5 @@ function Stars({ value = 0 }) {
     </span>
   );
 }
+
 

@@ -1,5 +1,5 @@
 // src/pages/company/BoostJob.jsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FiAward, FiCalendar, FiCheck, FiClock, FiMapPin, FiStar, FiTarget, FiUsers } from "react-icons/fi";
 import Modal from "../../components/common/Modal.jsx";
 import {
@@ -95,6 +95,7 @@ export default function BoostJob() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [success, setSuccess] = useState(null);
+  const activeBoostsRef = useRef(null);
 
   const ping = (msg) => {
     setToast(msg);
@@ -162,6 +163,7 @@ export default function BoostJob() {
   };
 
   const { start, end } = resolveDates();
+  const activeCount = (boosts || []).filter((b) => String(b.status || "").toLowerCase() === "active").length;
 
   const refreshBoosts = async () => {
     const boostsRes = await listCompanyBoosts();
@@ -234,13 +236,31 @@ export default function BoostJob() {
           </select>
 
           <button
-            onClick={() => ping("Scroll down to Active Boost Campaigns")}
+            onClick={() => activeBoostsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
             className="rounded-xl border border-blue-200 px-4 py-2 text-sm font-semibold text-[#2563EB] hover:bg-blue-50"
           >
             View Active Boosts
           </button>
         </div>
       </header>
+
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Available Jobs</p>
+          <p className="mt-2 text-2xl font-bold text-[#0F172A]">{jobs.length}</p>
+          <p className="mt-1 text-xs text-slate-500">Jobs you can boost right now</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Active Campaigns</p>
+          <p className="mt-2 text-2xl font-bold text-[#0F172A]">{activeCount}</p>
+          <p className="mt-1 text-xs text-slate-500">Currently running boosts</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Selected Plan Price</p>
+          <p className="mt-2 text-2xl font-bold text-[#0F172A]">Rs. {cycle === "yearly" ? (pkg?.yearlyPrice || 0) : (pkg?.monthlyPrice || 0)}</p>
+          <p className="mt-1 text-xs text-slate-500">{pkg?.name || "No plan selected"} ({cycle})</p>
+        </div>
+      </section>
 
       {success ? (
         <section className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-800 shadow-sm">
@@ -265,6 +285,11 @@ export default function BoostJob() {
                 <option key={job._id} value={job._id}>{job.title}</option>
               ))}
             </select>
+            {!jobs.length ? (
+              <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                No posted jobs found. Create a job first, then return here to boost it.
+              </p>
+            ) : null}
 
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
               <div className="flex flex-wrap items-start justify-between gap-2">
@@ -340,7 +365,7 @@ export default function BoostJob() {
             </p>
           </div>
 
-          <section className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <section ref={activeBoostsRef} className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-100 px-5 py-4">
               <h3 className="text-base font-semibold text-[#0F172A]">Active Boost Campaigns</h3>
             </div>
@@ -413,7 +438,7 @@ export default function BoostJob() {
             disabled={!selectedJob || !pkg}
             className="hidden w-full rounded-xl bg-[#F97316] px-4 py-2.5 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-50 md:block"
           >
-            Confirm Boost
+            Review and Boost
           </button>
         </aside>
       </section>
@@ -424,7 +449,7 @@ export default function BoostJob() {
           disabled={!selectedJob || !pkg}
           className="w-full rounded-xl bg-[#F97316] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Boost Now
+          Review and Boost
         </button>
       </div>
 
@@ -438,7 +463,7 @@ export default function BoostJob() {
               Cancel
             </button>
             <button onClick={onConfirmBoost} className="rounded-lg bg-[#F97316] px-4 py-2 text-sm font-semibold text-white">
-              Confirm and Pay
+              Confirm Boost
             </button>
           </>
         }

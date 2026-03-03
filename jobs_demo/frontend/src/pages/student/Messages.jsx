@@ -266,7 +266,7 @@ export default function Messages() {
 
   return (
     <div className="min-h-[calc(100vh-64px)] bg-[#F6F7FB]">
-      <div className="mx-auto max-w-[1240px] px-4 py-6 sm:px-6 lg:px-8">
+      <div className="w-full px-4 py-6 sm:px-6 lg:px-8">
         <input ref={fileInputRef} type="file" className="hidden" onChange={onFileSelected} />
 
         <div className="mb-2 text-xs text-slate-500">
@@ -403,3 +403,4 @@ export default function Messages() {
     </div>
   );
 }
+

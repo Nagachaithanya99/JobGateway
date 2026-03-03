@@ -1,7 +1,7 @@
 export default function StudentFooter() {
   return (
     <footer className="bg-slate-950 text-slate-300">
-      <div className="max-w-6xl mx-auto px-4 py-14 grid md:grid-cols-4 gap-10">
+      <div className="w-full px-4 py-14 grid md:grid-cols-4 gap-10">
         <div>
           <p className="text-xl font-extrabold">
             <span className="text-orange-500">Job</span>Portal
@@ -42,7 +42,7 @@ export default function StudentFooter() {
       </div>
 
       <div className="border-t border-white/10">
-        <div className="max-w-6xl mx-auto px-4 py-6 text-sm text-slate-500 flex justify-between">
+        <div className="w-full px-4 py-6 text-sm text-slate-500 flex justify-between">
           <span>© {new Date().getFullYear()} JobPortal. All rights reserved.</span>
           <span className="text-orange-400">Made for JobGateway</span>
         </div>
@@ -50,3 +50,4 @@ export default function StudentFooter() {
     </footer>
   );
 }
+

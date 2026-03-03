@@ -189,13 +189,24 @@ export default function Shortlisted() {
 
   const toggle = (id) => setSelected((p) => (p.includes(id) ? p.filter((x) => x !== id) : [...p, id]));
 
-  const applyFilters = async () => {
-    await fetchShortlisted({
-      jobId: filters.jobId || "",
-      status: filters.interview || "",
-      location: filters.location || "",
-      date: filters.date || "",
+  const toShortlistedParams = (f) => ({
+    jobId: f.jobId || "",
+    status: f.interview || "",
+    location: f.location || "",
+    date: f.date || "",
+  });
+
+  const updateFiltersNow = (key, value) => {
+    setFilters((prev) => {
+      const next = { ...prev, [key]: value };
+      fetchShortlisted(toShortlistedParams(next));
+      return next;
     });
+    setSelected([]);
+  };
+
+  const applyFilters = async () => {
+    await fetchShortlisted(toShortlistedParams(filters));
     setSelected([]);
   };
 
@@ -376,7 +387,7 @@ export default function Shortlisted() {
 
       <Card title="Filters">
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-5">
-          <select value={filters.jobId} onChange={(e) => setFilters((p) => ({ ...p, jobId: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm">
+          <select value={filters.jobId} onChange={(e) => updateFiltersNow("jobId", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm">
             <option value="">Job Title (optional)</option>
             {jobOptions.map((j) => (
               <option key={j.id} value={j.id}>
@@ -384,7 +395,7 @@ export default function Shortlisted() {
               </option>
             ))}
           </select>
-          <select value={filters.interview} onChange={(e) => setFilters((p) => ({ ...p, interview: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm">
+          <select value={filters.interview} onChange={(e) => updateFiltersNow("interview", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm">
             <option value="">Status</option>
             <option>Shortlisted</option>
             <option>Interview Scheduled</option>
@@ -393,14 +404,14 @@ export default function Shortlisted() {
             <option>Hired</option>
             <option>Rejected</option>
           </select>
-          <select value={filters.exp} onChange={(e) => setFilters((p) => ({ ...p, exp: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm">
+          <select value={filters.exp} onChange={(e) => updateFiltersNow("exp", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm">
             <option value="">Experience</option>
             <option>1-2</option>
             <option>3-5</option>
             <option>5+</option>
           </select>
-          <input value={filters.location} onChange={(e) => setFilters((p) => ({ ...p, location: e.target.value }))} placeholder="Location" className="h-10 rounded-lg border border-slate-200 px-3 text-sm" />
-          <input type="date" value={filters.date} onChange={(e) => setFilters((p) => ({ ...p, date: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm" />
+          <input value={filters.location} onChange={(e) => updateFiltersNow("location", e.target.value)} placeholder="Location" className="h-10 rounded-lg border border-slate-200 px-3 text-sm" />
+          <input type="date" value={filters.date} onChange={(e) => updateFiltersNow("date", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm" />
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <button onClick={applyFilters} className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white">Apply Filter</button>

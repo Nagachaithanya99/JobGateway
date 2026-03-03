@@ -1,6 +1,6 @@
 
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   FiCalendar,
   FiCheckCircle,
@@ -79,6 +79,8 @@ function onlyDigits(value = "") {
 
 export default function AppliedCandidates() {
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
+  const initialJobId = String(searchParams.get("jobId") || "").trim();
   const [apps, setApps] = useState([]);
   const [jobOptions, setJobOptions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -104,7 +106,7 @@ export default function AppliedCandidates() {
 
   const [draftFilters, setDraftFilters] = useState({
     q: "",
-    jobId: "",
+    jobId: initialJobId,
     status: "All",
     experience: "",
     location: "",
@@ -114,7 +116,7 @@ export default function AppliedCandidates() {
   });
   const [filters, setFilters] = useState({
     q: "",
-    jobId: "",
+    jobId: initialJobId,
     status: "All",
     experience: "",
     location: "",
@@ -238,6 +240,15 @@ export default function AppliedCandidates() {
   const applyFilters = async () => {
     setFilters(draftFilters);
     await fetchApps(draftFilters);
+  };
+
+  const updateFilterNow = (key, value) => {
+    setDraftFilters((prev) => {
+      const next = { ...prev, [key]: value };
+      setFilters(next);
+      fetchApps(next);
+      return next;
+    });
   };
 
   const clearFilters = async () => {
@@ -399,9 +410,9 @@ export default function AppliedCandidates() {
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
           <div className="relative xl:col-span-2">
             <FiSearch className="pointer-events-none absolute left-3 top-3 text-slate-400" />
-            <input value={draftFilters.q} onChange={(e) => setDraftFilters((p) => ({ ...p, q: e.target.value }))} placeholder="Search candidates, skills, jobs..." className="h-10 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-blue-300" />
+            <input value={draftFilters.q} onChange={(e) => updateFilterNow("q", e.target.value)} placeholder="Search candidates, skills, jobs..." className="h-10 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-blue-300" />
           </div>
-          <select value={draftFilters.jobId} onChange={(e) => setDraftFilters((p) => ({ ...p, jobId: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300">
+          <select value={draftFilters.jobId} onChange={(e) => updateFilterNow("jobId", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300">
             <option value="">Job title</option>
             {jobOptions.map((j) => (
               <option key={j.id} value={j.id}>
@@ -409,12 +420,12 @@ export default function AppliedCandidates() {
               </option>
             ))}
           </select>
-          <select value={draftFilters.status} onChange={(e) => setDraftFilters((p) => ({ ...p, status: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300"><option>All</option><option>Applied</option><option>Shortlisted</option><option>Hold</option><option>Rejected</option><option>Interview Scheduled</option></select>
-          <input value={draftFilters.location} onChange={(e) => setDraftFilters((p) => ({ ...p, location: e.target.value }))} placeholder="Location" className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300" />
-          <input value={draftFilters.skills} onChange={(e) => setDraftFilters((p) => ({ ...p, skills: e.target.value }))} placeholder="Skills (tag search)" className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300" />
-          <select value={draftFilters.experience} onChange={(e) => setDraftFilters((p) => ({ ...p, experience: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300"><option value="">Experience</option><option value="0-1">0-1 years</option><option value="2-4">2-4 years</option><option value="5+">5+ years</option></select>
-          <select value={draftFilters.dateRange} onChange={(e) => setDraftFilters((p) => ({ ...p, dateRange: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300"><option value="">Applied Date</option><option value="last7">Last 7 days</option><option value="last30">Last 30 days</option><option value="last90">Last 90 days</option></select>
-          <select value={draftFilters.aiMatch} onChange={(e) => setDraftFilters((p) => ({ ...p, aiMatch: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300"><option>All</option><option>Strong</option><option>Moderate</option><option>Low</option></select>
+          <select value={draftFilters.status} onChange={(e) => updateFilterNow("status", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300"><option>All</option><option>Applied</option><option>Shortlisted</option><option>Hold</option><option>Rejected</option><option>Interview Scheduled</option></select>
+          <input value={draftFilters.location} onChange={(e) => updateFilterNow("location", e.target.value)} placeholder="Location" className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300" />
+          <input value={draftFilters.skills} onChange={(e) => updateFilterNow("skills", e.target.value)} placeholder="Skills (tag search)" className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300" />
+          <select value={draftFilters.experience} onChange={(e) => updateFilterNow("experience", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300"><option value="">Experience</option><option value="0-1">0-1 years</option><option value="2-4">2-4 years</option><option value="5+">5+ years</option></select>
+          <select value={draftFilters.dateRange} onChange={(e) => updateFilterNow("dateRange", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300"><option value="">Applied Date</option><option value="last7">Last 7 days</option><option value="last30">Last 30 days</option><option value="last90">Last 90 days</option></select>
+          <select value={draftFilters.aiMatch} onChange={(e) => updateFilterNow("aiMatch", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300"><option>All</option><option>Strong</option><option>Moderate</option><option>Low</option></select>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" onClick={applyFilters} className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Apply Filters</button>

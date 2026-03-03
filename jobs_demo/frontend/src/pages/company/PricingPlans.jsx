@@ -1,6 +1,6 @@
 // src/pages/company/PricingPlans.jsx
 import { useEffect, useMemo, useState } from "react";
-import { FiCheckCircle, FiStar, FiZap } from "react-icons/fi";
+import { FiCheckCircle, FiStar, FiTrendingUp, FiZap } from "react-icons/fi";
 import Toast from "../../components/common/Toast.jsx";
 import Modal from "../../components/common/Modal.jsx";
 import {
@@ -84,6 +84,11 @@ export default function PricingPlans() {
 
   const priceOf = (p) => (cycle === "yearly" ? p.yearlyPrice : p.monthlyPrice);
   const limitsOf = (p) => (cycle === "yearly" ? p.yearly : p.monthly);
+  const activePlan = planCards.find((p) => String(p.name) === String(currentPlanName));
+  const selectedPrice = activePlan ? priceOf(activePlan) : 0;
+  const selectedLimits = activePlan ? limitsOf(activePlan) : null;
+  const jobsLimit = selectedLimits?.jobsLimit || sub?.jobsLimit || 1;
+  const appsLimit = selectedLimits?.appsLimit || sub?.applicationsLimit || 100;
 
   const onSubscribe = async (planId) => {
     try {
@@ -156,6 +161,24 @@ export default function PricingPlans() {
         </div>
       </Card>
 
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <Card>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Current Plan Price</p>
+          <p className="mt-2 text-2xl font-bold text-[#0F172A]">Rs {selectedPrice || sub?.price || 0}</p>
+          <p className="mt-1 text-xs text-slate-500">{cycle === "yearly" ? "Per year" : "Per month"} for {currentPlanName}</p>
+        </Card>
+        <Card>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Jobs Capacity</p>
+          <p className="mt-2 text-2xl font-bold text-[#0F172A]">{jobsLimit >= 999999 ? "Unlimited" : jobsLimit}</p>
+          <p className="mt-1 text-xs text-slate-500">Posting limit in selected cycle</p>
+        </Card>
+        <Card>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Applications Capacity</p>
+          <p className="mt-2 text-2xl font-bold text-[#0F172A]">{appsLimit >= 999999 ? "Unlimited" : appsLimit}</p>
+          <p className="mt-1 text-xs text-slate-500">Application processing limit</p>
+        </Card>
+      </section>
+
       {/* current usage */}
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -211,6 +234,12 @@ export default function PricingPlans() {
                 <p className="text-3xl font-extrabold text-[#0F172A]">Rs {price}</p>
                 <p className="pb-1 text-sm text-slate-500">{cycle === "yearly" ? "/ year" : "/ month"}</p>
               </div>
+              {cycle === "yearly" && p.monthlyPrice ? (
+                <p className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-green-700">
+                  <FiTrendingUp />
+                  Approx save Rs {(Number(p.monthlyPrice || 0) * 12) - Number(p.yearlyPrice || 0)} yearly
+                </p>
+              ) : null}
 
               <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
                 <p className="font-semibold text-[#0F172A]">Limits ({cycle})</p>
@@ -238,7 +267,7 @@ export default function PricingPlans() {
                       : "bg-[#2563EB] text-white hover:bg-blue-700"
                 }`}
               >
-                {isCurrent && isActive ? "Current Plan" : `Choose (${cycle})`}
+                {isCurrent && isActive ? "Current Plan" : `Choose ${p.name}`}
               </button>
             </Card>
           );
@@ -256,7 +285,7 @@ export default function PricingPlans() {
               Cancel
             </button>
             <button onClick={() => onSubscribe(confirm.plan?.id)} className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white">
-              Confirm
+              Confirm and Activate
             </button>
           </>
         }

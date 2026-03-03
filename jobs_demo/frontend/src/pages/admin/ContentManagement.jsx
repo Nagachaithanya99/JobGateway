@@ -1,33 +1,17 @@
-
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  FiActivity,
   FiAlertCircle,
-  FiArchive,
-  FiAward,
-  FiBookOpen,
-  FiBriefcase,
-  FiCheckCircle,
+  FiBell,
   FiEdit2,
   FiFileText,
   FiGlobe,
   FiImage,
-  FiBell,
   FiPlus,
   FiSearch,
-  FiStar,
   FiTrash2,
   FiUsers,
 } from "react-icons/fi";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 
 import Modal from "../../components/common/Modal";
 import {
@@ -37,68 +21,63 @@ import {
   adminSaveContentItem,
   adminUpdateContentStatus,
 } from "../../services/adminService";
+import uploadService from "../../services/uploadService.js";
+import { toAbsoluteMediaUrl } from "../../utils/media.js";
 
 const CATEGORY_META = {
-  banners: { title: "Homepage Banners", desc: "Manage hero banners and ads", icon: <FiImage /> },
-  testimonials: { title: "Testimonials", desc: "Control student testimonials on homepage", icon: <FiStar /> },
-  placed: { title: "Placed Students", desc: "Showcase success stories", icon: <FiAward /> },
-  internship: { title: "Internship Content", desc: "Publish internship guidance", icon: <FiBriefcase /> },
-  interviewQuestions: { title: "Interview Questions", desc: "Manage interview prep content", icon: <FiBookOpen /> },
-  mockTests: { title: "Mock Tests", desc: "Create and update mock tests", icon: <FiFileText /> },
-  featuredCompanies: { title: "Featured Companies", desc: "Highlight partner companies", icon: <FiUsers /> },
-  announcements: { title: "Platform Announcements", desc: "Manage platform notices", icon: <FiBell /> },
+  homeSlides: { title: "Home Slides", desc: "Student homepage slideshow images", icon: <FiImage /> },
+  publicPages: { title: "Public Pages", desc: "About/Contact content blocks", icon: <FiGlobe /> },
+  announcements: { title: "Platform Announcements", desc: "Short notices across pages", icon: <FiBell /> },
+  blogs: { title: "Blogs", desc: "Blog cards and article highlights", icon: <FiFileText /> },
+  featuredCompanies: { title: "Featured Companies", desc: "Highlighted partner companies", icon: <FiUsers /> },
 };
 
 function statusClass(status) {
   const s = String(status || "").toLowerCase();
   if (["active", "published"].includes(s)) return "bg-green-50 border-green-200 text-green-700";
-  if (s === "scheduled") return "bg-blue-50 border-blue-200 text-[#2563EB]";
-  if (["expired", "draft"].includes(s)) return "bg-orange-50 border-orange-200 text-[#F97316]";
-  if (["archived", "disabled"].includes(s)) return "bg-slate-100 border-slate-200 text-slate-600";
-  return "bg-red-50 border-red-200 text-red-600";
-}
-
-function priorityClass(priority) {
-  const p = String(priority || "low").toLowerCase();
-  if (p === "high") return "bg-red-50 border-red-200 text-red-600";
-  if (p === "medium") return "bg-orange-50 border-orange-200 text-[#F97316]";
-  return "bg-blue-50 border-blue-200 text-[#2563EB]";
+  if (["draft", "disabled", "archived"].includes(s)) return "bg-slate-100 border-slate-200 text-slate-600";
+  return "bg-orange-50 border-orange-200 text-[#F97316]";
 }
 
 function getDate(item) {
-  return item.startDate || item.createdAt || item.publishDate || item.date || "";
+  return item.startDate || item.createdAt || item.publishDate || "";
 }
 
-function Switch({ checked, onChange }) {
-  return (
-    <button
-      type="button"
-      onClick={onChange}
-      className={`relative h-6 w-11 rounded-full transition ${checked ? "bg-[#2563EB]" : "bg-slate-300"}`}
-    >
-      <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition ${checked ? "left-[22px]" : "left-0.5"}`} />
-    </button>
-  );
+function SafeChartContainer({ className, children }) {
+  const containerRef = useRef(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return undefined;
+
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      setSize({
+        width: Math.max(0, Math.floor(rect.width)),
+        height: Math.max(0, Math.floor(rect.height)),
+      });
+    };
+
+    measure();
+    let observer = null;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(measure);
+      observer.observe(el);
+    }
+    window.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      if (observer) observer.disconnect();
+    };
+  }, []);
+
+  return <div ref={containerRef} className={className}>{size.width > 0 && size.height > 0 ? children(size) : null}</div>;
 }
 
-function StatCard({ title, value, trend, icon }) {
+function SectionCard({ section, item, onClick }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</p>
-          <p className="mt-2 text-2xl font-bold text-[#0F172A]">{value}</p>
-          <p className="mt-2 text-xs font-semibold text-[#F97316]">{trend}</p>
-        </div>
-        <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-blue-50 text-[#2563EB]">{icon}</span>
-      </div>
-    </div>
-  );
-}
-
-function CategoryCard({ item, active, onClick }) {
-  return (
-    <div className={`rounded-2xl border bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md ${active ? "border-blue-300" : "border-slate-200"}`}>
+    <div className={`rounded-2xl border bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md ${section === item.key ? "border-blue-300" : "border-slate-200"}`}>
       <div className="flex items-start justify-between gap-3">
         <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-[#2563EB]">{item.icon}</span>
         <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-semibold text-slate-600">{item.count} items</span>
@@ -110,28 +89,8 @@ function CategoryCard({ item, active, onClick }) {
   );
 }
 
-export default function ContentManagement() {
-  const [loading, setLoading] = useState(true);
-  const [saveBusy, setSaveBusy] = useState(false);
-  const [sections, setSections] = useState({
-    banners: [],
-    testimonials: [],
-    placed: [],
-    internship: [],
-    interviewQuestions: [],
-    mockTests: [],
-    featuredCompanies: [],
-    announcements: [],
-  });
-  const [activeSection, setActiveSection] = useState("banners");
-
-  const [filters, setFilters] = useState({ search: "", category: "all", status: "all", fromDate: "", toDate: "" });
-  const [selectedIds, setSelectedIds] = useState([]);
-  const [bulkAction, setBulkAction] = useState("publish");
-
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({
+function emptyForm() {
+  return {
     title: "",
     subtitle: "",
     image: "",
@@ -141,73 +100,100 @@ export default function ContentManagement() {
     status: "active",
     description: "",
     priority: "medium",
+    pageSlug: "home",
+    blockKey: "",
+    author: "",
+    buttonText: "",
+  };
+}
+
+function isMongoId(value) {
+  return /^[a-fA-F0-9]{24}$/.test(String(value || ""));
+}
+
+export default function ContentManagement() {
+  const [loading, setLoading] = useState(true);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [sections, setSections] = useState({
+    homeSlides: [],
+    publicPages: [],
+    announcements: [],
+    blogs: [],
+    featuredCompanies: [],
   });
+  const [activeSection, setActiveSection] = useState("homeSlides");
+  const [filters, setFilters] = useState({ search: "", status: "all" });
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkAction, setBulkAction] = useState("publish");
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState(emptyForm);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await adminGetContent();
+      setSections({
+        homeSlides: Array.isArray(res?.homeSlides) ? res.homeSlides : Array.isArray(res?.banners) ? res.banners : [],
+        publicPages: Array.isArray(res?.publicPages) ? res.publicPages : [],
+        announcements: Array.isArray(res?.announcements) ? res.announcements : [],
+        blogs: Array.isArray(res?.blogs) ? res.blogs : [],
+        featuredCompanies: Array.isArray(res?.featuredCompanies) ? res.featuredCompanies : [],
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    async function load() {
-      setLoading(true);
-      try {
-        const res = await adminGetContent();
-        setSections({
-          banners: Array.isArray(res?.banners) ? res.banners : [],
-          testimonials: Array.isArray(res?.testimonials) ? res.testimonials : [],
-          placed: Array.isArray(res?.placed) ? res.placed : [],
-          internship: Array.isArray(res?.internship) ? res.internship : [],
-          interviewQuestions: Array.isArray(res?.interviewQuestions) ? res.interviewQuestions : [],
-          mockTests: Array.isArray(res?.mockTests) ? res.mockTests : [],
-          featuredCompanies: Array.isArray(res?.featuredCompanies) ? res.featuredCompanies : [],
-          announcements: Array.isArray(res?.announcements) ? res.announcements : [],
-        });
-      } finally {
-        setLoading(false);
-      }
-    }
-
     load();
   }, []);
 
-  const cards = useMemo(() => Object.entries(CATEGORY_META).map(([key, m]) => ({ key, ...m, count: sections[key]?.length || 0 })), [sections]);
-  const allItems = useMemo(() => Object.values(sections).flat(), [sections]);
-
-  const analytics = useMemo(() => {
-    const published = allItems.filter((x) => ["published", "active", "scheduled"].includes(String(x.status || "").toLowerCase())).length;
-    const drafts = allItems.filter((x) => ["draft", "disabled", "archived"].includes(String(x.status || "").toLowerCase())).length;
-    const clickRate = 6.8;
-    const mostViewedSection = Object.entries(sections).map(([key, items]) => ({ key, views: items.reduce((a, b) => a + Number(b.views || 0), 0) })).sort((a, b) => b.views - a.views)[0]?.key || "internship";
-    const trend = ["W1", "W2", "W3", "W4", "W5", "W6"].map((label, idx) => ({ label, value: Math.max(15, Math.round((published || 30) * (0.5 + idx * 0.1))) }));
-    return { published, drafts, clickRate, mostViewedSection, trend };
-  }, [allItems, sections]);
+  const cards = useMemo(
+    () => Object.entries(CATEGORY_META).map(([key, meta]) => ({ key, ...meta, count: sections[key]?.length || 0 })),
+    [sections],
+  );
 
   const rows = useMemo(() => {
-    const list = sections[activeSection] || [];
     const q = filters.search.trim().toLowerCase();
-    return list.filter((x) => {
-      const bag = `${x.title || x.name || ""} ${x.subtitle || ""} ${x.description || ""} ${x.company || ""}`.toLowerCase();
-      const s = String(x.status || "").toLowerCase();
-      const d = Date.parse(getDate(x));
-      const from = filters.fromDate ? Date.parse(filters.fromDate) : 0;
-      const to = filters.toDate ? Date.parse(filters.toDate) : 0;
-      return (!q || bag.includes(q)) && (filters.category === "all" || activeSection === filters.category) && (filters.status === "all" || s === filters.status) && (!from || !Number.isFinite(d) || d >= from) && (!to || !Number.isFinite(d) || d <= to);
+    return (sections[activeSection] || []).filter((x) => {
+      const bag = `${x.title || ""} ${x.subtitle || ""} ${x.description || ""} ${x.pageSlug || ""} ${x.author || ""}`.toLowerCase();
+      const matchSearch = !q || bag.includes(q);
+      const matchStatus = filters.status === "all" || String(x.status || "").toLowerCase() === filters.status;
+      return matchSearch && matchStatus;
     });
   }, [sections, activeSection, filters]);
 
+  const trendData = useMemo(() => {
+    const c = rows.length || 1;
+    return ["W1", "W2", "W3", "W4", "W5", "W6"].map((label, idx) => ({ label, value: Math.max(1, Math.round(c * (0.6 + idx * 0.1))) }));
+  }, [rows.length]);
+
   const allSelected = rows.length > 0 && rows.every((x) => selectedIds.includes(x.id));
 
-  const resetForm = () => setForm({ title: "", subtitle: "", image: "", url: "", startDate: "", endDate: "", status: "active", description: "", priority: "medium" });
-  const openCreate = () => { setEditing(null); resetForm(); setModalOpen(true); };
+  const openCreate = () => {
+    setEditing(null);
+    setForm(emptyForm());
+    setModalOpen(true);
+  };
 
   const openEdit = (item) => {
     setEditing(item);
     setForm({
-      title: item.title || item.name || "",
-      subtitle: item.subtitle || item.designation || "",
+      title: item.title || "",
+      subtitle: item.subtitle || "",
       image: item.image || "",
       url: item.url || "",
-      startDate: item.startDate || item.createdAt || item.publishDate || "",
+      startDate: item.startDate || "",
       endDate: item.endDate || "",
       status: item.status || "active",
-      description: item.description || item.quote || item.story || "",
+      description: item.description || "",
       priority: item.priority || "medium",
+      pageSlug: item.pageSlug || "home",
+      blockKey: item.blockKey || "",
+      author: item.author || "",
+      buttonText: item.buttonText || "",
     });
     setModalOpen(true);
   };
@@ -220,21 +206,19 @@ export default function ContentManagement() {
         id: editing?.id,
         section: activeSection,
         title: form.title,
-        name: activeSection === "testimonials" || activeSection === "placed" ? form.title : undefined,
         subtitle: form.subtitle,
-        designation: activeSection === "testimonials" ? form.subtitle : undefined,
         image: form.image,
         url: form.url,
         startDate: form.startDate,
         endDate: form.endDate,
         status: form.status,
         description: form.description,
-        quote: activeSection === "testimonials" ? form.description : undefined,
-        story: activeSection === "placed" ? form.description : undefined,
         priority: form.priority,
-        showOnHomepage: editing?.showOnHomepage ?? true,
+        pageSlug: form.pageSlug,
+        blockKey: form.blockKey,
+        author: form.author,
+        buttonText: form.buttonText,
       };
-
       const res = await adminSaveContentItem(payload);
       const item = res?.item;
       if (!item) return;
@@ -244,9 +228,7 @@ export default function ContentManagement() {
         const exists = current.some((x) => x.id === item.id);
         return {
           ...prev,
-          [activeSection]: exists
-            ? current.map((x) => (x.id === item.id ? item : x))
-            : [item, ...current],
+          [activeSection]: exists ? current.map((x) => (x.id === item.id ? item : x)) : [item, ...current],
         };
       });
       setModalOpen(false);
@@ -255,93 +237,84 @@ export default function ContentManagement() {
     }
   };
 
-  const updateRows = (mutate) =>
-    setSections((prev) => ({
-      ...prev,
-      [activeSection]: mutate(prev[activeSection] || []),
-    }));
+  const onPickImage = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploadingImage(true);
+      const res = await uploadService.uploadContentImage(file);
+      const imageUrl = String(res?.data?.imageUrl || "");
+      if (imageUrl) setForm((p) => ({ ...p, image: imageUrl }));
+    } finally {
+      setUploadingImage(false);
+      e.target.value = "";
+    }
+  };
 
   const onDelete = async (row) => {
-    await adminDeleteContentItem(row.id);
-    updateRows((list) => list.filter((x) => x.id !== row.id));
-    setSelectedIds((prev) => prev.filter((id) => id !== row.id));
+    if (!row?.id || !isMongoId(row.id)) {
+      setSections((prev) => ({ ...prev, [activeSection]: (prev[activeSection] || []).filter((x) => x !== row) }));
+      return;
+    }
+    try {
+      await adminDeleteContentItem(row.id);
+    } catch (e) {
+      if (Number(e?.response?.status || 0) !== 404) throw e;
+    } finally {
+      setSections((prev) => ({ ...prev, [activeSection]: (prev[activeSection] || []).filter((x) => x.id !== row.id) }));
+      setSelectedIds((prev) => prev.filter((id) => id !== row.id));
+    }
   };
 
-  const onToggle = async (row, nextStatus) => {
-    const res = await adminUpdateContentStatus(row.id, nextStatus);
+  const onToggleStatus = async (row) => {
+    if (!row?.id) return;
+    const current = String(row.status || "").toLowerCase();
+    const next = current === "disabled" || current === "draft" || current === "archived" ? "active" : "disabled";
+    const res = await adminUpdateContentStatus(row.id, next);
     const item = res?.item;
     if (!item) return;
-    updateRows((list) => list.map((x) => (x.id === row.id ? item : x)));
-  };
-
-  const onToggleHomepage = async (row) => {
-    const payload = {
-      ...row,
-      id: row.id,
-      section: activeSection,
-      showOnHomepage: !row.showOnHomepage,
-    };
-    const res = await adminSaveContentItem(payload);
-    const item = res?.item;
-    if (!item) return;
-    updateRows((list) => list.map((x) => (x.id === row.id ? item : x)));
+    setSections((prev) => ({
+      ...prev,
+      [activeSection]: (prev[activeSection] || []).map((x) => (x.id === row.id ? item : x)),
+    }));
   };
 
   const onApplyBulk = async () => {
-    if (!selectedIds.length) return;
-    await adminBulkContentAction(selectedIds, bulkAction);
+    const ids = selectedIds.filter(Boolean);
+    if (!ids.length) return;
+    await adminBulkContentAction(ids, bulkAction);
 
     if (bulkAction === "delete") {
-      updateRows((list) => list.filter((x) => !selectedIds.includes(x.id)));
+      setSections((prev) => ({
+        ...prev,
+        [activeSection]: (prev[activeSection] || []).filter((x) => !ids.includes(x.id)),
+      }));
     } else {
       const nextStatus = bulkAction === "publish" ? "published" : "archived";
-      updateRows((list) =>
-        list.map((x) =>
-          selectedIds.includes(x.id)
-            ? {
-                ...x,
-                status: nextStatus,
-              }
-            : x,
-        ),
-      );
+      setSections((prev) => ({
+        ...prev,
+        [activeSection]: (prev[activeSection] || []).map((x) => (
+          ids.includes(x.id) ? { ...x, status: nextStatus } : x
+        )),
+      }));
     }
 
     setSelectedIds([]);
-  };
-  const onExport = () => {
-    const headers = ["Title", "Status", "Date", "Category"];
-    const lines = rows.map((x) => [x.title || x.name, x.status, getDate(x), CATEGORY_META[activeSection].title]);
-    const csv = [headers, ...lines].map((row) => row.map((v) => `"${String(v ?? "").replaceAll('"', '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `content_${activeSection}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   return (
     <div className="space-y-6">
       <section>
         <h1 className="text-2xl font-bold text-[#0F172A] sm:text-3xl">Content Management</h1>
-        <p className="mt-1 text-sm text-slate-500">Manage website content, banners, and informational sections</p>
+        <p className="mt-1 text-sm text-slate-500">Manage home slides, public page blocks, announcements, blogs and media.</p>
         <p className="mt-2 text-xs font-medium text-slate-400">Dashboard &gt; Content Management</p>
       </section>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard title="Total Published Content" value={analytics.published} trend="+12 this month" icon={<FiCheckCircle />} />
-        <StatCard title="Draft Content" value={analytics.drafts} trend="Needs review" icon={<FiArchive />} />
-        <StatCard title="Homepage Click Rate" value={`${analytics.clickRate}%`} trend="+1.4% this week" icon={<FiActivity />} />
-        <StatCard title="Most Viewed Section" value={CATEGORY_META[analytics.mostViewedSection]?.title || "Internship"} trend="Top engagement" icon={<FiGlobe />} />
-      </section>
-
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <h2 className="text-lg font-semibold text-[#0F172A]">Content Categories</h2>
+        <h2 className="text-lg font-semibold text-[#0F172A]">Sections</h2>
         <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
           {cards.map((c) => (
-            <CategoryCard key={c.key} item={c} active={activeSection === c.key} onClick={() => { setActiveSection(c.key); setSelectedIds([]); }} />
+            <SectionCard key={c.key} section={activeSection} item={c} onClick={() => { setActiveSection(c.key); setSelectedIds([]); }} />
           ))}
         </div>
       </section>
@@ -353,35 +326,23 @@ export default function ContentManagement() {
             <p className="text-sm text-slate-500">{CATEGORY_META[activeSection]?.desc}</p>
           </div>
           <button type="button" onClick={openCreate} className="inline-flex items-center gap-2 rounded-xl bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
-            <FiPlus /> {activeSection === "banners" ? "Add New Banner" : "Create New Content"}
+            <FiPlus /> Add New
           </button>
         </div>
 
-        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
-          <div className="relative xl:col-span-2">
+        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="relative md:col-span-2">
             <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input value={filters.search} onChange={(e) => setFilters((p) => ({ ...p, search: e.target.value }))} placeholder="Search content" className="h-10 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-blue-300" />
           </div>
-          <select value={filters.category} onChange={(e) => setFilters((p) => ({ ...p, category: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300">
-            <option value="all">All Categories</option>
-            {Object.entries(CATEGORY_META).map(([key, meta]) => <option key={key} value={key}>{meta.title}</option>)}
-          </select>
           <select value={filters.status} onChange={(e) => setFilters((p) => ({ ...p, status: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300">
             <option value="all">All Status</option>
             <option value="active">Active</option>
-            <option value="scheduled">Scheduled</option>
-            <option value="expired">Expired</option>
-            <option value="disabled">Disabled</option>
             <option value="published">Published</option>
+            <option value="disabled">Disabled</option>
             <option value="draft">Draft</option>
             <option value="archived">Archived</option>
           </select>
-          <button type="button" onClick={onExport} className="h-10 rounded-lg border border-blue-200 px-3 text-sm font-semibold text-[#2563EB] hover:bg-blue-50">Export</button>
-        </div>
-
-        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <input type="date" value={filters.fromDate} onChange={(e) => setFilters((p) => ({ ...p, fromDate: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300" />
-          <input type="date" value={filters.toDate} onChange={(e) => setFilters((p) => ({ ...p, toDate: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300" />
         </div>
 
         {selectedIds.length > 0 ? (
@@ -398,103 +359,69 @@ export default function ContentManagement() {
           </div>
         ) : null}
 
-        {activeSection === "placed" || activeSection === "announcements" ? (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {rows.map((row) => (
-              <div key={row.id} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="mb-3 flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-semibold text-[#0F172A]">{row.title || row.name}</p>
-                    <p className="text-xs text-slate-500">{row.company || row.subtitle || row.publishDate}</p>
-                  </div>
-                  <input type="checkbox" checked={selectedIds.includes(row.id)} onChange={(e) => setSelectedIds((prev) => (e.target.checked ? [...new Set([...prev, row.id])] : prev.filter((x) => x !== row.id)))} className="h-4 w-4 rounded border-slate-300 text-[#2563EB]" />
-                </div>
-                {activeSection === "placed" ? (
-                  <>
-                    <p className="text-sm text-slate-600">{row.story}</p>
-                    <p className="mt-2 text-sm font-semibold text-[#F97316]">{row.salary}</p>
-                    <div className="mt-3 flex items-center justify-between">
-                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${statusClass(row.status)}`}>{row.status}</span>
-                      <Switch checked={String(row.status).toLowerCase() === "published"} onChange={() => onToggle(row, String(row.status).toLowerCase() === "published" ? "draft" : "published")} />
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-4 py-3"><input type="checkbox" checked={allSelected} onChange={(e) => setSelectedIds(e.target.checked ? rows.map((x) => x.id).filter(Boolean) : [])} className="h-4 w-4 rounded border-slate-300 text-[#2563EB]" /></th>
+                <th className="px-4 py-3">Preview</th>
+                <th className="px-4 py-3">Title</th>
+                <th className="px-4 py-3">Meta</th>
+                <th className="px-4 py-3">Date</th>
+                <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id || `${row.title}-${row.createdAt}`} className="border-t border-slate-100 transition hover:bg-blue-50/40">
+                  <td className="px-4 py-3"><input type="checkbox" disabled={!row.id} checked={selectedIds.includes(row.id)} onChange={(e) => setSelectedIds((prev) => (e.target.checked ? [...new Set([...prev, row.id].filter(Boolean))] : prev.filter((x) => x !== row.id)))} className="h-4 w-4 rounded border-slate-300 text-[#2563EB]" /></td>
+                  <td className="px-4 py-3">
+                    {row.image ? (
+                      <img src={toAbsoluteMediaUrl(row.image)} alt={row.title || "content"} className="h-10 w-16 rounded-lg border border-slate-200 object-cover" />
+                    ) : (
+                      <div className="flex h-10 w-16 items-center justify-center rounded-lg border border-slate-200 bg-slate-100 text-[10px] text-slate-500">IMG</div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="font-semibold text-slate-800">{row.title || "-"}</p>
+                    <p className="text-xs text-slate-500">{row.subtitle || row.description || "-"}</p>
+                  </td>
+                  <td className="px-4 py-3 text-slate-700">
+                    {row.pageSlug ? <p className="text-xs">Page: {row.pageSlug}</p> : null}
+                    {row.blockKey ? <p className="text-xs">Block: {row.blockKey}</p> : null}
+                    {row.author ? <p className="text-xs">Author: {row.author}</p> : null}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">{getDate(row) || "-"}</td>
+                  <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${statusClass(row.status)}`}>{row.status}</span></td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => openEdit(row)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-blue-200 text-[#2563EB] hover:bg-blue-50"><FiEdit2 /></button>
+                      <button type="button" onClick={() => onToggleStatus(row)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-orange-200 text-[#F97316] hover:bg-orange-50"><FiAlertCircle /></button>
+                      <button type="button" onClick={() => onDelete(row)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 text-red-600 hover:bg-red-50"><FiTrash2 /></button>
                     </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm text-slate-600">{row.description}</p>
-                    <div className="mt-3 flex items-center gap-2">
-                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${priorityClass(row.priority)}`}>{row.priority}</span>
-                      <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${statusClass(row.status)}`}>{row.status}</span>
-                    </div>
-                  </>
-                )}
-                <div className="mt-3 flex items-center gap-2">
-                  <button type="button" onClick={() => openEdit(row)} className="rounded-lg border border-blue-200 px-2.5 py-1.5 text-xs font-semibold text-[#2563EB] hover:bg-blue-50">Edit</button>
-                  <button type="button" onClick={() => onDelete(row)} className="rounded-lg border border-red-200 px-2.5 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50">Delete</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-3"><input type="checkbox" checked={allSelected} onChange={(e) => setSelectedIds(e.target.checked ? rows.map((x) => x.id) : [])} className="h-4 w-4 rounded border-slate-300 text-[#2563EB]" /></th>
-                  {activeSection === "banners" ? <th className="px-4 py-3">Preview</th> : null}
-                  <th className="px-4 py-3">{activeSection === "testimonials" ? "Name" : "Title"}</th>
-                  {activeSection === "testimonials" ? <th className="px-4 py-3">Designation</th> : null}
-                  <th className="px-4 py-3">{activeSection === "testimonials" ? "Company" : "Category"}</th>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Actions</th>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {rows.map((row) => (
-                  <tr key={row.id} className="border-t border-slate-100 transition hover:bg-blue-50/40">
-                    <td className="px-4 py-3"><input type="checkbox" checked={selectedIds.includes(row.id)} onChange={(e) => setSelectedIds((prev) => (e.target.checked ? [...new Set([...prev, row.id])] : prev.filter((x) => x !== row.id)))} className="h-4 w-4 rounded border-slate-300 text-[#2563EB]" /></td>
-                    {activeSection === "banners" ? <td className="px-4 py-3"><div className="h-10 w-16 rounded-lg border border-slate-200 bg-slate-100 text-[10px] text-slate-500 flex items-center justify-center">IMG</div></td> : null}
-                    <td className="px-4 py-3"><p className="font-semibold text-slate-800">{row.title || row.name}</p><p className="text-xs text-slate-500">{row.subtitle || row.quote || row.url || "-"}</p></td>
-                    {activeSection === "testimonials" ? <td className="px-4 py-3 text-slate-700">{row.designation}</td> : null}
-                    <td className="px-4 py-3 text-slate-700">{row.company || row.category || "-"}</td>
-                    <td className="px-4 py-3 text-slate-600">{getDate(row) || "-"}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${statusClass(row.status)}`}>{row.status}</span>
-                        {activeSection === "testimonials" ? (
-                          <Switch checked={!!row.showOnHomepage} onChange={() => onToggleHomepage(row)} />
-                        ) : null}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <button type="button" onClick={() => openEdit(row)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-blue-200 text-[#2563EB] hover:bg-blue-50"><FiEdit2 /></button>
-                        <button type="button" onClick={() => onToggle(row, String(row.status).toLowerCase() === "disabled" ? "active" : "disabled")} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-orange-200 text-[#F97316] hover:bg-orange-50"><FiAlertCircle /></button>
-                        <button type="button" onClick={() => onDelete(row)} className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 text-red-600 hover:bg-red-50"><FiTrash2 /></button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {!rows.length ? <tr className="border-t border-slate-100"><td colSpan={8} className="px-4 py-12 text-center text-sm text-slate-500">No content found.</td></tr> : null}
-              </tbody>
-            </table>
-          </div>
-        )}
+              ))}
+              {!rows.length && !loading ? <tr className="border-t border-slate-100"><td colSpan={7} className="px-4 py-12 text-center text-sm text-slate-500">No content found.</td></tr> : null}
+            </tbody>
+          </table>
+        </div>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <h3 className="text-sm font-semibold text-[#0F172A]">Engagement Trend</h3>
-        <div className="mt-3 h-56">
-          <ResponsiveContainer width="100%" height="100%" minWidth={320} minHeight={220}>
-            <LineChart data={analytics.trend}>
+        <SafeChartContainer className="mt-3 h-56">
+          {({ width, height }) => (
+            <LineChart width={width} height={height} data={trendData}>
               <CartesianGrid stroke="#E2E8F0" strokeDasharray="3 3" />
               <XAxis dataKey="label" tick={{ fill: "#64748B", fontSize: 11 }} axisLine={false} tickLine={false} />
               <YAxis tick={{ fill: "#64748B", fontSize: 11 }} axisLine={false} tickLine={false} />
               <Tooltip />
               <Line type="monotone" dataKey="value" stroke="#2563EB" strokeWidth={3} dot={{ r: 4, fill: "#2563EB" }} />
             </LineChart>
-          </ResponsiveContainer>
-        </div>
+          )}
+        </SafeChartContainer>
       </section>
 
       <Modal
@@ -512,31 +439,40 @@ export default function ContentManagement() {
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           <label className="text-sm font-medium text-slate-600">Title<input value={form.title} onChange={(e) => setForm((p) => ({ ...p, title: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" /></label>
           <label className="text-sm font-medium text-slate-600">Subtitle<input value={form.subtitle} onChange={(e) => setForm((p) => ({ ...p, subtitle: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" /></label>
-          <label className="text-sm font-medium text-slate-600">Upload Image URL<input value={form.image} onChange={(e) => setForm((p) => ({ ...p, image: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" /></label>
+
+          <label className="text-sm font-medium text-slate-600">
+            Image URL
+            <input value={form.image} onChange={(e) => setForm((p) => ({ ...p, image: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" />
+            <div className="mt-2 flex items-center gap-2">
+              <label className="inline-flex cursor-pointer items-center rounded-lg border border-blue-200 px-3 py-2 text-xs font-semibold text-[#2563EB] hover:bg-blue-50">
+                {uploadingImage ? "Uploading..." : "Upload Image"}
+                <input type="file" accept="image/*" className="hidden" onChange={onPickImage} disabled={uploadingImage} />
+              </label>
+              {form.image ? <img src={toAbsoluteMediaUrl(form.image)} alt="preview" className="h-10 w-16 rounded-lg border border-slate-200 object-cover" /> : null}
+            </div>
+          </label>
           <label className="text-sm font-medium text-slate-600">Redirect URL<input value={form.url} onChange={(e) => setForm((p) => ({ ...p, url: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" /></label>
           <label className="text-sm font-medium text-slate-600">Start Date<input type="date" value={form.startDate} onChange={(e) => setForm((p) => ({ ...p, startDate: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" /></label>
           <label className="text-sm font-medium text-slate-600">End Date<input type="date" value={form.endDate} onChange={(e) => setForm((p) => ({ ...p, endDate: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" /></label>
-          <label className="text-sm font-medium text-slate-600">Status<select value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300"><option value="active">Active</option><option value="scheduled">Scheduled</option><option value="expired">Expired</option><option value="disabled">Disabled</option><option value="published">Published</option><option value="draft">Draft</option><option value="archived">Archived</option></select></label>
+          <label className="text-sm font-medium text-slate-600">Status<select value={form.status} onChange={(e) => setForm((p) => ({ ...p, status: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300"><option value="active">Active</option><option value="published">Published</option><option value="disabled">Disabled</option><option value="draft">Draft</option><option value="archived">Archived</option></select></label>
           <label className="text-sm font-medium text-slate-600">Priority<select value={form.priority} onChange={(e) => setForm((p) => ({ ...p, priority: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300"><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></label>
-          <label className="md:col-span-2 text-sm font-medium text-slate-600">Description (Rich Text)<textarea value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} rows={5} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-blue-300" /></label>
-          <div className="md:col-span-2 rounded-lg border border-slate-200 bg-slate-50/70 p-3"><p className="text-xs font-semibold text-slate-500">Preview</p><p className="mt-1 text-sm text-slate-700">{form.description || "Content preview appears here."}</p></div>
+
+          {(activeSection === "publicPages" || activeSection === "blogs") ? (
+            <label className="text-sm font-medium text-slate-600">Page Slug<select value={form.pageSlug} onChange={(e) => setForm((p) => ({ ...p, pageSlug: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300"><option value="home">Home</option><option value="about">About</option><option value="contact">Contact</option></select></label>
+          ) : null}
+          {activeSection === "publicPages" ? (
+            <label className="text-sm font-medium text-slate-600">Block Key<input value={form.blockKey} onChange={(e) => setForm((p) => ({ ...p, blockKey: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" /></label>
+          ) : null}
+          {activeSection === "blogs" ? (
+            <label className="text-sm font-medium text-slate-600">Author<input value={form.author} onChange={(e) => setForm((p) => ({ ...p, author: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" /></label>
+          ) : null}
+          {activeSection === "publicPages" ? (
+            <label className="text-sm font-medium text-slate-600">Button Text<input value={form.buttonText} onChange={(e) => setForm((p) => ({ ...p, buttonText: e.target.value }))} className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" /></label>
+          ) : null}
+
+          <label className="md:col-span-2 text-sm font-medium text-slate-600">Description<textarea value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} rows={5} className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 outline-none focus:border-blue-300" /></label>
         </div>
       </Modal>
-
-      {loading ? (
-        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="h-4 w-1/3 animate-pulse rounded bg-slate-100" />
-          <div className="mt-3 h-4 w-2/3 animate-pulse rounded bg-slate-100" />
-          <div className="mt-5 h-48 animate-pulse rounded-xl bg-slate-100" />
-        </div>
-      ) : null}
     </div>
   );
 }
-
-
-
-
-
-
-

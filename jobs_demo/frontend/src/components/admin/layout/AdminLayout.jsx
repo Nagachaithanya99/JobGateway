@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar.jsx";
 import TopNavbar from "./TopNavbar.jsx";
+import AppChatbot from "../../chat/AppChatbot.jsx";
 
 export default function AdminLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -21,6 +22,7 @@ export default function AdminLayout() {
           </main>
         </div>
       </div>
+      <AppChatbot />
     </div>
   );
 }

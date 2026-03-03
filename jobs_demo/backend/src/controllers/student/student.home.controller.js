@@ -10,6 +10,15 @@ function safeStr(x) {
   return typeof x === "string" ? x : "";
 }
 
+function isVisibleContent(doc, now = new Date()) {
+  if (!doc) return false;
+  if (String(doc.status || "") !== "Active") return false;
+  if (doc.startAt && new Date(doc.startAt) > now) return false;
+  if (doc.endAt && new Date(doc.endAt) < now) return false;
+  if (doc.data?.showOnHomepage === false) return false;
+  return true;
+}
+
 function toSalaryText(job) {
   if (safeStr(job.salaryText)) return job.salaryText;
 
@@ -118,7 +127,7 @@ async function loadCompanyMap(...lists) {
 
 export const getStudentHome = async (req, res, next) => {
   try {
-    const [categoryItems, testimonialItems, gov, jobsDocs, internshipsDocs, liveJobs, topCompanies, studentsHired] = await Promise.all([
+    const [categoryItems, testimonialItems, bannerItems, announcementItems, gov, jobsDocs, internshipsDocs, liveJobs, topCompanies, studentsHired] = await Promise.all([
       ContentItem.find({ type: "CATEGORY", status: "Active" })
         .sort({ priority: -1, createdAt: -1 })
         .limit(30)
@@ -126,6 +135,14 @@ export const getStudentHome = async (req, res, next) => {
       ContentItem.find({ type: "TESTIMONIAL", status: "Active" })
         .sort({ priority: -1, createdAt: -1 })
         .limit(12)
+        .lean(),
+      ContentItem.find({ type: "HOME_AD", status: "Active" })
+        .sort({ priority: -1, createdAt: -1 })
+        .limit(20)
+        .lean(),
+      ContentItem.find({ type: "ANNOUNCEMENT", status: "Active" })
+        .sort({ priority: -1, createdAt: -1 })
+        .limit(20)
         .lean(),
       GovernmentUpdate.find({ status: "Active" })
         .sort({ priority: -1, publishedAt: -1, createdAt: -1 })
@@ -171,6 +188,29 @@ export const getStudentHome = async (req, res, next) => {
       }))
       .filter((g) => g.title);
 
+    const now = new Date();
+    const banners = bannerItems
+      .filter((x) => isVisibleContent(x, now))
+      .map((x) => ({
+        id: String(x._id),
+        title: x.title || x.data?.name || "",
+        subtitle: x.subtitle || x.description || "",
+        imageUrl: x.imageUrl || "",
+        linkUrl: x.linkUrl || "",
+        description: x.description || "",
+      }));
+
+    const announcements = announcementItems
+      .filter((x) => isVisibleContent(x, now))
+      .map((x) => ({
+        id: String(x._id),
+        title: x.title || "",
+        subtitle: x.subtitle || "",
+        description: x.description || "",
+        linkUrl: x.linkUrl || "",
+        imageUrl: x.imageUrl || "",
+      }));
+
     const companyMap = await loadCompanyMap(jobsDocs, internshipsDocs);
     const jobs = jobsDocs.map((j) => mapJob(j, companyMap));
     const internships = internshipsDocs.map((j) => mapInternship(j, companyMap));
@@ -195,6 +235,8 @@ export const getStudentHome = async (req, res, next) => {
       },
       governmentLinks,
       testimonials,
+      banners,
+      announcements,
     });
   } catch (err) {
     next(err);

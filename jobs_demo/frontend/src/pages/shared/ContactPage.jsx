@@ -1,11 +1,36 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FiMail, FiPhone, FiMapPin } from "react-icons/fi";
+import { getPublicContent } from "../../services/contentService.js";
+import { toAbsoluteMediaUrl } from "../../utils/media.js";
 
 export default function ContactPage({ embedded = false }) {
   const wrapCls = embedded ? "" : "bg-slate-50 min-h-screen";
   const innerCls = embedded ? "max-w-6xl mx-auto px-4 py-10" : "max-w-6xl mx-auto px-4 py-12";
 
   const [form, setForm] = useState({ name: "", email: "", message: "" });
+  const [content, setContent] = useState({ banners: [], announcements: [], publicPages: [], blogs: [] });
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await getPublicContent();
+        if (!mounted) return;
+        setContent({
+          banners: Array.isArray(res?.banners) ? res.banners : [],
+          announcements: Array.isArray(res?.announcements) ? res.announcements : [],
+          publicPages: Array.isArray(res?.publicPages) ? res.publicPages : [],
+          blogs: Array.isArray(res?.blogs) ? res.blogs : [],
+        });
+      } catch {
+        if (!mounted) return;
+        setContent({ banners: [], announcements: [], publicPages: [], blogs: [] });
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const submit = (e) => {
     e.preventDefault();
@@ -17,6 +42,42 @@ export default function ContactPage({ embedded = false }) {
   return (
     <div className={wrapCls}>
       <div className={innerCls}>
+        {content.publicPages
+          .filter((x) => (x.pageSlug || "").toLowerCase() === "contact")
+          .slice(0, 2)
+          .map((block) => (
+            <div key={block.id} className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h3 className="text-xl font-extrabold text-slate-900">{block.title}</h3>
+              {block.subtitle ? <p className="mt-1 text-sm font-semibold text-slate-600">{block.subtitle}</p> : null}
+              {block.description ? <p className="mt-3 text-sm text-slate-700">{block.description}</p> : null}
+            </div>
+          ))}
+
+        {content.banners[0]?.imageUrl ? (
+          <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+            <img src={toAbsoluteMediaUrl(content.banners[0].imageUrl)} alt="Contact banner" className="h-[220px] w-full object-cover" />
+          </div>
+        ) : null}
+
+        {content.announcements.length ? (
+          <div className="mb-6 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+            <p className="text-xs font-bold uppercase tracking-wide text-[#2563EB]">Platform Announcements</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {content.announcements.slice(0, 3).map((a) => (
+                <a
+                  key={a.id}
+                  href={a.linkUrl || "#"}
+                  target={a.linkUrl ? "_blank" : undefined}
+                  rel={a.linkUrl ? "noreferrer" : undefined}
+                  className="rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700"
+                >
+                  {a.title || a.description}
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
         <div className="text-center">
           <h1 className="text-4xl md:text-5xl font-extrabold text-slate-900">
             Contact

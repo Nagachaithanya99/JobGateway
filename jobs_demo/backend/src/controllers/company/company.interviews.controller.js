@@ -6,6 +6,24 @@ import StudentNotification from "../../models/StudentNotification.js";
 const STATUS_ALLOWED = ["Scheduled", "Completed", "Rescheduled", "Cancelled", "Pending Confirmation"];
 const MODE_ALLOWED = ["Online", "Onsite"];
 const STAGE_ALLOWED = ["HR", "Technical", "Final"];
+const VERIFICATION_STATUS_ALLOWED = ["Pending", "Submitted", "Verified", "Rejected"];
+
+function normalizeStringList(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((x) => String(x || "").trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(/\r?\n|,/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
 
 function toDateOnly(d) {
   const yyyy = d.getFullYear();
@@ -40,8 +58,19 @@ function mapInterview(x) {
     interviewer: x.interviewer || "Assigned Interviewer",
     status: x.status,
     meetingLink: x.meetingLink || "",
+    interviewLinks: Array.isArray(x.interviewLinks)
+      ? x.interviewLinks
+      : x.meetingLink
+      ? [x.meetingLink]
+      : [],
     location: x.location || "",
     notes: Array.isArray(x.notes) ? x.notes : [],
+    messageToCandidate: x.messageToCandidate || "",
+    interviewQuestions: Array.isArray(x.interviewQuestions) ? x.interviewQuestions : [],
+    documentsRequired: Array.isArray(x.documentsRequired) ? x.documentsRequired : [],
+    verificationDetails: x.verificationDetails || "",
+    additionalDetails: x.additionalDetails || "",
+    verificationStatus: x.verificationStatus || "Pending",
     createdAt: x.createdAt,
   };
 }
@@ -161,8 +190,14 @@ export async function createCompanyInterview(req, res, next) {
       durationMins = 30,
       mode = "Online",
       meetingLink = "",
+      interviewLinks = [],
       location = "",
       messageToCandidate = "",
+      interviewQuestions = [],
+      documentsRequired = [],
+      verificationDetails = "",
+      additionalDetails = "",
+      verificationStatus = "Pending",
       interviewer = "",
       status = "Scheduled",
       applicationId = "",
@@ -193,6 +228,13 @@ export async function createCompanyInterview(req, res, next) {
     if (!STAGE_ALLOWED.includes(stage)) return res.status(400).json({ message: "Invalid stage" });
     if (!MODE_ALLOWED.includes(mode)) return res.status(400).json({ message: "Invalid mode" });
     if (!STATUS_ALLOWED.includes(status)) return res.status(400).json({ message: "Invalid status" });
+    if (!VERIFICATION_STATUS_ALLOWED.includes(verificationStatus)) {
+      return res.status(400).json({ message: "Invalid verificationStatus" });
+    }
+
+    const normalizedLinks = normalizeStringList(interviewLinks);
+    const normalizedMeetingLink = String(meetingLink || "").trim();
+    const effectiveMeetingLink = normalizedMeetingLink || normalizedLinks[0] || "";
 
     const [hh, mm] = String(time).split(":").map((v) => parseInt(v, 10));
     const dt = new Date(date);
@@ -209,9 +251,15 @@ export async function createCompanyInterview(req, res, next) {
       scheduledAt: dt,
       durationMins: Number(durationMins) || 30,
       mode,
-      meetingLink: String(meetingLink || "").trim(),
+      meetingLink: effectiveMeetingLink,
+      interviewLinks: normalizedLinks.length ? normalizedLinks : effectiveMeetingLink ? [effectiveMeetingLink] : [],
       location: String(location || "").trim(),
       messageToCandidate: String(messageToCandidate || "").trim(),
+      interviewQuestions: normalizeStringList(interviewQuestions),
+      documentsRequired: normalizeStringList(documentsRequired),
+      verificationDetails: String(verificationDetails || "").trim(),
+      additionalDetails: String(additionalDetails || "").trim(),
+      verificationStatus,
       interviewer: String(interviewer || "").trim(),
       status,
       notes: [],
@@ -251,6 +299,33 @@ export async function updateCompanyInterview(req, res, next) {
     if (typeof payload.meetingLink === "string") update.meetingLink = payload.meetingLink.trim();
     if (typeof payload.location === "string") update.location = payload.location.trim();
     if (typeof payload.interviewer === "string") update.interviewer = payload.interviewer.trim();
+    if (typeof payload.messageToCandidate === "string") {
+      update.messageToCandidate = payload.messageToCandidate.trim();
+    }
+    if (payload.interviewLinks !== undefined) {
+      update.interviewLinks = normalizeStringList(payload.interviewLinks);
+      if (!update.meetingLink && update.interviewLinks.length) {
+        update.meetingLink = update.interviewLinks[0];
+      }
+    }
+    if (payload.interviewQuestions !== undefined) {
+      update.interviewQuestions = normalizeStringList(payload.interviewQuestions);
+    }
+    if (payload.documentsRequired !== undefined) {
+      update.documentsRequired = normalizeStringList(payload.documentsRequired);
+    }
+    if (typeof payload.verificationDetails === "string") {
+      update.verificationDetails = payload.verificationDetails.trim();
+    }
+    if (typeof payload.additionalDetails === "string") {
+      update.additionalDetails = payload.additionalDetails.trim();
+    }
+    if (
+      payload.verificationStatus &&
+      VERIFICATION_STATUS_ALLOWED.includes(String(payload.verificationStatus))
+    ) {
+      update.verificationStatus = payload.verificationStatus;
+    }
 
     if (payload.durationMins != null) update.durationMins = Number(payload.durationMins) || 30;
 

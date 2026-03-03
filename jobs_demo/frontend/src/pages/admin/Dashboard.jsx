@@ -1,5 +1,5 @@
 // frontend/src/pages/admin/Dashboard.jsx
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FiBriefcase,
   FiClock,
@@ -19,7 +19,6 @@ import {
   LineChart,
   Pie,
   PieChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -72,6 +71,42 @@ function ChartCard({ title, children }) {
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <h3 className="text-base font-semibold text-[#1F2937]">{title}</h3>
       <div className="mt-5 h-72">{children}</div>
+    </div>
+  );
+}
+
+function SafeChartContainer({ className = "", children }) {
+  const containerRef = useRef(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return undefined;
+
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      setSize({
+        width: Math.max(0, Math.floor(rect.width)),
+        height: Math.max(0, Math.floor(rect.height)),
+      });
+    };
+
+    measure();
+    let observer = null;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(measure);
+      observer.observe(el);
+    }
+    window.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      if (observer) observer.disconnect();
+    };
+  }, []);
+
+  return (
+    <div ref={containerRef} className={className}>
+      {size.width > 0 && size.height > 0 ? children(size) : null}
     </div>
   );
 }
@@ -417,76 +452,82 @@ export default function Dashboard() {
       <section className="space-y-4">
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
           <ChartCard title="Jobs Posted Per Month">
-            <ResponsiveContainer width="100%" height="100%" minWidth={320} minHeight={220}>
-              <BarChart data={jobsByMonth}>
-                <CartesianGrid stroke="#E5E7EB" strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="month"
-                  tick={{ fill: "#6B7280", fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fill: "#6B7280", fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip cursor={{ fill: "#EFF6FF" }} />
-                <Bar dataKey="jobs" fill="#2563EB" radius={[6, 6, 0, 0]} barSize={28} />
-              </BarChart>
-            </ResponsiveContainer>
+            <SafeChartContainer className="h-full w-full">
+              {({ width, height }) => (
+                <BarChart width={width} height={height} data={jobsByMonth}>
+                  <CartesianGrid stroke="#E5E7EB" strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fill: "#6B7280", fontSize: 12 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fill: "#6B7280", fontSize: 12 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip cursor={{ fill: "#EFF6FF" }} />
+                  <Bar dataKey="jobs" fill="#2563EB" radius={[6, 6, 0, 0]} barSize={28} />
+                </BarChart>
+              )}
+            </SafeChartContainer>
           </ChartCard>
 
           <ChartCard title="Application Growth">
-            <ResponsiveContainer width="100%" height="100%" minWidth={320} minHeight={220}>
-              <LineChart data={appGrowth}>
-                <CartesianGrid stroke="#E5E7EB" strokeDasharray="3 3" />
-                <XAxis
-                  dataKey="day"
-                  tick={{ fill: "#6B7280", fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <YAxis
-                  tick={{ fill: "#6B7280", fontSize: 12 }}
-                  axisLine={false}
-                  tickLine={false}
-                />
-                <Tooltip />
-                <Line
-                  type="monotone"
-                  dataKey="applications"
-                  stroke="#2563EB"
-                  strokeWidth={3}
-                  dot={{ r: 4, fill: "#2563EB" }}
-                  activeDot={{ r: 6 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <SafeChartContainer className="h-full w-full">
+              {({ width, height }) => (
+                <LineChart width={width} height={height} data={appGrowth}>
+                  <CartesianGrid stroke="#E5E7EB" strokeDasharray="3 3" />
+                  <XAxis
+                    dataKey="day"
+                    tick={{ fill: "#6B7280", fontSize: 12 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <YAxis
+                    tick={{ fill: "#6B7280", fontSize: 12 }}
+                    axisLine={false}
+                    tickLine={false}
+                  />
+                  <Tooltip />
+                  <Line
+                    type="monotone"
+                    dataKey="applications"
+                    stroke="#2563EB"
+                    strokeWidth={3}
+                    dot={{ r: 4, fill: "#2563EB" }}
+                    activeDot={{ r: 6 }}
+                  />
+                </LineChart>
+              )}
+            </SafeChartContainer>
           </ChartCard>
         </div>
 
         <ChartCard title="Job Category Distribution">
-          <ResponsiveContainer width="100%" height="100%" minWidth={320} minHeight={220}>
-            <PieChart>
-              <Pie
-                data={categoryData}
-                cx="40%"
-                cy="50%"
-                innerRadius={70}
-                outerRadius={110}
-                paddingAngle={2}
-                dataKey="value"
-                label
-              >
-                {categoryData.map((entry, index) => (
-                  <Cell key={entry.name} fill={PIE_COLORS[index % PIE_COLORS.length]} />
-                ))}
-              </Pie>
-              <Legend verticalAlign="middle" align="right" layout="vertical" />
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
+          <SafeChartContainer className="h-full w-full">
+            {({ width, height }) => (
+              <PieChart width={width} height={height}>
+                <Pie
+                  data={categoryData}
+                  cx="40%"
+                  cy="50%"
+                  innerRadius={70}
+                  outerRadius={110}
+                  paddingAngle={2}
+                  dataKey="value"
+                  label
+                >
+                  {categoryData.map((entry, index) => (
+                    <Cell key={entry.name} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Legend verticalAlign="middle" align="right" layout="vertical" />
+                <Tooltip />
+              </PieChart>
+            )}
+          </SafeChartContainer>
         </ChartCard>
       </section>
 

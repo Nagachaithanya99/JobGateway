@@ -290,7 +290,7 @@ export default function ResumeBuilder() {
   if (loading) {
     return (
       <div className="bg-[#F8FAFC]">
-        <div className="mx-auto max-w-[1200px] px-4 py-10 sm:px-6 lg:px-8">
+        <div className="w-full px-4 py-10 sm:px-6 lg:px-8">
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <p className="text-sm font-semibold text-slate-700">Loading resume...</p>
             <p className="mt-1 text-xs text-slate-500">Fetching your resume from backend</p>
@@ -302,7 +302,7 @@ export default function ResumeBuilder() {
 
   return (
     <div className="bg-[#F8FAFC] pb-8">
-      <div className="mx-auto max-w-[1200px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="w-full space-y-5 px-4 py-6 sm:px-6 lg:px-8">
         <section>
           <h1 className="text-3xl font-bold text-[#0F172A]">Resume Builder</h1>
           <p className="mt-1 text-sm text-slate-500">Build an ATS-friendly resume in minutes</p>
@@ -857,3 +857,4 @@ export default function ResumeBuilder() {
     </div>
   );
 }
+

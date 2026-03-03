@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { FiExternalLink, FiFilter, FiSearch, FiChevronDown } from "react-icons/fi";
 import { studentListGovernmentJobs } from "../../services/studentService.js";
 
@@ -16,6 +16,10 @@ function fmt(v) {
 }
 
 export default function GovernmentJobs() {
+  const location = useLocation();
+  const isStudentView = location.pathname.startsWith("/student");
+  const withBase = (path) => `${isStudentView ? "/student" : ""}${path}`;
+
   const [rows, setRows] = useState([]);
   const [optionRows, setOptionRows] = useState([]);
 
@@ -182,10 +186,10 @@ export default function GovernmentJobs() {
 
   return (
     <div className="bg-[#F8FAFC] pb-20 md:pb-6">
-      <div className="mx-auto max-w-[1200px] px-4 py-6 sm:px-6 lg:px-8">
+      <div className="w-full px-4 py-6 sm:px-6 lg:px-8">
         <div className="mb-5">
           <p className="text-xs text-slate-500">
-            <Link to="/student" className="hover:text-[#F97316]">
+            <Link to={withBase("/")} className="hover:text-[#F97316]">
               Home
             </Link>
             <span className="px-1.5">{">"}</span>
@@ -429,7 +433,7 @@ export default function GovernmentJobs() {
 
                       <div className="flex flex-col items-end gap-2">
                         <Link
-                          to={`/student/government/${item.id || item._id}`}
+                          to={withBase(`/government/${item.id || item._id}`)}
                           className="inline-flex rounded-xl bg-[#2563EB] px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
                         >
                           View Details
@@ -524,3 +528,4 @@ export default function GovernmentJobs() {
     </div>
   );
 }
+

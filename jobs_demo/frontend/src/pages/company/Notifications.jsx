@@ -4,9 +4,13 @@ import {
   FiAlertCircle,
   FiBell,
   FiCalendar,
-  FiChevronRight,
+  FiChevronDown,
+  FiChevronUp,
   FiCreditCard,
+  FiFilter,
   FiMessageSquare,
+  FiRefreshCcw,
+  FiSearch,
   FiUserPlus,
   FiX,
 } from "react-icons/fi";
@@ -31,6 +35,7 @@ function typeMeta(type) {
 }
 
 const filters = ["All", "Applications", "Interviews", "Messages", "Billing", "System Alerts"];
+const asTypeParam = (value) => (value === "System Alerts" ? "System" : value);
 
 export default function CompanyNotifications() {
   const [rows, setRows] = useState([]);
@@ -40,9 +45,11 @@ export default function CompanyNotifications() {
   const [typeFilter, setTypeFilter] = useState("All");
   const [statusFilter, setStatusFilter] = useState("All");
   const [dateFilter, setDateFilter] = useState("This Month");
+  const [query, setQuery] = useState("");
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [toast, setToast] = useState({ show: false, message: "", tone: "dark" });
+  const [expandedMobile, setExpandedMobile] = useState({});
 
   const [prefs, setPrefs] = useState({
     apps: true,
@@ -61,7 +68,7 @@ export default function CompanyNotifications() {
       setLoading(true);
 
       const data = await listCompanyNotifications({
-        type: typeFilter,
+        type: asTypeParam(typeFilter),
         status: statusFilter,
       });
 
@@ -99,19 +106,44 @@ export default function CompanyNotifications() {
   }, []);
 
   const unreadCount = rows.filter((r) => !r.read).length;
+  const readCount = rows.length - unreadCount;
+  const typeCounts = useMemo(() => {
+    const countBy = { All: rows.length };
+    rows.forEach((r) => {
+      const key = r.type === "System" ? "System Alerts" : r.type || "System Alerts";
+      countBy[key] = (countBy[key] || 0) + 1;
+    });
+    return countBy;
+  }, [rows]);
 
   const filtered = useMemo(() => {
     return rows.filter((r) => {
+      if (query.trim()) {
+        const bag = `${r.title || ""} ${r.desc || ""} ${r.type || ""}`.toLowerCase();
+        if (!bag.includes(query.trim().toLowerCase())) return false;
+      }
       if (dateFilter === "Today" && r.dateGroup !== "Today") return false;
       if (dateFilter === "This Week" && r.dateGroup === "Earlier") return false;
       return true;
     });
-  }, [rows, dateFilter]);
+  }, [rows, dateFilter, query]);
 
   const grouped = {
     Today: filtered.filter((r) => r.dateGroup === "Today"),
     Yesterday: filtered.filter((r) => r.dateGroup === "Yesterday"),
     Earlier: filtered.filter((r) => r.dateGroup === "Earlier"),
+  };
+
+  const clearFilters = () => {
+    setTypeFilter("All");
+    setStatusFilter("All");
+    setDateFilter("This Month");
+    setQuery("");
+    setExpandedMobile({});
+  };
+
+  const toggleMobileExpand = (id) => {
+    setExpandedMobile((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
   const markAllRead = async () => {
@@ -147,6 +179,7 @@ export default function CompanyNotifications() {
         <div className="flex gap-2">
           <button
             onClick={markAllRead}
+            disabled={!unreadCount}
             className="rounded-xl border border-blue-200 px-4 py-2 text-sm font-semibold text-[#2563EB] hover:bg-blue-50"
           >
             Mark All as Read
@@ -167,7 +200,63 @@ export default function CompanyNotifications() {
         </div>
       ) : null}
 
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Notifications</p>
+          <p className="mt-2 text-2xl font-bold text-[#0F172A]">{rows.length}</p>
+        </div>
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#2563EB]">Unread</p>
+          <p className="mt-2 text-2xl font-bold text-[#2563EB]">{unreadCount}</p>
+        </div>
+        <div className="rounded-xl border border-green-200 bg-green-50 p-4 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-green-700">Read</p>
+          <p className="mt-2 text-2xl font-bold text-green-700">{readCount}</p>
+        </div>
+      </section>
+
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-3 grid grid-cols-1 gap-2 md:grid-cols-[1fr_auto_auto_auto_auto]">
+          <div className="relative">
+            <FiSearch className="pointer-events-none absolute left-3 top-3 text-slate-400" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search notifications..."
+              className="h-10 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-blue-300"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="h-10 rounded-lg border border-slate-200 px-3 text-xs"
+          >
+            <option>All</option>
+            <option>Unread</option>
+            <option>Read</option>
+          </select>
+          <select
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+            className="h-10 rounded-lg border border-slate-200 px-3 text-xs"
+          >
+            <option>Today</option>
+            <option>This Week</option>
+            <option>This Month</option>
+          </select>
+          <button
+            onClick={fetchNotifications}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            <FiRefreshCcw /> Refresh
+          </button>
+          <button
+            onClick={clearFilters}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-blue-200 px-3 text-xs font-semibold text-[#2563EB] hover:bg-blue-50"
+          >
+            <FiFilter /> Clear Filters
+          </button>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {filters.map((f) => (
             <button
@@ -179,27 +268,9 @@ export default function CompanyNotifications() {
                   : "border-slate-200 text-slate-700 hover:bg-slate-50"
               }`}
             >
-              {f}
+              {f} ({typeCounts[f] || 0})
             </button>
           ))}
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="ml-auto h-9 rounded-lg border border-slate-200 px-3 text-xs"
-          >
-            <option>All</option>
-            <option>Unread</option>
-            <option>Read</option>
-          </select>
-          <select
-            value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-            className="h-9 rounded-lg border border-slate-200 px-3 text-xs"
-          >
-            <option>Today</option>
-            <option>This Week</option>
-            <option>This Month</option>
-          </select>
         </div>
       </section>
 
@@ -213,12 +284,13 @@ export default function CompanyNotifications() {
             grouped[group].length ? (
               <div key={group} className="space-y-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {group}
+                  {group} ({grouped[group].length})
                 </p>
 
                 {grouped[group].map((n) => {
                   const meta = typeMeta(n.type);
                   const Icon = meta.icon;
+                  const isExpanded = !!expandedMobile[n.id];
 
                   return (
                     <article
@@ -237,20 +309,37 @@ export default function CompanyNotifications() {
                         </span>
 
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-[#0F172A]">
-                            {n.title}
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="truncate text-sm font-semibold text-[#0F172A]">
+                              {n.title}
+                            </p>
+                            <button
+                              onClick={() => toggleMobileExpand(n.id)}
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 md:hidden"
+                            >
+                              {isExpanded ? "Hide" : "View"}
+                              {isExpanded ? <FiChevronUp /> : <FiChevronDown />}
+                            </button>
+                          </div>
+                          <p className={`mt-0.5 text-sm text-slate-600 ${isExpanded ? "block" : "hidden md:block"}`}>
+                            {n.desc}
                           </p>
-                          <p className="mt-0.5 text-sm text-slate-600">
+                          <p className={`mt-0.5 truncate text-xs text-slate-500 ${isExpanded ? "hidden" : "block md:hidden"}`}>
                             {n.desc}
                           </p>
                           <p className="mt-1 text-xs text-slate-500">{n.time}</p>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          {!n.read ? (
-                            <span className="inline-flex h-2.5 w-2.5 rounded-full bg-[#2563EB]" />
-                          ) : null}
-
+                        <div className={`flex flex-wrap items-center justify-end gap-2 ${isExpanded ? "flex" : "hidden md:flex"}`}>
+                          <span
+                            className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${
+                              n.read
+                                ? "border-slate-200 bg-slate-100 text-slate-600"
+                                : "border-blue-200 bg-blue-50 text-[#2563EB]"
+                            }`}
+                          >
+                            {n.read ? "Read" : "Unread"}
+                          </span>
                           <button
                             onClick={() => {
                               if (n.actionUrl) window.location.assign(n.actionUrl);
@@ -267,8 +356,6 @@ export default function CompanyNotifications() {
                           >
                             {n.read ? "Mark Unread" : "Mark Read"}
                           </button>
-
-                          <FiChevronRight className="text-slate-400" />
                         </div>
                       </div>
                     </article>
@@ -281,7 +368,7 @@ export default function CompanyNotifications() {
 
         {!loading && filtered.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-600 shadow-sm">
-            No notifications found.
+            No notifications found for the selected filters.
           </div>
         ) : null}
       </section>

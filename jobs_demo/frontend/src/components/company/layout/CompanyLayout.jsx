@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Outlet } from "react-router-dom";
 import CompanySidebar from "./CompanySidebar.jsx";
 import CompanyNavbar from "./CompanyNavbar.jsx";
+import AppChatbot from "../../chat/AppChatbot.jsx";
 
 export default function CompanyLayout() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -20,6 +21,7 @@ export default function CompanyLayout() {
           </main>
         </div>
       </div>
+      <AppChatbot />
     </div>
   );
 }

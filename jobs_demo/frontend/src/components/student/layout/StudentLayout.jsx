@@ -1,6 +1,7 @@
 import { Outlet } from "react-router-dom";
 import StudentNavbar from "./StudentNavbar.jsx";
 import StudentFooter from "./StudentFooter.jsx";
+import AppChatbot from "../../chat/AppChatbot.jsx";
 
 export default function StudentLayout() {
   return (
@@ -10,6 +11,7 @@ export default function StudentLayout() {
         <Outlet />
       </main>
       <StudentFooter />
+      <AppChatbot />
     </div>
   );
 }

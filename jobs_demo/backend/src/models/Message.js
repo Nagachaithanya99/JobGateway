@@ -11,6 +11,8 @@ const messageSchema = new mongoose.Schema(
 
     fileName: { type: String, default: "" },
     fileSize: { type: String, default: "" },
+    fileUrl: { type: String, default: "" },
+    mimeType: { type: String, default: "" },
   },
   { timestamps: true }
 );

@@ -48,6 +48,21 @@ function toDateTimeText(dt) {
   return `${dateStr} at ${timeStr}`;
 }
 
+function normalizeStringList(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((x) => String(x || "").trim())
+      .filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(/\r?\n|,/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 export const listCompanyApplications = async (req, res, next) => {
   try {
     const companyId = req.user._id;
@@ -207,6 +222,11 @@ export const scheduleCompanyInterview = async (req, res, next) => {
       link = "",
       round = "HR",
       message = "",
+      interviewLinks = [],
+      interviewQuestions = [],
+      documentsRequired = [],
+      verificationDetails = "",
+      additionalDetails = "",
     } = req.body;
 
     if (!date || !time) {
@@ -223,6 +243,9 @@ export const scheduleCompanyInterview = async (req, res, next) => {
     const [hh, mm] = String(time).split(":").map((v) => parseInt(v, 10));
     const dt = new Date(date);
     dt.setHours(Number.isFinite(hh) ? hh : 0, Number.isFinite(mm) ? mm : 0, 0, 0);
+    const normalizedLinks = normalizeStringList(interviewLinks);
+    const normalizedMeetingLink = String(link || "").trim();
+    const effectiveMeetingLink = normalizedMeetingLink || normalizedLinks[0] || "";
 
     const interview = await Interview.create({
       company: companyId,
@@ -234,9 +257,21 @@ export const scheduleCompanyInterview = async (req, res, next) => {
       stage: ["HR", "Technical", "Final"].includes(round) ? round : "HR",
       scheduledAt: dt,
       mode: type === "Onsite" ? "Onsite" : "Online",
-      meetingLink: type === "Online" ? String(link || "") : "",
+      meetingLink: type === "Online" ? effectiveMeetingLink : "",
+      interviewLinks:
+        type === "Online"
+          ? normalizedLinks.length
+            ? normalizedLinks
+            : effectiveMeetingLink
+            ? [effectiveMeetingLink]
+            : []
+          : [],
       location: type === "Onsite" ? String(link || "") : "",
       messageToCandidate: String(message || ""),
+      interviewQuestions: normalizeStringList(interviewQuestions),
+      documentsRequired: normalizeStringList(documentsRequired),
+      verificationDetails: String(verificationDetails || "").trim(),
+      additionalDetails: String(additionalDetails || "").trim(),
       status: "Scheduled",
     });
 
@@ -246,7 +281,7 @@ export const scheduleCompanyInterview = async (req, res, next) => {
     );
 
     const whenText = toDateTimeText(dt);
-    const joinLine = type === "Online" && String(link || "").trim() ? ` Join link: ${String(link).trim()}` : "";
+    const joinLine = type === "Online" && effectiveMeetingLink ? ` Join link: ${effectiveMeetingLink}` : "";
     const noteLine = String(message || "").trim() ? ` Note: ${String(message).trim()}` : "";
     const preview = `Interview scheduled for ${whenText}.${joinLine}${noteLine}`;
 
@@ -278,7 +313,7 @@ export const scheduleCompanyInterview = async (req, res, next) => {
       description: `Interview for ${app.job?.title || "your application"} is scheduled on ${whenText}.`,
       icon: "shortlisted",
       actions: [
-        ...(type === "Online" && String(link || "").trim() ? ["Join Meeting"] : []),
+        ...(type === "Online" && effectiveMeetingLink ? ["Join Meeting"] : []),
         "View Application",
       ],
       meta: {
@@ -287,7 +322,7 @@ export const scheduleCompanyInterview = async (req, res, next) => {
         conversationId: thread ? String(thread._id) : "",
         interviewId: String(interview._id),
         scheduledAt: dt.toISOString(),
-        url: type === "Online" ? String(link || "").trim() : "",
+        url: type === "Online" ? effectiveMeetingLink : "",
       },
     });
 

@@ -10,10 +10,12 @@ import {
   FiSend,
   FiSmile,
   FiVideo,
+  FiX,
 } from "react-icons/fi";
 import Modal from "../../components/common/Modal.jsx";
 import Loader from "../../components/common/Loader.jsx";
 import Toast from "../../components/common/Toast.jsx";
+import uploadService from "../../services/uploadService.js";
 import {
   getCompanyThread,
   listCompanyThreads,
@@ -87,6 +89,13 @@ function extractMeetLink(text = "") {
   return match ? match[0] : "";
 }
 
+function isImageMessage(message) {
+  const mime = String(message?.mimeType || "").toLowerCase();
+  if (mime.startsWith("image/")) return true;
+  const name = String(message?.fileName || "").toLowerCase();
+  return /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name);
+}
+
 export default function Messages() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -106,6 +115,7 @@ export default function Messages() {
   const [toast, setToast] = useState({ show: false, message: "", tone: "dark" });
   const [actionBusy, setActionBusy] = useState(false);
   const [spam, setSpam] = useState({ open: false, reason: "Abusive Language", details: "", busy: false });
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const [offer, setOffer] = useState({
     open: false,
@@ -123,6 +133,7 @@ export default function Messages() {
     link: "",
     message: "",
   });
+  const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
 
   const ping = (message, tone = "dark") => setToast({ show: true, message, tone });
 
@@ -179,6 +190,9 @@ export default function Messages() {
   useEffect(() => {
     if (activeId) loadThread(activeId);
   }, [activeId]);
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [activeId]);
 
   const list = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -190,6 +204,7 @@ export default function Messages() {
       return true;
     });
   }, [rows, search, filter]);
+  const activeRow = useMemo(() => rows.find((x) => x.id === activeId) || null, [rows, activeId]);
 
   const setActiveConversation = (id) => {
     setActiveId(id);
@@ -223,26 +238,35 @@ export default function Messages() {
     setRows((prev) => prev.map((x) => (x.id === activeId ? { ...x, last: systemText, time: "Now" } : x)));
   };
 
-  const sendFile = async (fileName, fileSize = "") => {
+  const sendFile = async (file) => {
     if (!activeId) return;
     try {
+      const uploadRes = await uploadService.uploadMessageAttachment(file);
+      const payload = uploadRes?.data || {};
+      const fileName = payload.fileName || file?.name || "File";
+      const fileSize = payload.fileSize || `${Math.ceil((file?.size || 0) / 1024)} KB`;
+      const fileUrl = payload.fileUrl || "";
+      const mimeType = payload.mimeType || file?.type || "";
+
       const res = await sendCompanyMessage(activeId, {
         type: "file",
         fileName,
         fileSize,
+        fileUrl,
+        mimeType,
         text: `${fileName} shared`,
       });
       appendMessage(res.message);
       setRows((prev) => prev.map((x) => (x.id === activeId ? { ...x, last: `${fileName} shared`, time: "Now" } : x)));
     } catch (e) {
-      ping(e?.response?.data?.message || "Failed to send file", "error");
+      ping(e?.response?.data?.message || "Failed to upload/send file", "error");
     }
   };
 
   const onPickFile = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    await sendFile(f.name, `${Math.ceil(f.size / 1024)} KB`);
+    await sendFile(f);
     e.target.value = "";
   };
 
@@ -334,6 +358,23 @@ export default function Messages() {
     }
   };
 
+  const markConversationUnread = () => {
+    if (!activeId) return;
+    setRows((prev) => prev.map((x) => (x.id === activeId ? { ...x, unread: (Number(x.unread) || 0) + 1 } : x)));
+    ping("Conversation marked as unread", "success");
+  };
+
+  const copyCandidateEmail = async () => {
+    const email = String(active?.email || "").trim();
+    if (!email) return ping("Candidate email not available", "error");
+    try {
+      await navigator.clipboard.writeText(email);
+      ping("Candidate email copied", "success");
+    } catch {
+      ping("Failed to copy email", "error");
+    }
+  };
+
   return (
     <div className="space-y-5 pb-20 md:pb-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -406,9 +447,70 @@ export default function Messages() {
 
                 <div className="flex flex-wrap gap-2">
                   <button onClick={() => setSchedule((p) => ({ ...p, open: true }))} className="rounded-lg bg-[#2563EB] px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700">Schedule Interview</button>
-                  <button onClick={() => navigate("/company/candidates")} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">View Profile</button>
+                  <button onClick={() => setProfileDrawerOpen(true)} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">View Profile</button>
                   <button onClick={() => setSpam((p) => ({ ...p, open: true }))} className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-100"><FiFlag /></button>
-                  <button onClick={loadThreads} className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"><FiMoreHorizontal /></button>
+                  <div className="relative">
+                    <button onClick={() => setMenuOpen((p) => !p)} className="rounded-lg border border-slate-200 p-2 text-slate-600 hover:bg-slate-50"><FiMoreHorizontal /></button>
+                    {menuOpen ? (
+                      <div className="absolute right-0 top-11 z-20 w-52 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            loadThread(activeId);
+                          }}
+                          className="block w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          Refresh Conversation
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            markConversationUnread();
+                          }}
+                          className="block w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          Mark as Unread
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            copyCandidateEmail();
+                          }}
+                          className="block w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          Copy Candidate Email
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            navigate("/company/candidates");
+                          }}
+                          className="block w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          Open Applications
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setSpam((p) => ({ ...p, open: true }));
+                          }}
+                          className="block w-full px-3 py-2 text-left text-xs font-semibold text-red-600 hover:bg-red-50"
+                        >
+                          Report Conversation
+                        </button>
+                        {activeRow?.unread ? (
+                          <p className="border-t border-slate-100 px-3 py-2 text-[11px] text-slate-500">
+                            Current unread count: {activeRow.unread}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </header>
 
@@ -442,10 +544,28 @@ export default function Messages() {
                         <div className="max-w-[78%]">
                           {m.type === "file" ? (
                             <div className={`rounded-2xl border px-3 py-2 ${company ? "border-blue-600 bg-[#2563EB] text-white" : "border-slate-200 bg-white text-slate-700"}`}>
-                              <div className="flex items-center gap-2 text-sm font-semibold"><FiFileText />{m.fileName || "File"}</div>
+                              {isImageMessage(m) && m.fileUrl ? (
+                                <div className="mb-2 overflow-hidden rounded-lg border border-white/20 bg-white/10">
+                                  <img
+                                    src={m.fileUrl}
+                                    alt={m.fileName || "Attachment"}
+                                    className="max-h-64 w-full object-contain"
+                                  />
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2 text-sm font-semibold"><FiFileText />{m.fileName || "File"}</div>
+                              )}
                               <div className="mt-1 flex items-center justify-between text-xs">
                                 <span>{m.fileSize || ""}</span>
-                                <button onClick={() => ping("Attachment URL not available")} className={`inline-flex items-center gap-1 ${company ? "text-blue-100" : "text-[#2563EB]"}`}><FiDownload />Download</button>
+                                <button
+                                  onClick={() => {
+                                    if (!m.fileUrl) return ping("Attachment URL not available", "error");
+                                    window.open(m.fileUrl, "_blank", "noopener,noreferrer");
+                                  }}
+                                  className={`inline-flex items-center gap-1 ${company ? "text-blue-100" : "text-[#2563EB]"}`}
+                                >
+                                  <FiDownload />Download
+                                </button>
                               </div>
                             </div>
                           ) : (
@@ -539,6 +659,47 @@ export default function Messages() {
           <textarea value={schedule.message} onChange={(e) => setSchedule((p) => ({ ...p, message: e.target.value }))} rows={3} placeholder="Message" className="rounded-lg border border-slate-200 px-3 py-2 text-sm sm:col-span-2" />
         </div>
       </Modal>
+
+      {profileDrawerOpen ? (
+        <div className="fixed inset-0 z-40">
+          <div className="absolute inset-0 bg-slate-900/30" onClick={() => setProfileDrawerOpen(false)} />
+          <aside className="absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto border-l border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+              <h3 className="text-sm font-semibold text-[#0F172A]">Student Profile</h3>
+              <button
+                type="button"
+                onClick={() => setProfileDrawerOpen(false)}
+                className="rounded-lg border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50"
+                aria-label="Close profile drawer"
+              >
+                <FiX />
+              </button>
+            </div>
+
+            <div className="space-y-3 p-4 text-sm text-slate-700">
+              <div>
+                <p className="text-base font-semibold text-[#0F172A]">{active?.candidate || "Candidate"}</p>
+                <p className="text-xs text-slate-500">{active?.job || "-"}</p>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p><span className="font-semibold text-[#0F172A]">Status:</span> {active?.status || "-"}</p>
+                <p className="mt-1"><span className="font-semibold text-[#0F172A]">Email:</span> {active?.email || "-"}</p>
+                <p className="mt-1"><span className="font-semibold text-[#0F172A]">Phone:</span> {active?.phone || "-"}</p>
+                <p className="mt-1"><span className="font-semibold text-[#0F172A]">Application ID:</span> {active?.applicationId || "-"}</p>
+              </div>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setProfileDrawerOpen(false)}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </aside>
+        </div>
+      ) : null}
 
       <Modal
         open={spam.open}

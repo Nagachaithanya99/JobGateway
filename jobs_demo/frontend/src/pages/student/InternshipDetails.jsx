@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   FiBriefcase,
   FiCheckCircle,
@@ -40,7 +40,21 @@ function parseStipend(raw = "") {
 
 export default function InternshipDetails() {
   const { id } = useParams();
-  const { user } = useAuth();
+  const { user, isAuthed, role } = useAuth();
+  const nav = useNavigate();
+  const location = useLocation();
+  const isStudentView = location.pathname.startsWith("/student");
+  const withBase = (path) => `${isStudentView ? "/student" : ""}${path}`;
+  const redirectToLogin = () => {
+    const redirect = isStudentView
+      ? `${location.pathname}${location.search || ""}`
+      : `/student${location.pathname === "/" ? "" : location.pathname}${location.search || ""}`;
+    if (isStudentView) {
+      nav("/student/login");
+      return;
+    }
+    nav(`/login?role=student&redirect=${encodeURIComponent(redirect)}`);
+  };
   const completion = Number(user?.profileCompletion ?? 0);
 
   const [item, setItem] = useState(null);
@@ -81,6 +95,10 @@ export default function InternshipDetails() {
   const skills = useMemo(() => normalizeArray(item?.skills), [item]);
 
   const onApplyNow = () => {
+    if (!isAuthed || role !== "student") {
+      redirectToLogin();
+      return;
+    }
     if (completion < 100) {
       setProfileModal(true);
       return;
@@ -91,7 +109,7 @@ export default function InternshipDetails() {
   if (loading) {
     return (
       <div className="bg-[#F6F8FF] pb-24 md:pb-10">
-        <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6 lg:px-8">
+        <div className="w-full px-4 py-8 sm:px-6 lg:px-8">
           <div className="rounded-3xl border border-white/50 bg-white/70 p-6 text-sm text-slate-600 shadow-sm backdrop-blur">
             Loading internship details...
           </div>
@@ -103,13 +121,13 @@ export default function InternshipDetails() {
   if (err && !item) {
     return (
       <div className="bg-[#F6F8FF] pb-24 md:pb-10">
-        <div className="mx-auto max-w-[1200px] px-4 py-8 sm:px-6 lg:px-8">
+        <div className="w-full px-4 py-8 sm:px-6 lg:px-8">
           <div className="rounded-3xl border border-red-200 bg-red-50 p-6 text-sm font-semibold text-red-700">
             {err}
           </div>
           <div className="mt-4">
             <Link
-              to="/student/internship"
+              to={withBase("/internship")}
               className="inline-flex rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
               Back to Internships
@@ -136,17 +154,17 @@ export default function InternshipDetails() {
         <div className="absolute inset-0 opacity-[0.35] [background-image:radial-gradient(rgba(15,23,42,0.08)_1px,transparent_1px)] [background-size:18px_18px]" />
       </div>
 
-      <div className="mx-auto max-w-[1200px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="w-full space-y-5 px-4 py-6 sm:px-6 lg:px-8">
         <section className="relative overflow-hidden rounded-[28px] border border-white/55 bg-white/55 p-6 shadow-sm backdrop-blur">
           <div className="absolute inset-0 bg-gradient-to-br from-white/65 via-white/40 to-blue-50/40" />
           <div className="relative grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_420px]">
             <div>
               <p className="text-sm text-slate-500">
-                <Link to="/student" className="hover:text-[#2563EB]">
+                <Link to={withBase("/")} className="hover:text-[#2563EB]">
                   Home
                 </Link>
                 <span className="px-1.5">{" > "}</span>
-                <Link to="/student/internship" className="hover:text-[#2563EB]">
+                <Link to={withBase("/internship")} className="hover:text-[#2563EB]">
                   Internships
                 </Link>
                 <span className="px-1.5">{" > "}</span>
@@ -306,6 +324,12 @@ export default function InternshipDetails() {
                   setApplyModal(false);
                   setSuccessModal(true);
                 } catch (e) {
+                  const status = Number(e?.response?.status || 0);
+                  if (status === 401 || status === 403) {
+                    setApplyModal(false);
+                    redirectToLogin();
+                    return;
+                  }
                   setErr(e?.response?.data?.message || "Apply failed. Please try again.");
                   setApplyModal(false);
                 }
@@ -373,3 +397,4 @@ export default function InternshipDetails() {
     </div>
   );
 }
+

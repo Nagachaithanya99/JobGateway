@@ -20,6 +20,7 @@ import companyNotificationsRoutes from "./routes/company/company.notifications.r
 import companyBoostRoutes from "./routes/company/company.boost.routes.js";
 import companySettingsRoutes from "./routes/company/company.settings.routes.js";
 import companyProfileRoutes from "./routes/company/company.profile.routes.js";
+import chatbotRoutes from "./routes/chatbot.routes.js";
 
 // Student
 import studentMetaRoutes from "./routes/student/student.meta.routes.js";
@@ -31,6 +32,7 @@ import studentProfileRoutes from "./routes/student/student.profile.routes.js";
 import studentMessagesRoutes from "./routes/student/student.messages.routes.js";
 import studentNotificationsRoutes from "./routes/student/student.notifications.routes.js";
 import studentSettingsRoutes from "./routes/student/student.settings.routes.js";
+import studentInterviewsRoutes from "./routes/student/student.interviews.routes.js";
 
 // Admin
 import adminDashboardRoutes from "./routes/admin/admin.dashboard.routes.js";
@@ -45,6 +47,7 @@ import adminRolesRoutes from "./routes/admin/admin.roles.routes.js";
 import adminNotificationsRoutes from "./routes/admin/admin.notifications.routes.js";
 import adminSettingsRoutes from "./routes/admin/admin.settings.routes.js";
 import adminProfileRoutes from "./routes/admin/admin.profile.routes.js";
+import contentRoutes from "./routes/content.routes.js";
 
 // Uploads
 import uploadsRoutes from "./routes/uploads.routes.js";
@@ -57,6 +60,9 @@ app.use(express.json());
 
 // ✅ Serve uploaded files publicly
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+
+// Public content endpoints (About/Contact/Home sections) must be accessible without auth
+app.use("/api/content", contentRoutes);
 
 // ✅ Clerk middleware (global) — must be BEFORE routes
 app.use(requireAuth);
@@ -75,6 +81,7 @@ app.use("/api/company", companyBoostRoutes);
 app.use("/api/company/profile", companyProfileRoutes);
 app.use("/api/company/notifications", companyNotificationsRoutes);
 app.use("/api/company/settings", companySettingsRoutes);
+app.use("/api", chatbotRoutes);
 
 // Student routes
 app.use("/api/student", studentHomeRoutes);
@@ -86,6 +93,7 @@ app.use("/api/student", studentMetaRoutes);
 app.use("/api/student", studentMessagesRoutes);
 app.use("/api/student", studentNotificationsRoutes);
 app.use("/api/student", studentSettingsRoutes);
+app.use("/api/student", studentInterviewsRoutes);
 
 // Admin routes
 app.use("/api/admin", adminDashboardRoutes);

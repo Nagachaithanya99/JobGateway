@@ -57,7 +57,7 @@ export default function JobFilters({
           >
             <option value="all">Stream: All</option>
             {(options?.streams || []).map((s) => (
-              <option key={s} value={s}>
+              <option key={s} value={String(s).toLowerCase() === "other" ? "other" : s}>
                 {s}
               </option>
             ))}

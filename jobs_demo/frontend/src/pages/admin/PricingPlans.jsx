@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FiActivity,
   FiBarChart2,
-  FiCheckCircle,
   FiDollarSign,
   FiEdit2,
   FiFileText,
@@ -19,7 +18,6 @@ import {
   LineChart,
   Pie,
   PieChart,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
@@ -37,7 +35,7 @@ import {
 const PIE_COLORS = ["#2563EB", "#F97316", "#7C3AED", "#0EA5E9"];
 
 function formatMoney(value) {
-  return `₹${Number(value || 0).toLocaleString("en-IN")}`;
+  return `Rs ${Number(value || 0).toLocaleString("en-IN")}`;
 }
 
 function toNumberAmount(text) {
@@ -58,6 +56,44 @@ function InputField({ label, children }) {
       {label}
       <div className="mt-1">{children}</div>
     </label>
+  );
+}
+
+function SafeChartContainer({ className, children }) {
+  const containerRef = useRef(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return undefined;
+
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      setSize({
+        width: Math.max(0, Math.floor(rect.width)),
+        height: Math.max(0, Math.floor(rect.height)),
+      });
+    };
+
+    measure();
+
+    let observer = null;
+    if (typeof ResizeObserver !== "undefined") {
+      observer = new ResizeObserver(measure);
+      observer.observe(el);
+    }
+
+    window.addEventListener("resize", measure);
+    return () => {
+      window.removeEventListener("resize", measure);
+      if (observer) observer.disconnect();
+    };
+  }, []);
+
+  return (
+    <div ref={containerRef} className={className}>
+      {size.width > 0 && size.height > 0 ? children(size) : null}
+    </div>
   );
 }
 
@@ -160,54 +196,47 @@ export default function PricingPlans() {
     highlight: false,
   });
 
-  useEffect(() => {
-    let mounted = true;
+  const loadPricingData = async () => {
+    try {
+      setLoading(true);
+      setError("");
+      const [pl, pr] = await Promise.all([adminListPlans(), adminListPlanRequests()]);
+      const safeRequests = (Array.isArray(pr) ? pr : []).map((item) => ({
+        ...item,
+        status: String(item.status || "pending").toLowerCase(),
+        amountValue: toNumberAmount(item.amount),
+        paymentMethod: item.paymentMethod || "Manual",
+        transactionId: item.utr || item.transactionId || "-",
+        activationDate: item.activationDate || "",
+        expiryDate: item.expiryDate || "",
+      }));
 
-    async function load() {
-      try {
-        setLoading(true);
-        setError("");
-        const [pl, pr] = await Promise.all([adminListPlans(), adminListPlanRequests()]);
-        if (!mounted) return;
+      const approvedByPlan = safeRequests
+        .filter((r) => String(r.status).toLowerCase() === "approved")
+        .reduce((acc, r) => {
+          const key = r.planName || "";
+          acc[key] = (acc[key] || 0) + 1;
+          return acc;
+        }, {});
 
-        const safeRequests = (Array.isArray(pr) ? pr : []).map((item) => ({
+      setPlans(
+        (Array.isArray(pl) ? pl : []).map((item) => ({
           ...item,
-          amountValue: toNumberAmount(item.amount),
-          paymentMethod: item.paymentMethod || "Manual",
-          transactionId: item.utr || item.transactionId || "-",
-          activationDate: item.activationDate || "",
-          expiryDate: item.expiryDate || "",
-        }));
-
-        const approvedByPlan = safeRequests
-          .filter((r) => String(r.status).toLowerCase() === "approved")
-          .reduce((acc, r) => {
-            const key = r.planName || "";
-            acc[key] = (acc[key] || 0) + 1;
-            return acc;
-          }, {});
-
-        setPlans(
-          (Array.isArray(pl) ? pl : []).map((item) => ({
-            ...item,
-            currency: "₹",
-            activeCompanies: approvedByPlan[item.name] || 0,
-            description: item.description || "Scalable hiring plan with admin controls.",
-          })),
-        );
-        setRequests(safeRequests);
-      } catch (e) {
-        if (!mounted) return;
-        setError(e?.response?.data?.message || e?.message || "Failed to load pricing data.");
-      } finally {
-        if (mounted) setLoading(false);
-      }
+          activeCompanies: approvedByPlan[item.name] || 0,
+          description: item.description || "Scalable hiring plan with admin controls.",
+        })),
+      );
+      setRequests(safeRequests);
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || "Failed to load pricing data.");
+    } finally {
+      setLoading(false);
     }
+  };
 
-    load();
-    return () => {
-      mounted = false;
-    };
+  useEffect(() => {
+    loadPricingData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const requestRows = useMemo(() => {
@@ -230,12 +259,11 @@ export default function PricingPlans() {
 
   const stats = useMemo(() => {
     const activePlans = plans.filter((p) => p.active).length;
-    const pendingRequests = requests.filter((r) => r.status === "pending").length;
-    const monthlyRevenue = requests
-      .filter((r) => r.status === "approved")
+    const pendingRequests = requests.filter((r) => String(r.status).toLowerCase() === "pending").length;
+    const monthlyRevenue = requests.filter((r) => String(r.status).toLowerCase() === "approved")
       .reduce((sum, r) => sum + Number(r.amountValue || 0), 0);
     const subscribedCompanies = new Set(
-      requests.filter((r) => r.status === "approved").map((r) => r.companyId || r.companyName),
+      requests.filter((r) => String(r.status).toLowerCase() === "approved").map((r) => r.companyId || r.companyName),
     ).size;
 
     return {
@@ -248,8 +276,7 @@ export default function PricingPlans() {
 
   const analytics = useMemo(() => {
     const planDistributionMap = {};
-    requests
-      .filter((r) => r.status === "approved")
+    requests.filter((r) => String(r.status).toLowerCase() === "approved")
       .forEach((r) => {
         const key = r.planName || "Unknown";
         planDistributionMap[key] = (planDistributionMap[key] || 0) + 1;
@@ -261,8 +288,7 @@ export default function PricingPlans() {
     }));
 
     const monthlyMap = {};
-    requests
-      .filter((r) => r.status === "approved")
+    requests.filter((r) => String(r.status).toLowerCase() === "approved")
       .forEach((r) => {
         const d = new Date(r.createdAt || Date.now());
         const month = d.toLocaleString("en-US", { month: "short" });
@@ -276,7 +302,7 @@ export default function PricingPlans() {
 
     const popularity = plans.map((p) => ({
       name: p.name,
-      count: requests.filter((r) => r.planName === p.name && r.status === "approved").length,
+      count: requests.filter((r) => r.planName === p.name && String(r.status).toLowerCase() === "approved").length,
     }));
 
     const mostPopular = popularity.reduce(
@@ -328,18 +354,21 @@ export default function PricingPlans() {
     try {
       setError("");
       const payload = {
-      ...(editing || {}),
-      ...form,
-      id: editing?.id || editing?._id,
+        ...(editing || {}),
+        ...form,
+        id: editing?.id || editing?._id,
+        jobsLimit: Number(form.jobsLimit || 1),
+        appsLimit: Number(form.appsLimit || 100),
       };
 
       const res = await adminSavePlan(payload);
       const next = res?.plan || payload;
 
       setPlans((prev) => {
-        const exists = prev.some((x) => x.id === next.id);
-        if (exists) return prev.map((x) => (x.id === next.id ? { ...x, ...next } : x));
-        return [{ ...next, activeCompanies: 0 }, ...prev];
+        const nextId = next.id || next._id;
+        const exists = prev.some((x) => (x.id || x._id) === nextId);
+        if (exists) return prev.map((x) => ((x.id || x._id) === nextId ? { ...x, ...next, id: nextId } : x));
+        return [{ ...next, id: nextId, activeCompanies: 0 }, ...prev];
       });
 
       setPlanOpen(false);
@@ -351,9 +380,10 @@ export default function PricingPlans() {
   const onTogglePlan = async (plan) => {
     try {
       setError("");
-      const res = await adminSavePlan({ ...plan, active: !plan.active });
+      const planId = plan.id || plan._id;
+      const res = await adminSavePlan({ ...plan, id: planId, active: !plan.active });
       const next = res?.plan || { ...plan, active: !plan.active };
-      setPlans((prev) => prev.map((x) => (x.id === plan.id ? { ...x, ...next } : x)));
+      setPlans((prev) => prev.map((x) => ((x.id || x._id) === planId ? { ...x, ...next } : x)));
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || "Failed to update plan.");
     }
@@ -364,8 +394,9 @@ export default function PricingPlans() {
     if (!ok) return;
     try {
       setError("");
-      await adminDeletePlan(plan.id);
-      setPlans((prev) => prev.filter((x) => x.id !== plan.id));
+      const planId = plan.id || plan._id;
+      await adminDeletePlan(planId);
+      setPlans((prev) => prev.filter((x) => (x.id || x._id) !== planId));
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || "Failed to delete plan.");
     }
@@ -376,7 +407,18 @@ export default function PricingPlans() {
       setError("");
       const res = await adminUpdatePlanRequest(row.id, nextStatus);
       if (res?.request) {
-        setRequests((prev) => prev.map((x) => (x.id === row.id ? { ...x, ...res.request, amountValue: toNumberAmount(res.request.amount) } : x)));
+        setRequests((prev) =>
+          prev.map((x) =>
+            x.id === row.id
+              ? {
+                  ...x,
+                  ...res.request,
+                  status: String(res.request.status || "").toLowerCase(),
+                  amountValue: toNumberAmount(res.request.amount),
+                }
+              : x,
+          ),
+        );
         return;
       }
       setRequests((prev) =>
@@ -624,9 +666,9 @@ export default function PricingPlans() {
       <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <h3 className="text-sm font-semibold text-[#0F172A]">Plan Distribution</h3>
-          <div className="mt-3 h-64">
-            <ResponsiveContainer width="100%" height="100%" minWidth={320} minHeight={220}>
-              <PieChart>
+          <SafeChartContainer className="mt-3 h-64">
+            {({ width, height }) => (
+              <PieChart width={width} height={height}>
                 <Pie data={analytics.planDistribution} dataKey="value" innerRadius={45} outerRadius={80}>
                   {analytics.planDistribution.map((item, idx) => (
                     <Cell key={item.name} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
@@ -634,23 +676,23 @@ export default function PricingPlans() {
                 </Pie>
                 <Tooltip />
               </PieChart>
-            </ResponsiveContainer>
-          </div>
+            )}
+          </SafeChartContainer>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <h3 className="text-sm font-semibold text-[#0F172A]">Revenue Trend</h3>
-          <div className="mt-3 h-64">
-            <ResponsiveContainer width="100%" height="100%" minWidth={320} minHeight={220}>
-              <LineChart data={analytics.revenueTrend}>
+          <SafeChartContainer className="mt-3 h-64">
+            {({ width, height }) => (
+              <LineChart width={width} height={height} data={analytics.revenueTrend}>
                 <CartesianGrid stroke="#E2E8F0" strokeDasharray="3 3" />
                 <XAxis dataKey="month" tick={{ fill: "#64748B", fontSize: 11 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: "#64748B", fontSize: 11 }} axisLine={false} tickLine={false} />
                 <Tooltip />
                 <Line type="monotone" dataKey="value" stroke="#2563EB" strokeWidth={3} dot={{ r: 4, fill: "#2563EB" }} />
               </LineChart>
-            </ResponsiveContainer>
-          </div>
+            )}
+          </SafeChartContainer>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -659,17 +701,17 @@ export default function PricingPlans() {
           <p className="mt-4 text-2xl font-bold text-[#0F172A]">{analytics.mostPopular.name}</p>
           <p className="text-sm text-[#F97316]">{analytics.mostPopular.count} active subscriptions</p>
 
-          <div className="mt-4 h-36">
-            <ResponsiveContainer width="100%" height="100%" minWidth={320} minHeight={140}>
-              <BarChart data={analytics.popularity}>
+          <SafeChartContainer className="mt-4 h-36">
+            {({ width, height }) => (
+              <BarChart width={width} height={height} data={analytics.popularity}>
                 <CartesianGrid stroke="#E2E8F0" strokeDasharray="3 3" />
                 <XAxis dataKey="name" tick={{ fill: "#64748B", fontSize: 11 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: "#64748B", fontSize: 11 }} axisLine={false} tickLine={false} />
                 <Tooltip />
                 <Bar dataKey="count" fill="#F97316" radius={[6, 6, 0, 0]} />
               </BarChart>
-            </ResponsiveContainer>
-          </div>
+            )}
+          </SafeChartContainer>
         </div>
       </section>
 
@@ -712,16 +754,16 @@ export default function PricingPlans() {
             <input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} className="h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" />
           </InputField>
 
-          <InputField label="Price (?)">
+          <InputField label="Price (Rs)">
             <input type="number" value={form.price} onChange={(e) => setForm((p) => ({ ...p, price: Number(e.target.value || 0) }))} className="h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" />
           </InputField>
 
           <InputField label="Jobs Limit">
-            <input value={form.jobsLimit} onChange={(e) => setForm((p) => ({ ...p, jobsLimit: e.target.value }))} className="h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" />
+            <input type="number" min="1" value={form.jobsLimit} onChange={(e) => setForm((p) => ({ ...p, jobsLimit: Number(e.target.value || 1) }))} className="h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" />
           </InputField>
 
           <InputField label="Applications Limit">
-            <input value={form.appsLimit} onChange={(e) => setForm((p) => ({ ...p, appsLimit: e.target.value }))} className="h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" />
+            <input type="number" min="1" value={form.appsLimit} onChange={(e) => setForm((p) => ({ ...p, appsLimit: Number(e.target.value || 100) }))} className="h-10 w-full rounded-lg border border-slate-200 px-3 outline-none focus:border-blue-300" />
           </InputField>
 
           <InputField label="Validity Duration (Days)">
@@ -752,3 +794,5 @@ export default function PricingPlans() {
     </div>
   );
 }
+
+

@@ -1,5 +1,4 @@
 import { Router } from "express";
-import studentOnly from "../../middleware/studentOnly.js";
 import {
   listGovernmentJobs,
   getGovernmentJobById,
@@ -7,7 +6,7 @@ import {
 
 const router = Router();
 
-router.get("/government", studentOnly, listGovernmentJobs);
-router.get("/government/:id", studentOnly, getGovernmentJobById);
+router.get("/government", listGovernmentJobs);
+router.get("/government/:id", getGovernmentJobById);
 
 export default router;

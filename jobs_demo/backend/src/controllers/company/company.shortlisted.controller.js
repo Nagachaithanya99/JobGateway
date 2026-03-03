@@ -78,6 +78,21 @@ function toDateTimeText(dt) {
   return `${dateStr} at ${timeStr}`;
 }
 
+function normalizeStringList(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((x) => String(x || "").trim())
+      .filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(/\r?\n|,/)
+      .map((x) => x.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 /**
  * GET /api/company/shortlisted
  * Query params (optional):
@@ -326,7 +341,18 @@ export async function scheduleInterviewFromShortlisted(req, res, next) {
     if (!companyId) return res.status(401).json({ message: "Unauthorized" });
 
     const { id } = req.params;
-    const { date, time, mode = "Online", link = "", message = "" } = req.body || {};
+    const {
+      date,
+      time,
+      mode = "Online",
+      link = "",
+      message = "",
+      interviewLinks = [],
+      interviewQuestions = [],
+      documentsRequired = [],
+      verificationDetails = "",
+      additionalDetails = "",
+    } = req.body || {};
 
     if (!date || !time) return res.status(400).json({ message: "Date and time required" });
 
@@ -340,6 +366,9 @@ export async function scheduleInterviewFromShortlisted(req, res, next) {
     const [hh, mm] = String(time).split(":").map((v) => parseInt(v, 10));
     const dt = new Date(date);
     dt.setHours(Number.isFinite(hh) ? hh : 0, Number.isFinite(mm) ? mm : 0, 0, 0);
+    const normalizedLinks = normalizeStringList(interviewLinks);
+    const normalizedMeetingLink = String(link || "").trim();
+    const effectiveMeetingLink = normalizedMeetingLink || normalizedLinks[0] || "";
 
     const stageMap = {
       "HR Round": "HR",
@@ -360,9 +389,21 @@ export async function scheduleInterviewFromShortlisted(req, res, next) {
       scheduledAt: dt,
       durationMins: 30,
       mode: mode === "Onsite" ? "Onsite" : "Online",
-      meetingLink: mode === "Online" ? String(link || "") : "",
+      meetingLink: mode === "Online" ? effectiveMeetingLink : "",
+      interviewLinks:
+        mode === "Online"
+          ? normalizedLinks.length
+            ? normalizedLinks
+            : effectiveMeetingLink
+            ? [effectiveMeetingLink]
+            : []
+          : [],
       location: mode === "Onsite" ? String(link || "") : "",
       messageToCandidate: String(message || ""),
+      interviewQuestions: normalizeStringList(interviewQuestions),
+      documentsRequired: normalizeStringList(documentsRequired),
+      verificationDetails: String(verificationDetails || "").trim(),
+      additionalDetails: String(additionalDetails || "").trim(),
       status: "Scheduled",
     });
 
@@ -377,7 +418,7 @@ export async function scheduleInterviewFromShortlisted(req, res, next) {
     );
 
     const whenText = toDateTimeText(dt);
-    const meetUrl = mode === "Online" ? String(link || "").trim() : "";
+    const meetUrl = mode === "Online" ? effectiveMeetingLink : "";
     const preview = `Interview scheduled for ${whenText}.${meetUrl ? ` Join link: ${meetUrl}` : ""}${message ? ` Note: ${message}` : ""}`;
 
     const thread = await ensureThreadForApplication(app);

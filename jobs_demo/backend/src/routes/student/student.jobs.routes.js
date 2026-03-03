@@ -17,8 +17,8 @@ const router = Router();
  * q, stream, category, subCategory, location, jobType, workMode,
  * experience, salaryMin, salaryMax, page, limit
  */
-router.get("/jobs", studentOnly, listStudentJobs);
-router.get("/jobs/:id", studentOnly, getStudentJobById);
+router.get("/jobs", listStudentJobs);
+router.get("/jobs/:id", getStudentJobById);
 router.post("/jobs/:id/apply", studentOnly, applyStudentJob);
 
 /**

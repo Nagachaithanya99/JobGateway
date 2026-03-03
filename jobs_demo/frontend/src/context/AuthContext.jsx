@@ -24,7 +24,8 @@ function writeDemoUser(user) {
 
 function getClerkRole(clerkUser) {
   const role = clerkUser?.publicMetadata?.role || clerkUser?.unsafeMetadata?.role;
-  return typeof role === "string" ? role.toLowerCase() : null;
+  // Default signed-in users to student when role metadata is missing.
+  return typeof role === "string" && role.trim() ? role.toLowerCase() : "student";
 }
 
 function mapClerkUser(clerkUser) {
@@ -58,7 +59,7 @@ export function AuthProvider({ children }) {
 
   const role = user?.role || null;
   const isAuthed = Boolean(user);
-  const loading = !isLoaded;
+  const loading = !isLoaded || (isSignedIn && !clerkUser);
 
   const login = useCallback((payload) => {
     const nextUser = payload?.user || payload || null;

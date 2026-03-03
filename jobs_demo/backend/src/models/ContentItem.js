@@ -23,6 +23,8 @@ const contentItemSchema = new mongoose.Schema(
         "PLACED_STUDENT",
         "FEATURED_COMPANY",
         "ANNOUNCEMENT",
+        "BLOG",
+        "PUBLIC_PAGE",
       ],
       required: true,
       index: true,

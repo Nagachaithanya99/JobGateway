@@ -14,6 +14,7 @@ function mapThreadToUI(t) {
     id: t._id,
     applicationId: t.application || "",
     studentId: t.student?._id || "",
+    email: t.student?.email || "",
     candidateEmail: t.student?.email || "",
     candidate: t.student?.name || "Candidate",
     job: t.job?.title || "-",
@@ -36,6 +37,8 @@ function mapMessageToUI(m) {
     text: m.text,
     fileName: m.fileName,
     fileSize: m.fileSize,
+    fileUrl: m.fileUrl || "",
+    mimeType: m.mimeType || "",
     at: m.createdAt,
   };
 }
@@ -159,13 +162,20 @@ export async function createCompanyThread(req, res) {
 
 /* =========================
    POST /threads/:id/send
-   payload: { type, text, fileName, fileSize }
+   payload: { type, text, fileName, fileSize, fileUrl, mimeType }
 ========================= */
 export async function sendCompanyMessage(req, res) {
   const companyId = req.user._id;
   const { id } = req.params;
 
-  const { type = "text", text = "", fileName = "", fileSize = "" } = req.body;
+  const {
+    type = "text",
+    text = "",
+    fileName = "",
+    fileSize = "",
+    fileUrl = "",
+    mimeType = "",
+  } = req.body || {};
 
   if (!mongoose.isValidObjectId(id)) {
     return res.status(400).json({ message: "Invalid thread id" });
@@ -185,6 +195,8 @@ export async function sendCompanyMessage(req, res) {
     text: type === "text" ? text : (text || ""),
     fileName: type === "file" ? fileName : "",
     fileSize: type === "file" ? fileSize : "",
+    fileUrl: type === "file" ? fileUrl : "",
+    mimeType: type === "file" ? mimeType : "",
   });
 
   // update thread meta

@@ -34,6 +34,11 @@ export async function adminListCompanies(params = {}) {
   return data?.rows || [];
 }
 
+export async function adminCreateCompany(payload) {
+  const { data } = await api.post("/admin/companies", payload);
+  return data;
+}
+
 export async function adminGetCompanyDetails(companyId) {
   const { data } = await api.get(`/admin/companies/${companyId}`);
   return data;
@@ -62,6 +67,11 @@ export async function adminListJobs(params = {}, options = {}) {
     return data || { rows: [], page: 1, limit: 0, total: 0 };
   }
   return data?.rows || [];
+}
+
+export async function adminCreateJob(payload) {
+  const { data } = await api.post("/admin/jobs", payload);
+  return data;
 }
 
 /**
@@ -170,6 +180,11 @@ export async function adminUpdatePlanRequest(requestId, nextStatus) {
 export async function adminGetContent() {
   const { data } = await api.get("/admin/content");
   return data || {
+    homeSlides: [],
+    publicPages: [],
+    blogs: [],
+    announcements: [],
+    featuredCompanies: [],
     banners: [],
     testimonials: [],
     placed: [],

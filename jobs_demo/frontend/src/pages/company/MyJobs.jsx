@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+﻿import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   FiBriefcase,
@@ -16,6 +16,7 @@ import {
 
 import Pagination from "../../components/common/Pagination.jsx";
 import Modal from "../../components/common/Modal.jsx";
+import { getJobTaxonomy, OTHER_OPTION } from "../../data/jobTaxonomy.js";
 import {
   closeJob,
   deleteCompanyJob,
@@ -115,6 +116,7 @@ export default function MyJobs() {
     q: "",
     status: "All",
     stream: "",
+    streamOther: "",
     jobTitle: "",
     location: "",
     mode: "",
@@ -125,6 +127,7 @@ export default function MyJobs() {
     q: "",
     status: "All",
     stream: "",
+    streamOther: "",
     jobTitle: "",
     location: "",
     mode: "",
@@ -141,11 +144,15 @@ export default function MyJobs() {
     setError("");
     try {
       const statusParam = nextFilters.status && nextFilters.status !== "All" ? nextFilters.status : "all";
+      const streamParam =
+        nextFilters.stream === OTHER_OPTION
+          ? nextFilters.streamOther || undefined
+          : nextFilters.stream || undefined;
       const [jobsRes, billingRes] = await Promise.all([
         listCompanyJobs({
           status: statusParam,
           title: nextFilters.jobTitle || undefined,
-          stream: nextFilters.stream || undefined,
+          stream: streamParam,
         }),
         getCompanyBillingMe(),
       ]);
@@ -166,13 +173,18 @@ export default function MyJobs() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters.status, filters.jobTitle, filters.stream]);
 
+  const taxonomyMainStreams = useMemo(() => Object.keys(getJobTaxonomy()), []);
   const jobDomainOptions = useMemo(
     () =>
-      Array.from(new Set(jobs.map((j) => String(j.stream || j.category || "").trim()).filter(Boolean))).sort((a, b) =>
-        a.localeCompare(b)
-      ),
-    [jobs]
+      Array.from(
+        new Set([
+          ...taxonomyMainStreams,
+          ...jobs.map((j) => String(j.stream || j.category || "").trim()).filter(Boolean),
+        ])
+      ).sort((a, b) => a.localeCompare(b)),
+    [jobs, taxonomyMainStreams]
   );
+  const knownMainStreams = useMemo(() => new Set(taxonomyMainStreams), [taxonomyMainStreams]);
 
   const jobTitleOptions = useMemo(
     () => Array.from(new Set(jobs.map((j) => String(j.title || "").trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
@@ -180,9 +192,15 @@ export default function MyJobs() {
   );
   const filtered = useMemo(() => {
     return jobs.filter((j) => {
+      const streamValue = String(j.stream || j.category || "").trim();
       if (filters.q && !`${j.title} ${j.stream} ${j.category} ${j.location}`.toLowerCase().includes(filters.q.toLowerCase())) return false;
       if (filters.status !== "All" && j.status !== filters.status) return false;
-      if (filters.stream && String(j.stream || j.category || "") !== filters.stream) return false;
+      if (filters.stream === OTHER_OPTION) {
+        if (filters.streamOther && !streamValue.toLowerCase().includes(String(filters.streamOther || "").toLowerCase())) return false;
+        if (!filters.streamOther && knownMainStreams.has(streamValue)) return false;
+      } else if (filters.stream && streamValue !== filters.stream) {
+        return false;
+      }
       if (filters.jobTitle && String(j.title || "") !== filters.jobTitle) return false;
       if (filters.location && !String(j.location || "").toLowerCase().includes(filters.location.toLowerCase())) return false;
       if (filters.mode && j.mode !== filters.mode) return false;
@@ -191,7 +209,7 @@ export default function MyJobs() {
       if (filters.datePosted === "Last 90 days") return j.postedDate >= new Date(Date.now() - 90 * 86400000).toISOString().slice(0, 10);
       return true;
     });
-  }, [jobs, filters]);
+  }, [jobs, filters, knownMainStreams]);
 
   const summary = useMemo(() => {
     const totalJobs = jobs.length;
@@ -217,10 +235,34 @@ export default function MyJobs() {
     setPage(1);
   };
 
+  const updateFilterNow = (key, value) => {
+    setDraftFilters((prev) => {
+      const next = { ...prev, [key]: value };
+      setFilters(next);
+      return next;
+    });
+    setPage(1);
+  };
+
   const clearFilters = () => {
-    const reset = { q: "", status: "All", stream: "", jobTitle: "", location: "", mode: "", datePosted: "" };
+    const reset = { q: "", status: "All", stream: "", streamOther: "", jobTitle: "", location: "", mode: "", datePosted: "" };
     setDraftFilters(reset);
     setFilters(reset);
+    setPage(1);
+  };
+
+  const applyStreamFilterNow = (value) => {
+    setDraftFilters((prev) => {
+      const next = {
+        ...prev,
+        stream: value,
+        streamOther: value === OTHER_OPTION ? prev.streamOther : "",
+        // Stream is a parent filter; reset dependent job title to avoid stale combinations.
+        jobTitle: "",
+      };
+      setFilters(next);
+      return next;
+    });
     setPage(1);
   };
 
@@ -353,8 +395,8 @@ export default function MyJobs() {
     <div className="space-y-5 pb-24 md:pb-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold text-slate-500">Dashboard {">"} My Jobs</p>
-          <h1 className="mt-1 text-2xl font-bold text-[#0F172A]">My Jobs</h1>
+          <p className="text-xs font-semibold text-slate-500">Dashboard {">"} Posted Jobs</p>
+          <h1 className="mt-1 text-2xl font-bold text-[#0F172A]">Posted Jobs</h1>
           <p className="mt-1 text-sm text-slate-500">Manage your posted jobs and track applications</p>
         </div>
 
@@ -384,34 +426,51 @@ export default function MyJobs() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
         <Card title="Search & Filters">
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
-            <input value={draftFilters.q} onChange={(e) => setDraftFilters((p) => ({ ...p, q: e.target.value }))} placeholder="Search by job title, location..." className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300 xl:col-span-2" />
-            <select value={draftFilters.status} onChange={(e) => setDraftFilters((p) => ({ ...p, status: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300">
+            <input value={draftFilters.q} onChange={(e) => updateFilterNow("q", e.target.value)} placeholder="Search by job title, location..." className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300 xl:col-span-2" />
+            <select value={draftFilters.status} onChange={(e) => updateFilterNow("status", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300">
               <option>All</option>
               <option>Active</option>
               <option>Draft</option>
               <option>Closed</option>
               <option>Disabled</option>
             </select>
-            <input value={draftFilters.location} onChange={(e) => setDraftFilters((p) => ({ ...p, location: e.target.value }))} placeholder="Location" className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300" />
-            <select value={draftFilters.stream} onChange={(e) => setDraftFilters((p) => ({ ...p, stream: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300">
-              <option value="">Job Domain</option>
+            <input value={draftFilters.location} onChange={(e) => updateFilterNow("location", e.target.value)} placeholder="Location" className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300" />
+            <select value={draftFilters.stream} onChange={(e) => applyStreamFilterNow(e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300">
+              <option value="">Main Stream</option>
               {jobDomainOptions.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
+              <option value={OTHER_OPTION}>Other</option>
             </select>
-            <select value={draftFilters.jobTitle} onChange={(e) => setDraftFilters((p) => ({ ...p, jobTitle: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300">
+            {draftFilters.stream === OTHER_OPTION ? (
+              <input
+                value={draftFilters.streamOther || ""}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setDraftFilters((prev) => {
+                    const next = { ...prev, streamOther: value };
+                    setFilters(next);
+                    return next;
+                  });
+                  setPage(1);
+                }}
+                placeholder="Other stream (custom)"
+                className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300"
+              />
+            ) : null}
+            <select value={draftFilters.jobTitle} onChange={(e) => updateFilterNow("jobTitle", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300">
               <option value="">Job Title (Uploaded Jobs)</option>
               {jobTitleOptions.map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
-            <select value={draftFilters.mode} onChange={(e) => setDraftFilters((p) => ({ ...p, mode: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300">
+            <select value={draftFilters.mode} onChange={(e) => updateFilterNow("mode", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300">
               <option value="">Work Mode</option>
               <option>Remote</option>
               <option>Onsite</option>
               <option>Hybrid</option>
             </select>
-            <select value={draftFilters.datePosted} onChange={(e) => setDraftFilters((p) => ({ ...p, datePosted: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300">
+            <select value={draftFilters.datePosted} onChange={(e) => updateFilterNow("datePosted", e.target.value)} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300">
               <option value="">Date Posted</option>
               <option>Last 7 days</option>
               <option>Last 30 days</option>
@@ -423,7 +482,7 @@ export default function MyJobs() {
             <div className="flex gap-2">
               <button type="button" onClick={applyFilters} className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">Apply</button>
               <button type="button" onClick={clearFilters} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Clear</button>
-              <button type="button" onClick={fetchJobs} className="rounded-lg border border-blue-200 px-4 py-2 text-sm font-semibold text-[#2563EB] hover:bg-blue-50">Refresh</button>
+              <button type="button" onClick={() => fetchJobs(filters)} className="rounded-lg border border-blue-200 px-4 py-2 text-sm font-semibold text-[#2563EB] hover:bg-blue-50">Refresh</button>
             </div>
 
             <div className="hidden gap-2 md:flex">
@@ -488,7 +547,14 @@ export default function MyJobs() {
                         <td className="py-3">
                           <div className="flex items-center gap-1">
                             <button type="button" title="View Job" onClick={() => openView(job)} className="rounded-md border border-blue-200 px-2 py-1 text-xs font-semibold text-[#2563EB] hover:bg-blue-50"><FiEye /></button>
-                            <button type="button" title="View Applicants" onClick={() => navigate("/company/candidates")} className="rounded-md border border-blue-200 px-2 py-1 text-xs font-semibold text-[#2563EB] hover:bg-blue-50"><FiUsers /></button>
+                            <button
+                              type="button"
+                              title="View Applicants"
+                              onClick={() => navigate(`/company/candidates?jobId=${encodeURIComponent(String(job.id || ""))}`)}
+                              className="rounded-md border border-blue-200 px-2 py-1 text-xs font-semibold text-[#2563EB] hover:bg-blue-50"
+                            >
+                              <FiUsers />
+                            </button>
                             <button type="button" title="Edit Job" onClick={() => openEdit(job)} className="rounded-md border border-orange-200 px-2 py-1 text-xs font-semibold text-[#F97316] hover:bg-orange-50"><FiEdit2 /></button>
                             <button type="button" title="Duplicate Job" onClick={() => onDuplicate(job)} className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"><FiCopy /></button>
                             <button type="button" title="Close Job" onClick={() => onCloseJob(job)} disabled={job.status === "Closed"} className={`rounded-md border px-2 py-1 text-xs font-semibold ${job.status === "Closed" ? "border-slate-200 text-slate-300 cursor-not-allowed" : "border-red-200 text-red-600 hover:bg-red-50"}`}><FiX /></button>
@@ -521,7 +587,7 @@ export default function MyJobs() {
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="font-semibold text-[#0F172A]">{job.title}</p>
-                    <p className="mt-1 inline-flex items-center gap-1 text-xs text-slate-600"><FiMapPin /> {job.location} � {job.mode}</p>
+                    <p className="mt-1 inline-flex items-center gap-1 text-xs text-slate-600"><FiMapPin /> {job.location} • {job.mode}</p>
                   </div>
                   <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${STATUS_STYLES[job.status] || "border-slate-200 bg-slate-100 text-slate-600"}`}>{job.status}</span>
                 </div>
@@ -604,3 +670,4 @@ export default function MyJobs() {
     </div>
   );
 }
+

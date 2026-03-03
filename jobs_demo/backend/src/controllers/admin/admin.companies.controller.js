@@ -5,6 +5,7 @@ import Company from "../../models/Company.js";
 import Job from "../../models/Job.js";
 import Application from "../../models/Application.js";
 import Subscription from "../../models/Subscription.js";
+import crypto from "crypto";
 
 async function requireAdmin(req, res) {
   const clerkId = req.auth()?.userId;
@@ -331,6 +332,93 @@ export const adminUpdateCompanyStatus = async (req, res, next) => {
       ok: true,
       companyId: String(user._id),
       status: prof?.status || nextStatus,
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * POST /api/admin/companies
+ * body: { name, email, phone, website, category, location, address, status }
+ */
+export const adminCreateCompany = async (req, res, next) => {
+  try {
+    const me = await requireAdmin(req, res);
+    if (!me) return;
+
+    const payload = req.body || {};
+    const name = String(payload.name || "").trim();
+    const email = String(payload.email || "").trim().toLowerCase();
+    const phone = String(payload.phone || "").trim();
+    const website = String(payload.website || "").trim();
+    const category = String(payload.category || "").trim() || "General";
+    const location = String(payload.location || "").trim();
+    const address = String(payload.address || "").trim();
+    const status = String(payload.status || "active").toLowerCase() === "suspended" ? "suspended" : "active";
+
+    if (!name) {
+      return res.status(400).json({ message: "Company name is required" });
+    }
+
+    if (!email) {
+      return res.status(400).json({ message: "Company email is required" });
+    }
+
+    const existing = await User.findOne({ role: "company", email }).lean();
+    if (existing) {
+      return res.status(409).json({ message: "A company with this email already exists" });
+    }
+
+    // Manual company accounts created by admin are DB-only records (non-Clerk login accounts).
+    const clerkId = `manual_company_${crypto.randomUUID()}`;
+
+    const user = await User.create({
+      clerkId,
+      role: "company",
+      email,
+      name,
+      phone,
+      location,
+      isActive: status === "active",
+    });
+
+    await Promise.all([
+      CompanyProfile.create({
+        user: user._id,
+        companyName: name,
+        website,
+        email,
+        phone,
+        address: address || location,
+        status,
+      }),
+      Company.create({
+        ownerUserId: user._id,
+        name,
+        website,
+        email,
+        phone,
+        hrEmail: email,
+        hrPhone: phone,
+        address,
+        location,
+        category,
+        isActive: status === "active",
+      }),
+    ]);
+
+    return res.status(201).json({
+      ok: true,
+      company: {
+        id: String(user._id),
+        name,
+        email,
+        phone,
+        location,
+        category,
+        status,
+      },
     });
   } catch (e) {
     next(e);

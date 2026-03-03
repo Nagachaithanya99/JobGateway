@@ -26,6 +26,7 @@ const navItems = [
   { to: "/student/internship", key: "nav.internships" },
   { to: "/student/government", key: "nav.governmentJobs" },
   { to: "/student/my-jobs", key: "nav.myJobs" },
+  { to: "/student/interviews", key: "nav.interviews" },
   { to: "/student/saved-jobs", key: "nav.saved" },
   { to: "/student/resume-builder", key: "nav.resumeBuilder" },
 ];
@@ -125,7 +126,7 @@ export default function StudentNavbar() {
 
   return (
     <header className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex h-16 w-full max-w-[1200px] items-center gap-3 px-4 sm:px-6 lg:px-8">
+      <div className="flex h-16 w-full items-center gap-3 px-4 sm:px-6 lg:px-8">
         <button
           type="button"
           onClick={() => setMobileOpen((s) => !s)}
@@ -142,7 +143,7 @@ export default function StudentNavbar() {
 
         <nav className="hidden items-center gap-1 md:flex">
           {navItems.map((item) => (
-            <NavLink key={item.to} className={desktopLinkCls} to={item.to}>
+            <NavLink key={item.to} className={desktopLinkCls} to={item.to} end={item.to === "/student"}>
               {t(item.key)}
             </NavLink>
           ))}
@@ -244,7 +245,7 @@ export default function StudentNavbar() {
 
       {mobileOpen ? (
         <div className="border-t border-slate-200 bg-white md:hidden">
-          <div className="mx-auto max-w-[1200px] space-y-3 px-4 py-3 sm:px-6">
+          <div className="w-full space-y-3 px-4 py-3 sm:px-6">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
               <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
                 <span>Profile Completion</span>
@@ -259,7 +260,7 @@ export default function StudentNavbar() {
             </div>
 
             {navItems.map((item) => (
-              <NavLink key={`m_${item.to}`} onClick={() => setMobileOpen(false)} className={mobileLinkCls} to={item.to}>
+              <NavLink key={`m_${item.to}`} onClick={() => setMobileOpen(false)} className={mobileLinkCls} to={item.to} end={item.to === "/student"}>
                 {t(item.key)}
               </NavLink>
             ))}

@@ -1,8 +1,15 @@
-import { useMemo, useState } from "react";
+﻿import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FiPlus, FiTrash2 } from "react-icons/fi";
 import Modal from "../../components/common/Modal.jsx";
 import { createCompanyJob } from "../../services/companyService";
+import {
+  getDefaultHierarchy,
+  getJobTaxonomy,
+  OTHER_OPTION,
+  persistCustomHierarchy,
+  resolveHierarchyValue,
+} from "../../data/jobTaxonomy.js";
 
 function Card({ title, subtitle, children }) {
   return (
@@ -34,50 +41,37 @@ function Select({ className = "", children, ...props }) {
 }
 
 const screeningTypes = ["Yes/No", "Multiple choice", "Short answer", "Long answer", "Number"];
-const OTHER_OPTION = "__other__";
-const JOB_TAXONOMY = {
-  "IT & Software": {
-    Development: ["Frontend", "Backend", "Full Stack", "Mobile"],
-    Testing: ["Manual Testing", "Automation Testing"],
-    Data: ["Data Analyst", "Data Engineer", "ML Engineer"],
-    DevOps: ["AWS DevOps", "Azure DevOps", "Kubernetes"],
-    "Cyber Security": ["SOC Analyst", "Penetration Tester", "GRC"],
-  },
-  "Medical & Healthcare": {
-    Nursing: ["Staff Nurse", "ICU Nurse", "OT Nurse"],
-    Pharmacy: ["Pharmacist", "Assistant Pharmacist"],
-    Lab: ["Lab Technician", "Phlebotomist"],
-    "Hospital Admin": ["Front Office", "Billing Executive"],
-  },
-  Marketing: {
-    "Digital Marketing": ["SEO", "SEM", "Social Media"],
-    Sales: ["Inside Sales", "Field Sales"],
-    Content: ["Content Writer", "Copywriter"],
-  },
-  Education: {
-    Teaching: ["Primary Teacher", "Lecturer"],
-    Administration: ["Coordinator", "Office Admin"],
-  },
-  Finance: {
-    Banking: ["Teller", "Relationship Manager"],
-    Accounts: ["Accountant", "Junior Accountant"],
-  },
-};
-
-function resolveHierarchyValue(value, otherValue) {
-  const raw = String(value || "").trim();
-  if (!raw) return "";
-  if (raw === OTHER_OPTION || raw.toLowerCase() === "other") return String(otherValue || "").trim();
-  return raw;
-}
+const INITIAL_TAXONOMY = getJobTaxonomy();
+const DEFAULT_HIERARCHY = getDefaultHierarchy(INITIAL_TAXONOMY);
 function normalizePayload(form, questions, status) {
-  const { streamOther, categoryOther, subCategoryOther, ...rest } = form;
+  const {
+    streamOther,
+    categoryOther,
+    subCategoryOther,
+    isFresher,
+    experienceMinYears,
+    experienceMaxYears,
+    experience,
+    ...rest
+  } = form;
+  const expMin = Number(experienceMinYears || 0);
+  const expMax = Number(experienceMaxYears || 0);
+  const normalizedExperience = isFresher
+    ? "Fresher"
+    : expMin && expMax
+      ? `${expMin}-${expMax} Years`
+      : expMin
+        ? `${expMin}+ Years`
+        : String(experience || "").trim();
   return {
     ...rest,
     status,
     stream: resolveHierarchyValue(form.stream, streamOther),
     category: resolveHierarchyValue(form.category, categoryOther),
     subCategory: resolveHierarchyValue(form.subCategory, subCategoryOther),
+    experience: normalizedExperience || "Fresher",
+    experienceMin: isFresher ? 0 : expMin,
+    experienceMax: isFresher ? 0 : expMax,
     salaryMin: Number(form.salaryMin || 0),
     salaryMax: Number(form.salaryMax || 0),
     skills: String(form.skills || "")
@@ -96,11 +90,12 @@ function normalizePayload(form, questions, status) {
 
 export default function PostJob() {
   const navigate = useNavigate();
+  const [taxonomy, setTaxonomy] = useState(INITIAL_TAXONOMY);
   const [form, setForm] = useState({
     title: "",
-    stream: "IT & Software",
-    category: "Development",
-    subCategory: "Frontend",
+    stream: DEFAULT_HIERARCHY.stream,
+    category: DEFAULT_HIERARCHY.category,
+    subCategory: DEFAULT_HIERARCHY.subCategory,
     streamOther: "",
     categoryOther: "",
     subCategoryOther: "",
@@ -112,6 +107,9 @@ export default function PostJob() {
     deadline: "",
 
     experience: "Fresher",
+    isFresher: true,
+    experienceMinYears: "",
+    experienceMaxYears: "",
     salaryType: "Yearly",
     salaryMin: "",
     salaryMax: "",
@@ -138,6 +136,7 @@ export default function PostJob() {
     autoHighlightTop10: true,
     autoTagMatch: true,
     allowInterviewSuggestions: true,
+    aiExperienceBand: "Auto",
 
     boostJob: false,
     boostDays: "7 days",
@@ -159,34 +158,43 @@ export default function PostJob() {
   const [saving, setSaving] = useState(false);
 
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
-  const mainStreamOptions = useMemo(() => Object.keys(JOB_TAXONOMY), []);
+  const mainStreamOptions = useMemo(() => Object.keys(taxonomy), [taxonomy]);
   const categoryOptions = useMemo(() => {
     if (!form.stream || form.stream === OTHER_OPTION) return [];
-    return Object.keys(JOB_TAXONOMY[form.stream] || {});
-  }, [form.stream]);
+    return Object.keys(taxonomy[form.stream] || {});
+  }, [form.stream, taxonomy]);
   const subCategoryOptions = useMemo(() => {
     if (!form.stream || !form.category) return [];
     if (form.stream === OTHER_OPTION || form.category === OTHER_OPTION) return [];
-    return JOB_TAXONOMY[form.stream]?.[form.category] || [];
-  }, [form.stream, form.category]);
+    return taxonomy[form.stream]?.[form.category] || [];
+  }, [form.stream, form.category, taxonomy]);
 
   const onStreamChange = (value) => {
+    const nextCategories = value && value !== OTHER_OPTION ? Object.keys(taxonomy[value] || {}) : [];
+    const nextCategory = nextCategories[0] || "";
+    const nextSubCategory = nextCategory ? taxonomy[value]?.[nextCategory]?.[0] || "" : "";
+
     setForm((prev) => ({
       ...prev,
       stream: value,
       streamOther: value === OTHER_OPTION ? prev.streamOther : "",
-      category: "",
+      category: value === OTHER_OPTION ? "" : nextCategory,
       categoryOther: "",
-      subCategory: "",
+      subCategory: value === OTHER_OPTION ? "" : nextSubCategory,
       subCategoryOther: "",
     }));
   };
   const onCategoryChange = (value) => {
+    const nextSubCategory =
+      value && value !== OTHER_OPTION && form.stream && form.stream !== OTHER_OPTION
+        ? taxonomy[form.stream]?.[value]?.[0] || ""
+        : "";
+
     setForm((prev) => ({
       ...prev,
       category: value,
       categoryOther: value === OTHER_OPTION ? prev.categoryOther : "",
-      subCategory: "",
+      subCategory: value === OTHER_OPTION ? "" : nextSubCategory,
       subCategoryOther: "",
     }));
   };
@@ -221,11 +229,21 @@ export default function PostJob() {
       title: form.title || "Untitled Role",
       location: [form.city, form.state].filter(Boolean).join(", ") || "Not set",
       salary: form.salaryMin && form.salaryMax ? `${form.salaryMin} - ${form.salaryMax}` : "Not set",
-      type: `${form.jobType} � ${form.workMode}`,
+      type: `${form.jobType} • ${form.workMode}`,
       screeningCount: questions.length,
     }),
     [form, questions.length]
   );
+
+  const selectedExperiencePoint = useMemo(() => {
+    if (form.aiExperienceBand && form.aiExperienceBand !== "Auto") return form.aiExperienceBand;
+    if (form.isFresher) return "Fresher";
+    const minYears = Number(form.experienceMinYears || 0);
+    const maxYears = Number(form.experienceMaxYears || 0);
+    if (minYears && maxYears) return `${minYears}-${maxYears} Years`;
+    if (minYears) return `${minYears}+ Years`;
+    return "Not set";
+  }, [form.aiExperienceBand, form.isFresher, form.experienceMinYears, form.experienceMaxYears]);
 
   const actionToast = (msg) => {
     setToast(msg);
@@ -243,10 +261,23 @@ export default function PostJob() {
       actionToast("Select Main Stream, Category and Sub Category");
       return;
     }
+    if (!form.isFresher) {
+      const minYears = Number(form.experienceMinYears || 0);
+      const maxYears = Number(form.experienceMaxYears || 0);
+      if (!minYears || !maxYears) {
+        actionToast("Enter minimum and maximum experience in years");
+        return;
+      }
+      if (maxYears < minYears) {
+        actionToast("Maximum experience must be greater than or equal to minimum");
+        return;
+      }
+    }
 
     setSaving(true);
     try {
       await createCompanyJob(payload);
+      setTaxonomy(persistCustomHierarchy(payload));
       setPublishOpen(false);
       actionToast(status === "Draft" ? "Draft saved" : "Job published successfully");
       navigate("/company/my-jobs");
@@ -287,9 +318,6 @@ export default function PostJob() {
           title="Section 1 - Job Basic Information"
           subtitle="Select Main Stream -> Category -> Sub Category so students can find the job correctly."
         >
-          <div className="mb-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs text-[#9A3412]">
-            Example: Main Stream = IT &amp; Software, Category = Development, Sub Category = Frontend.
-          </div>
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
             <Input value={form.title} onChange={(e) => set("title", e.target.value)} placeholder="Job Title" />
             <div>
@@ -365,7 +393,39 @@ export default function PostJob() {
 
         <Card title="Section 2 - Salary & Experience">
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
-            <Select value={form.experience} onChange={(e) => set("experience", e.target.value)}><option>Fresher</option><option>1-2</option><option>3-5</option><option>5+</option></Select>
+            <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700">
+              <span>Fresher (No experience required)</span>
+              <Toggle
+                checked={form.isFresher}
+                onChange={() =>
+                  setForm((prev) => ({
+                    ...prev,
+                    isFresher: !prev.isFresher,
+                    experience: !prev.isFresher ? "Fresher" : prev.experience,
+                    experienceMinYears: !prev.isFresher ? "" : prev.experienceMinYears,
+                    experienceMaxYears: !prev.isFresher ? "" : prev.experienceMaxYears,
+                  }))
+                }
+              />
+            </div>
+            <Input
+              type="number"
+              min={0}
+              value={form.experienceMinYears}
+              onChange={(e) => set("experienceMinYears", e.target.value)}
+              placeholder="Min Experience (Years)"
+              disabled={form.isFresher}
+              className="disabled:bg-slate-50"
+            />
+            <Input
+              type="number"
+              min={0}
+              value={form.experienceMaxYears}
+              onChange={(e) => set("experienceMaxYears", e.target.value)}
+              placeholder="Max Experience (Years)"
+              disabled={form.isFresher}
+              className="disabled:bg-slate-50"
+            />
             <Select value={form.salaryType} onChange={(e) => set("salaryType", e.target.value)}><option>Monthly</option><option>Yearly</option></Select>
             <Input value={form.salaryMin} onChange={(e) => set("salaryMin", e.target.value)} placeholder="Salary Min" />
             <Input value={form.salaryMax} onChange={(e) => set("salaryMax", e.target.value)} placeholder="Salary Max" />
@@ -469,10 +529,32 @@ export default function PostJob() {
                 ["Screening Answers Weight", "screeningWeight"],
               ].map(([label, key]) => (
                 <div key={key}>
-                  <div className="mb-1 flex justify-between text-xs font-semibold text-slate-600"><span>{label}</span><span>{form[key]}%</span></div>
+                  <div className="mb-1 flex justify-between text-xs font-semibold text-slate-600">
+                    <span>{label}</span>
+                    <span>{key === "experienceWeight" ? `${form[key]}% • ${selectedExperiencePoint}` : `${form[key]}%`}</span>
+                  </div>
                   <input type="range" min={0} max={100} value={form[key]} onChange={(e) => set(key, Number(e.target.value))} className="w-full accent-[#2563EB]" />
                 </div>
               ))}
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div>
+                  <p className="mb-1 text-xs font-semibold text-slate-600">Experience Selection Point (Yearly)</p>
+                  <Select value={form.aiExperienceBand} onChange={(e) => set("aiExperienceBand", e.target.value)} className="w-full">
+                    <option value="Auto">Auto (Use Job Experience)</option>
+                    <option value="Fresher">Fresher</option>
+                    <option value="1 Year">1 Year</option>
+                    <option value="2 Years">2 Years</option>
+                    <option value="3 Years">3 Years</option>
+                    <option value="4 Years">4 Years</option>
+                    <option value="5 Years">5 Years</option>
+                    <option value="6 Years">6 Years</option>
+                    <option value="7 Years">7 Years</option>
+                    <option value="8 Years">8 Years</option>
+                    <option value="9 Years">9 Years</option>
+                    <option value="10+ Years">10+ Years</option>
+                  </Select>
+                </div>
+              </div>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm"><span>Auto-highlight top 10</span><Toggle checked={form.autoHighlightTop10} onChange={() => set("autoHighlightTop10", !form.autoHighlightTop10)} /></div>
                 <div className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm"><span>Auto-tag match quality</span><Toggle checked={form.autoTagMatch} onChange={() => set("autoTagMatch", !form.autoTagMatch)} /></div>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   FiArrowRight,
   FiBriefcase,
@@ -17,6 +17,7 @@ import {
 
 import useAuth from "../../hooks/useAuth.js";
 import { studentHome } from "../../services/studentService.js";
+import { toAbsoluteMediaUrl } from "../../utils/media.js";
 
 import slide1 from "../../assets/images/student-home/slider-1.png";
 import slide2 from "../../assets/images/student-home/slider-2.png";
@@ -95,7 +96,10 @@ function isMongoId(value) {
 
 export default function Home() {
   const nav = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
+  const isStudentView = location.pathname.startsWith("/student");
+  const withBase = (path) => `${isStudentView ? "/student" : ""}${path}`;
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({
@@ -103,36 +107,55 @@ export default function Home() {
     internships: [],
     categories: [],
     stats: null,
+    banners: [],
+    announcements: [],
   });
 
   const slides = useMemo(
-    () => [
-      {
-        titleBold: "Explore ",
-        titleAccent: "10,000+ Jobs",
-        subtitle: "Find Your Perfect Job Now!",
-        cta: "Browse Jobs",
-        image: slide1,
-        tone: "orange",
-      },
-      {
-        titleBold: "Explore ",
-        titleAccent: "10,000+ Jobs",
-        subtitle: "Find Your Perfect Job Now!",
-        cta: "Browse Jobs",
-        image: slide2,
-        tone: "orange",
-      },
-      {
-        titleBold: "One Click ",
-        titleAccent: "Apply",
-        subtitle: "Apply to Jobs Quickly & Easily",
-        cta: "Simple Process",
-        image: slide3,
-        tone: "blue",
-      },
-    ],
-    []
+    () => {
+      if (Array.isArray(data.banners) && data.banners.length) {
+        return data.banners.slice(0, 8).map((b, idx) => ({
+          titleBold: "",
+          titleAccent: b.title || "Featured Opportunity",
+          subtitle: b.subtitle || b.description || "Discover opportunities tailored for students.",
+          cta: "Explore Now",
+          image: toAbsoluteMediaUrl(b.imageUrl) || [slide1, slide2, slide3][idx % 3],
+          tone: idx % 2 ? "blue" : "orange",
+          linkUrl: b.linkUrl || "",
+        }));
+      }
+
+      return [
+        {
+          titleBold: "Explore ",
+          titleAccent: "10,000+ Jobs",
+          subtitle: "Find Your Perfect Job Now!",
+          cta: "Browse Jobs",
+          image: slide1,
+          tone: "orange",
+          linkUrl: "/student/jobs",
+        },
+        {
+          titleBold: "Explore ",
+          titleAccent: "10,000+ Jobs",
+          subtitle: "Find Your Perfect Job Now!",
+          cta: "Browse Jobs",
+          image: slide2,
+          tone: "orange",
+          linkUrl: "/student/jobs",
+        },
+        {
+          titleBold: "One Click ",
+          titleAccent: "Apply",
+          subtitle: "Apply to Jobs Quickly & Easily",
+          cta: "Simple Process",
+          image: slide3,
+          tone: "blue",
+          linkUrl: "/student/jobs",
+        },
+      ];
+    },
+    [data.banners]
   );
 
   const [activeSlide, setActiveSlide] = useState(0);
@@ -144,11 +167,32 @@ export default function Home() {
     return () => clearInterval(t);
   }, [slides.length]);
 
+  useEffect(() => {
+    setActiveSlide((prev) => (prev >= slides.length ? 0 : prev));
+  }, [slides.length]);
+
   const [q, setQ] = useState("");
+
+  const openBannerLink = (url) => {
+    const target = String(url || "").trim();
+    if (!target) {
+      nav(withBase("/jobs"));
+      return;
+    }
+    if (/^https?:\/\//i.test(target)) {
+      window.open(target, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (!isStudentView && target.startsWith("/student/")) {
+      nav(target.replace(/^\/student/, ""));
+      return;
+    }
+    nav(target);
+  };
 
   const runSearch = async () => {
     const nextQ = String(q || "").trim();
-    nav(nextQ ? `/student/jobs?q=${encodeURIComponent(nextQ)}` : "/student/jobs");
+    nav(nextQ ? `${withBase("/jobs")}?q=${encodeURIComponent(nextQ)}` : withBase("/jobs"));
   };
 
   useEffect(() => {
@@ -168,6 +212,8 @@ export default function Home() {
           ? payload.internships.map(mapInternFromApi).filter(Boolean)
           : [];
         const categories = Array.isArray(payload.categories) ? payload.categories : [];
+        const banners = Array.isArray(payload.banners) ? payload.banners : [];
+        const announcements = Array.isArray(payload.announcements) ? payload.announcements : [];
 
         const stats = payload.stats || {
           liveJobs: payload?.liveJobs || 10000,
@@ -175,13 +221,15 @@ export default function Home() {
           studentsHired: payload?.studentsHired || 50000,
         };
 
-        setData({ jobs, internships, categories, stats });
+        setData({ jobs, internships, categories, stats, banners, announcements });
       } catch (e) {
         console.error("studentHome error:", e);
         setData({
           jobs: [],
           internships: [],
           categories: [],
+          banners: [],
+          announcements: [],
           stats: { liveJobs: 10000, topCompanies: 500, studentsHired: 50000 },
         });
       } finally {
@@ -207,7 +255,7 @@ export default function Home() {
 
   return (
     <div className="bg-[#f6f8ff]">
-      <div className="mx-auto max-w-[1200px] px-4 pb-14 pt-6 sm:px-6 lg:px-8">
+      <div className="w-full px-4 pb-14 pt-6 sm:px-6 lg:px-8">
         <section className="rounded-[22px] bg-white/60 p-4 shadow-[0_18px_45px_rgba(15,23,42,0.06)] backdrop-blur">
           <div className="relative overflow-hidden rounded-[18px] border border-white/70 bg-white">
             <div className="relative h-[220px] w-full sm:h-[240px] md:h-[250px]">
@@ -236,7 +284,7 @@ export default function Home() {
 
                         <button
                           type="button"
-                          onClick={() => nav("/student/jobs")}
+                          onClick={() => openBannerLink(s.linkUrl)}
                           className={`mt-4 inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-[12px] font-extrabold text-white shadow-[0_12px_24px_rgba(249,115,22,0.25)]
                             ${s.tone === "blue" ? "bg-[#2563EB] hover:bg-blue-700" : "bg-[#F97316] hover:bg-orange-600"}`}
                         >
@@ -367,7 +415,7 @@ export default function Home() {
             <h2 className="text-[20px] font-extrabold text-slate-900">Featured Jobs</h2>
             <button
               type="button"
-              onClick={() => nav("/student/jobs")}
+              onClick={() => nav(withBase("/jobs"))}
               className="inline-flex items-center gap-1 text-[13px] font-extrabold text-[#F97316] hover:text-orange-600"
             >
               View All Jobs <FiArrowRight />
@@ -385,7 +433,7 @@ export default function Home() {
                   key={job.id || idx}
                   job={job}
                   onClick={() =>
-                    isMongoId(job.id) ? nav(`/student/jobs/${job.id}`) : nav("/student/jobs")
+                    isMongoId(job.id) ? nav(withBase(`/jobs/${job.id}`)) : nav(withBase("/jobs"))
                   }
                 />
               ))}
@@ -409,7 +457,7 @@ export default function Home() {
               button="Discover Internships"
               image={internshipBanner}
               tone="orange"
-              onClick={() => nav("/student/internship")}
+              onClick={() => nav(withBase("/internship"))}
             />
 
             <BigBannerCard
@@ -418,10 +466,50 @@ export default function Home() {
               button="Explore Govt. Jobs"
               image={govtBanner}
               tone="green"
-              onClick={() => nav("/student/government")}
+              onClick={() => nav(withBase("/government"))}
             />
           </div>
         </section>
+
+        {Array.isArray(data.announcements) && data.announcements.some((a) => String(a?.title || a?.description || "").trim().toLowerCase() !== "homepage") ? (
+          <section className="mt-6 rounded-[18px] border border-orange-100 bg-white p-4 shadow-[0_12px_30px_rgba(15,23,42,0.05)]">
+            <div className="mb-3 flex items-center gap-2">
+              <span className="rounded-full bg-orange-50 px-2.5 py-1 text-[11px] font-extrabold text-[#F97316]">
+                Platform Announcements
+              </span>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              {data.announcements
+                .filter((a) => String(a?.title || a?.description || "").trim().toLowerCase() !== "homepage")
+                .slice(0, 4)
+                .map((a) => (
+                  <div key={a.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                    {a.imageUrl ? (
+                      <div className="mb-3 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                        <img
+                          src={toAbsoluteMediaUrl(a.imageUrl)}
+                          alt={a.title || "Announcement"}
+                          className="h-32 w-full object-cover"
+                          loading="lazy"
+                        />
+                      </div>
+                    ) : null}
+                    <p className="text-sm font-extrabold text-slate-900">{a.title || "Announcement"}</p>
+                    {a.description ? <p className="mt-1 text-xs font-semibold text-slate-600">{a.description}</p> : null}
+                    {a.linkUrl ? (
+                      <button
+                        type="button"
+                        onClick={() => openBannerLink(a.linkUrl)}
+                        className="mt-2 text-xs font-extrabold text-[#2563EB] hover:text-blue-700"
+                      >
+                        View Details
+                      </button>
+                    ) : null}
+                  </div>
+                ))}
+            </div>
+          </section>
+        ) : null}
 
         <section className="mt-6">
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-[18px] border border-white/70 bg-white p-4 shadow-[0_16px_38px_rgba(15,23,42,0.06)]">

@@ -15,7 +15,7 @@ import {
 } from "react-icons/fi";
 
 import { studentMe, studentUpdateProfile } from "../../services/studentService.js";
-import { uploadResume } from "../../services/uploadService.js";
+import uploadService from "../../services/uploadService.js";
 
 const EMPTY = {
   personal: {
@@ -300,7 +300,7 @@ export default function Profile() {
       setUploadingResume(true);
 
       const token = await getToken();
-      const res = await uploadResume(file, token);
+      const res = await uploadService.uploadResume(file, token);
 
       const meta = res?.data?.resumeMeta || {};
       setForm((prev) => ({
@@ -870,7 +870,7 @@ export default function Profile() {
 
       {/* Bottom bar */}
       <div className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-[1200px] flex-wrap items-center justify-end gap-2 px-4 py-3 sm:px-6 lg:px-8">
+        <div className="w-full flex flex-wrap items-center justify-end gap-2 px-4 py-3 sm:px-6 lg:px-8">
           <button
             type="button"
             onClick={save}
@@ -918,3 +918,4 @@ export default function Profile() {
     </div>
   );
 }
+

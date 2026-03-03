@@ -19,6 +19,7 @@ const interviewSchema = new mongoose.Schema(
 
     mode: { type: String, enum: ["Online", "Onsite"], default: "Online" },
     meetingLink: { type: String, default: "" },
+    interviewLinks: [{ type: String }],
     location: { type: String, default: "" },
 
     interviewer: { type: String, default: "" },
@@ -31,6 +32,15 @@ const interviewSchema = new mongoose.Schema(
 
     notes: [{ type: String }],
     messageToCandidate: { type: String, default: "" },
+    interviewQuestions: [{ type: String }],
+    documentsRequired: [{ type: String }],
+    verificationDetails: { type: String, default: "" },
+    additionalDetails: { type: String, default: "" },
+    verificationStatus: {
+      type: String,
+      enum: ["Pending", "Submitted", "Verified", "Rejected"],
+      default: "Pending",
+    },
   },
   { timestamps: true }
 );

@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { FiBookmark, FiBriefcase, FiCheckCircle, FiClock, FiExternalLink, FiMapPin, FiMessageCircle, FiPhone } from "react-icons/fi";
 import Modal from "../../components/common/Modal";
+import useAuth from "../../hooks/useAuth.js";
 import { jobsGetById } from "../../services/jobsService.js";
 import { studentApplyJob, studentGetSavedJobs, studentMe, studentMyApplications, studentSearchJobs, studentToggleSaveJob } from "../../services/studentService.js";
 
@@ -44,6 +45,22 @@ function readProfileCompletion(payload) {
 
 export default function JobDetails() {
   const { id } = useParams();
+  const { isAuthed, role } = useAuth();
+  const location = useLocation();
+  const nav = useNavigate();
+  const isStudentView = location.pathname.startsWith("/student");
+  const withBase = (path) => `${isStudentView ? "/student" : ""}${path}`;
+  const redirectToLogin = () => {
+    const redirect = isStudentView
+      ? `${location.pathname}${location.search || ""}`
+      : `/student${location.pathname === "/" ? "" : location.pathname}${location.search || ""}`;
+    if (isStudentView) {
+      nav("/student/login");
+      return;
+    }
+    nav(`/login?role=student&redirect=${encodeURIComponent(redirect)}`);
+  };
+
   const [job, setJob] = useState(null);
   const [related, setRelated] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -112,7 +129,7 @@ export default function JobDetails() {
   }, [job, id]);
 
   const companyName = job?.companyName || job?.company?.name || "";
-  const location = job?.location || [job?.city, job?.state].filter(Boolean).join(", ") || "Not provided";
+  const jobLocation = job?.location || [job?.city, job?.state].filter(Boolean).join(", ") || "Not provided";
   const responsibilities = normalizeArray(job?.responsibilities);
   const requirements = normalizeArray(job?.requirements);
   const skills = normalizeArray(job?.skills);
@@ -136,6 +153,10 @@ export default function JobDetails() {
   };
 
   const onApplyNow = async () => {
+    if (!isAuthed || role !== "student") {
+      redirectToLogin();
+      return;
+    }
     if (alreadyApplied) {
       setSuccessMessage("You have already applied for this job.");
       setSuccessModalOpen(true);
@@ -157,12 +178,21 @@ export default function JobDetails() {
       setSuccessMessage("Application submitted successfully.");
       setSuccessModalOpen(true);
     } catch (e) {
+      const status = Number(e?.response?.status || 0);
+      if (status === 401 || status === 403) {
+        redirectToLogin();
+        return;
+      }
       const msg = e?.response?.data?.message || "Apply failed.";
       setErr(msg);
     }
   };
 
   const toggleSave = async () => {
+    if (!isAuthed || role !== "student") {
+      redirectToLogin();
+      return;
+    }
     try {
       setSaveBusy(true);
       const res = await studentToggleSaveJob(id);
@@ -174,19 +204,19 @@ export default function JobDetails() {
     }
   };
 
-  if (loading) return <div className="mx-auto max-w-[1100px] p-6">Loading job details...</div>;
-  if (!job) return <div className="mx-auto max-w-[1100px] p-6">{err || "Job not found"}</div>;
+  if (loading) return <div className="w-full p-6">Loading job details...</div>;
+  if (!job) return <div className="w-full p-6">{err || "Job not found"}</div>;
 
   return (
-    <div className="mx-auto max-w-[1100px] px-4 py-6">
-      <div className="text-xs text-slate-500"><Link to="/student">Home</Link> / <Link to="/student/jobs">Jobs</Link> / {job.title}</div>
+    <div className="w-full px-4 py-6">
+      <div className="text-xs text-slate-500"><Link to={withBase("/")}>Home</Link> / <Link to={withBase("/jobs")}>Jobs</Link> / {job.title}</div>
       <div className="mt-3 rounded-3xl border border-slate-200 bg-white p-5">
         <div className="flex items-start gap-3">
           <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100 font-extrabold text-orange-600">{initials(companyName || "Job")}</div>
           <div className="flex-1">
             <h1 className="text-2xl font-extrabold">{job.title}</h1>
             <p className="text-sm text-slate-600">{companyName || "Company not provided"}</p>
-            <p className="mt-1 text-sm text-slate-600 inline-flex items-center gap-2"><FiMapPin />{location}</p>
+            <p className="mt-1 text-sm text-slate-600 inline-flex items-center gap-2"><FiMapPin />{jobLocation}</p>
             <p className="mt-1 text-sm font-bold text-emerald-700">{salaryText(job)}</p>
             <p className="mt-1 text-xs text-slate-500 inline-flex items-center gap-1"><FiClock />{postedAgo(job.createdAt)}</p>
           </div>
@@ -217,7 +247,7 @@ export default function JobDetails() {
           <section className="rounded-3xl border border-slate-200 bg-white p-4">
             <h3 className="text-sm font-extrabold">About Company</h3>
             <p className="mt-2 text-sm font-semibold">{companyName || "Not provided"}</p>
-            <p className="mt-1 text-xs text-slate-600">{location}</p>
+            <p className="mt-1 text-xs text-slate-600">{jobLocation}</p>
             {companyEmail ? <p className="mt-2 text-xs text-slate-600">{companyEmail}</p> : null}
             {companyWebsite ? <a href={companyWebsite.startsWith("http") ? companyWebsite : `https://${companyWebsite}`} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-xs font-bold text-blue-700">Visit Website <FiExternalLink /></a> : null}
           </section>
@@ -226,7 +256,7 @@ export default function JobDetails() {
               <h3 className="text-sm font-extrabold">Similar Jobs</h3>
               <div className="mt-3 space-y-2">
                 {related.slice(0, 4).map((r) => (
-                  <Link key={String(r?._id || r?.id)} to={`/student/jobs/${String(r?._id || r?.id)}`} className="block rounded-xl border border-slate-200 p-3 hover:bg-slate-50">
+                  <Link key={String(r?._id || r?.id)} to={withBase(`/jobs/${String(r?._id || r?.id)}`)} className="block rounded-xl border border-slate-200 p-3 hover:bg-slate-50">
                     <p className="text-sm font-bold">{r?.title || "Job"}</p>
                     <p className="text-xs text-slate-600">{r?.location || r?.city || "Not provided"}</p>
                     <p className="text-xs font-bold text-slate-700">{salaryText(r)}</p>
@@ -252,3 +282,4 @@ export default function JobDetails() {
     </div>
   );
 }
+

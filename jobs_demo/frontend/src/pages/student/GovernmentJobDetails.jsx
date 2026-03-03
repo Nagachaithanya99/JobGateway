@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 import {
   FiDownload,
   FiExternalLink,
@@ -30,6 +30,9 @@ function pick(obj, keys, fallback = "") {
 
 export default function GovernmentJobDetails() {
   const { id } = useParams();
+  const location = useLocation();
+  const isStudentView = location.pathname.startsWith("/student");
+  const withBase = (path) => `${isStudentView ? "/student" : ""}${path}`;
 
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
@@ -112,11 +115,11 @@ export default function GovernmentJobDetails() {
     };
   }, [item]);
 
-  if (notFound) return <Navigate to="/student/government" replace />;
+  if (notFound) return <Navigate to={withBase("/government")} replace />;
 
   return (
     <div className="bg-[#F8FAFC] pb-10">
-      <div className="mx-auto max-w-[1200px] px-4 py-6 sm:px-6 lg:px-8">
+      <div className="w-full px-4 py-6 sm:px-6 lg:px-8">
         {loading ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500 shadow-sm">
             Loading details...
@@ -135,11 +138,11 @@ export default function GovernmentJobDetails() {
               <div className="grid grid-cols-1 gap-0 lg:grid-cols-[minmax(0,1fr)_420px]">
                 <div className="p-5">
                   <p className="text-sm text-slate-500">
-                    <Link to="/student" className="hover:text-[#F97316]">
+                    <Link to={withBase("/")} className="hover:text-[#F97316]">
                       Home
                     </Link>
                     <span className="px-1.5">{">"}</span>
-                    <Link to="/student/government" className="hover:text-[#F97316]">
+                    <Link to={withBase("/government")} className="hover:text-[#F97316]">
                       Government Jobs
                     </Link>
                     <span className="px-1.5">{">"}</span>
@@ -309,7 +312,7 @@ export default function GovernmentJobDetails() {
                   </div>
 
                   <Link
-                    to="/student/government"
+                    to={withBase("/government")}
                     className="mt-4 inline-flex w-full items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                   >
                     Back to Government Jobs
@@ -323,3 +326,4 @@ export default function GovernmentJobDetails() {
     </div>
   );
 }
+
