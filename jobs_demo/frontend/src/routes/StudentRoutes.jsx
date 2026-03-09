@@ -25,6 +25,7 @@ import StudentSettings from "../pages/student/StudentSettings";
 import About from "../pages/student/About";
 import Contact from "../pages/student/Contact";
 import StudentInterviews from "../pages/student/Interviews.jsx";
+import StudentInterviewWorkspace from "../pages/student/InterviewWorkspace.jsx";
 import StudentAutoTranslator from "../components/i18n/StudentAutoTranslator.jsx";
 
 export default function StudentRoutes() {
@@ -49,6 +50,7 @@ export default function StudentRoutes() {
         <Route path="jobs/:id" element={<JobDetails />} />
         <Route path="my-jobs" element={<MyJobs />} />
         <Route path="interviews" element={<StudentInterviews />} />
+        <Route path="interviews/:id/workspace" element={<StudentInterviewWorkspace />} />
         <Route path="saved-jobs" element={<SavedJobs />} />
         <Route path="notifications" element={<Notifications />} />
         <Route path="messages" element={<Messages />} />

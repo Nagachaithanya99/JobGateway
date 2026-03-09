@@ -2,8 +2,15 @@
 import Job from "../../models/Job.js";
 import User from "../../models/User.js";
 import Application from "../../models/Application.js";
+import Interview from "../../models/Interview.js";
+import MessageThread from "../../models/MessageThread.js";
+import Message from "../../models/Message.js";
 
 async function getCompanyFromClerk(req) {
+  if (req.user?.role === "company" && req.user?.isActive !== false) {
+    return req.user;
+  }
+
   const clerkId = req.auth()?.userId;
   if (!clerkId) return null;
 
@@ -296,10 +303,41 @@ export async function companyDeleteJob(req, res) {
     if (!companyUser) return res.status(401).json({ message: "Unauthorized" });
 
     const { id } = req.params;
-    const deleted = await Job.findOneAndDelete({ _id: id, company: companyUser._id }).lean();
-    if (!deleted) return res.status(404).json({ message: "Job not found" });
+    const job = await Job.findOne({ _id: id, company: companyUser._id }).select("_id").lean();
+    if (!job) return res.status(404).json({ message: "Job not found" });
 
-    return res.json({ ok: true, id });
+    const appIds = await Application.find({ company: companyUser._id, job: job._id }).distinct("_id");
+    const threadQuery = {
+      company: companyUser._id,
+      $or: [
+        { job: job._id },
+        ...(appIds.length ? [{ application: { $in: appIds } }] : []),
+      ],
+    };
+    const threadIds = await MessageThread.find(threadQuery).distinct("_id");
+
+    const [messagesResult, threadsResult, interviewsResult, applicationsResult, jobResult] = await Promise.all([
+      threadIds.length ? Message.deleteMany({ thread: { $in: threadIds } }) : Promise.resolve({ deletedCount: 0 }),
+      threadIds.length ? MessageThread.deleteMany({ _id: { $in: threadIds } }) : Promise.resolve({ deletedCount: 0 }),
+      Interview.deleteMany({ job: job._id, company: companyUser._id }),
+      Application.deleteMany({ company: companyUser._id, job: job._id }),
+      Job.deleteOne({ _id: job._id, company: companyUser._id }),
+    ]);
+
+    if (!jobResult?.deletedCount) {
+      return res.status(404).json({ message: "Job not found" });
+    }
+
+    return res.json({
+      ok: true,
+      id,
+      deleted: {
+        applications: Number(applicationsResult?.deletedCount || 0),
+        interviews: Number(interviewsResult?.deletedCount || 0),
+        threads: Number(threadsResult?.deletedCount || 0),
+        messages: Number(messagesResult?.deletedCount || 0),
+      },
+    });
   } catch (err) {
     console.error("companyDeleteJob error:", err);
     return res.status(500).json({ message: "Server error" });

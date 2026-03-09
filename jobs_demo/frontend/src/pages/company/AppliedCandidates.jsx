@@ -18,6 +18,7 @@ import {
 import Modal from "../../components/common/Modal.jsx";
 import {
   bulkUpdateApplicationStatus,
+  deleteCompanyApplication,
   getCompanyApplications,
   listCompanyJobs,
   scheduleInterview as apiScheduleInterview,
@@ -284,6 +285,23 @@ export default function AppliedCandidates() {
     }
   };
 
+  const deleteApplication = async (app) => {
+    if (!app?.id) return;
+    const ok = window.confirm(`Delete application for "${app.name}"?`);
+    if (!ok) return;
+
+    try {
+      await deleteCompanyApplication(app.id);
+      setApps((prev) => prev.filter((x) => x.id !== app.id));
+      setSelectedIds((prev) => prev.filter((id) => id !== app.id));
+      setOpenMenuId(null);
+      actionToast("Application deleted");
+    } catch (e) {
+      actionToast(e?.response?.data?.message || "Failed to delete application");
+      await fetchApps(filters);
+    }
+  };
+
   const scheduleInterview = async () => {
     if (!scheduleModal.app || !scheduleForm.date || !scheduleForm.time) return;
     const appId = scheduleModal.app.id;
@@ -476,7 +494,27 @@ export default function AppliedCandidates() {
                         <button type="button" onClick={() => openMail(a)} className="rounded-md border border-blue-200 p-1.5 text-[#2563EB] hover:bg-blue-50"><FiMail /></button>
                         <div className="relative">
                           <button type="button" onClick={() => setOpenMenuId((v) => (v === a.id ? null : a.id))} className="rounded-md border border-slate-200 p-1.5 text-slate-600 hover:bg-slate-50"><FiMoreHorizontal /></button>
-                          {openMenuId === a.id ? <div className="absolute right-0 top-8 z-20 w-40 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg"><button type="button" onClick={() => { setStatus(a.id, "Applied"); setOpenMenuId(null); }} className="block w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50">Move to Applied</button></div> : null}
+                          {openMenuId === a.id ? (
+                            <div className="absolute right-0 top-8 z-20 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setStatus(a.id, "Applied");
+                                  setOpenMenuId(null);
+                                }}
+                                className="block w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                              >
+                                Move to Applied
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => deleteApplication(a)}
+                                className="block w-full px-3 py-2 text-left text-xs font-semibold text-red-600 hover:bg-red-50"
+                              >
+                                Delete Application
+                              </button>
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                     </td>

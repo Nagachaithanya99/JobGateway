@@ -1,4 +1,5 @@
 import { Link, NavLink } from "react-router-dom";
+import ThemeToggle from "../common/ThemeToggle.jsx";
 
 const navItems = [
   { to: "/", label: "Home" },
@@ -39,6 +40,7 @@ export default function PublicNavbar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
+          <ThemeToggle />
           <Link
             to="/login"
             className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"

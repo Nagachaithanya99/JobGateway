@@ -13,6 +13,7 @@ import MyJobs from "../pages/company/MyJobs.jsx";
 import AppliedCandidates from "../pages/company/AppliedCandidates.jsx";
 import Shortlisted from "../pages/company/Shortlisted.jsx";
 import Interviews from "../pages/company/Interviews.jsx";
+import InterviewWorkspace from "../pages/company/InterviewWorkspace.jsx";
 import Messages from "../pages/company/Messages.jsx";
 import CompanyNotifications from "../pages/company/Notifications.jsx";
 import BoostJob from "../pages/company/BoostJob.jsx";
@@ -44,6 +45,7 @@ export default function CompanyRoutes() {
         <Route path="candidates" element={<AppliedCandidates />} />
         <Route path="shortlisted" element={<Shortlisted />} />
         <Route path="interviews" element={<Interviews />} />
+        <Route path="interviews/:id/workspace" element={<InterviewWorkspace />} />
         <Route path="messages" element={<Messages />} />
         <Route path="notifications" element={<CompanyNotifications />} />
         <Route path="ai-scoring" element={<AICandidateScoring />} />

@@ -4,6 +4,7 @@ import { FiBell, FiChevronDown, FiLogOut, FiMenu, FiSearch, FiUser } from "react
 import { useAuth } from "../../../context/AuthContext";
 import { useI18n } from "../../../context/I18nContext.jsx";
 import LanguageSelector from "../../common/LanguageSelector.jsx";
+import ThemeToggle from "../../common/ThemeToggle.jsx";
 
 const titleMap = {
   "/admin": "Admin Dashboard",
@@ -11,6 +12,7 @@ const titleMap = {
   "/admin/jobs": "Jobs",
   "/admin/applicants": "Applicants",
   "/admin/students": "Students",
+  "/admin/interviews": "Interviews",
   "/admin/pricing": "Pricing Plans",
   "/admin/content": "Content Management",
   "/admin/gov": "Government Updates",
@@ -75,6 +77,7 @@ export default function TopNavbar({ onToggleSidebar }) {
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          <ThemeToggle />
           <LanguageSelector compact />
           <button
             type="button"

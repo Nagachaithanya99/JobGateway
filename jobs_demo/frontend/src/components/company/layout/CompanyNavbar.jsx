@@ -4,6 +4,7 @@ import { FiBell, FiChevronDown, FiLogOut, FiMenu, FiMessageSquare, FiSearch, FiS
 import { useAuth } from "../../../context/AuthContext.jsx";
 import { getCompanyHeaderCounts } from "../../../services/companyService.js";
 import LanguageSelector from "../../common/LanguageSelector.jsx";
+import ThemeToggle from "../../common/ThemeToggle.jsx";
 import { useI18n } from "../../../context/I18nContext.jsx";
 
 export default function CompanyNavbar({ onOpenSidebar }) {
@@ -87,6 +88,7 @@ export default function CompanyNavbar({ onOpenSidebar }) {
           </div>
 
           <div className="ml-auto flex items-center gap-2">
+            <ThemeToggle />
             <LanguageSelector compact />
             <button
               type="button"

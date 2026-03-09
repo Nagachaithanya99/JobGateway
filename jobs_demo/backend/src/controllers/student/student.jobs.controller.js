@@ -215,7 +215,14 @@ export const applyStudentJob = async (req, res, next) => {
     if (!job) return res.status(404).json({ message: "Job not found" });
 
     const existing = await Application.findOne({ student: studentId, job: job._id }).lean();
-    if (existing) return res.status(409).json({ message: "Already applied for this job" });
+    if (existing) {
+      return res.status(200).json({
+        ok: true,
+        alreadyApplied: true,
+        message: "Already applied for this job",
+        applicationId: existing._id,
+      });
+    }
 
     const created = await Application.create({
       company: job.company,
@@ -227,6 +234,7 @@ export const applyStudentJob = async (req, res, next) => {
 
     return res.status(201).json({
       ok: true,
+      alreadyApplied: false,
       message: "Application submitted",
       applicationId: created._id,
     });

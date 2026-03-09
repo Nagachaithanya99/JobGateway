@@ -32,7 +32,7 @@ export default function ProtectedRoute({ children, role }) {
   }
 
   // Non-admin can use Clerk or existing local demo auth
-  const ok = isSignedIn || appAuth?.isAuthed;
+  const ok = isSignedIn;
   if (!ok) return <Navigate to={loginPath} replace />;
 
   if (requiredRole && currentRole && currentRole !== requiredRole) {

@@ -2,13 +2,45 @@ import User from "../models/User.js";
 import crypto from "node:crypto";
 import TranslationCache from "../models/TranslationCache.js";
 
-const SUPPORTED_LANGUAGES = new Set(["en", "hi", "te", "ta", "kn"]);
+const SUPPORTED_LANGUAGES = new Set([
+  "en",
+  "hi",
+  "es",
+  "fr",
+  "de",
+  "pt",
+  "ar",
+  "zh",
+  "ja",
+  "ko",
+  "ru",
+  "it",
+  "nl",
+  "tr",
+  "pl",
+  "uk",
+  "id",
+  "vi",
+  "th",
+  "bn",
+  "ta",
+  "te",
+  "kn",
+  "ml",
+  "mr",
+  "gu",
+  "pa",
+  "ur",
+]);
 const DEFAULT_LANGUAGE = "en";
 
 function normalizeLanguage(value) {
   const next = String(value || "").trim().toLowerCase();
-  if (!SUPPORTED_LANGUAGES.has(next)) return DEFAULT_LANGUAGE;
-  return next;
+  if (!next) return DEFAULT_LANGUAGE;
+  if (SUPPORTED_LANGUAGES.has(next)) return next;
+  const base = next.split("-")[0];
+  if (SUPPORTED_LANGUAGES.has(base)) return base;
+  return DEFAULT_LANGUAGE;
 }
 
 export async function getMyLanguagePreference(req, res, next) {

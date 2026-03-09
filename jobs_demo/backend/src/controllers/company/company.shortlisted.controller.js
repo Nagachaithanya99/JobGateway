@@ -93,6 +93,16 @@ function normalizeStringList(value) {
   return [];
 }
 
+function randomRoomId() {
+  return `room_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function ensureMeetingLink(link, roomId) {
+  const raw = String(link || "").trim();
+  if (raw) return raw;
+  return "";
+}
+
 /**
  * GET /api/company/shortlisted
  * Query params (optional):
@@ -367,8 +377,10 @@ export async function scheduleInterviewFromShortlisted(req, res, next) {
     const dt = new Date(date);
     dt.setHours(Number.isFinite(hh) ? hh : 0, Number.isFinite(mm) ? mm : 0, 0, 0);
     const normalizedLinks = normalizeStringList(interviewLinks);
+    const createdRoomId = randomRoomId();
     const normalizedMeetingLink = String(link || "").trim();
-    const effectiveMeetingLink = normalizedMeetingLink || normalizedLinks[0] || "";
+    const effectiveMeetingLinkRaw = normalizedMeetingLink || normalizedLinks[0] || "";
+    const effectiveMeetingLink = mode === "Online" ? ensureMeetingLink(effectiveMeetingLinkRaw, createdRoomId) : "";
 
     const stageMap = {
       "HR Round": "HR",
@@ -387,7 +399,7 @@ export async function scheduleInterviewFromShortlisted(req, res, next) {
       jobTitle: app.job?.title || "-",
       stage,
       scheduledAt: dt,
-      durationMins: 30,
+      durationMins: 0,
       mode: mode === "Onsite" ? "Onsite" : "Online",
       meetingLink: mode === "Online" ? effectiveMeetingLink : "",
       interviewLinks:
@@ -404,12 +416,13 @@ export async function scheduleInterviewFromShortlisted(req, res, next) {
       documentsRequired: normalizeStringList(documentsRequired),
       verificationDetails: String(verificationDetails || "").trim(),
       additionalDetails: String(additionalDetails || "").trim(),
+      roomId: createdRoomId,
       status: "Scheduled",
     });
 
     const meta = buildMetaUpdate(app.meta, {
       pipelineStatus: "Interview Scheduled",
-      interview: { date, time, mode, link, message, interviewId: interview._id },
+      interview: { date, time, mode, link: effectiveMeetingLink, message, interviewId: interview._id, roomId: createdRoomId },
     });
 
     await Application.updateOne(
@@ -419,7 +432,7 @@ export async function scheduleInterviewFromShortlisted(req, res, next) {
 
     const whenText = toDateTimeText(dt);
     const meetUrl = mode === "Online" ? effectiveMeetingLink : "";
-    const preview = `Interview scheduled for ${whenText}.${meetUrl ? ` Join link: ${meetUrl}` : ""}${message ? ` Note: ${message}` : ""}`;
+    const preview = `Interview scheduled for ${whenText}. Room ID: ${createdRoomId}.${meetUrl ? ` Join link: ${meetUrl}` : ""}${message ? ` Note: ${message}` : ""}`;
 
     const thread = await ensureThreadForApplication(app);
     if (thread) {
@@ -434,7 +447,7 @@ export async function scheduleInterviewFromShortlisted(req, res, next) {
         {
           $set: {
             status: "Interview Scheduled",
-            lastMessageText: `Interview scheduled for ${whenText}`,
+            lastMessageText: `Interview scheduled for ${whenText}. Room ID: ${createdRoomId}`,
             lastMessageAt: new Date(),
           },
           $inc: { studentUnread: 1 },
@@ -457,6 +470,9 @@ export async function scheduleInterviewFromShortlisted(req, res, next) {
         jobId: app.job?._id ? String(app.job._id) : "",
         interviewId: String(interview._id),
         scheduledAt: dt.toISOString(),
+        roomId: createdRoomId,
+        interviewDate: date,
+        interviewTime: time,
         url: meetUrl,
       },
     });

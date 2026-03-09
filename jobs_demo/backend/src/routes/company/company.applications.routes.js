@@ -7,6 +7,7 @@ import {
   listCompanyApplications,
   updateCompanyApplicationStatus,
   bulkUpdateCompanyApplicationStatus,
+  deleteCompanyApplication,
   scheduleCompanyInterview,
 } from "../../controllers/company/company.applications.controller.js";
 
@@ -17,6 +18,8 @@ router.get("/applications", requireAuth, requireUser, requireRole("company"), li
 router.patch("/applications/:id/status", requireAuth, requireUser, requireRole("company"), updateCompanyApplicationStatus);
 
 router.patch("/applications/bulk/status", requireAuth, requireUser, requireRole("company"), bulkUpdateCompanyApplicationStatus);
+
+router.delete("/applications/:id", requireAuth, requireUser, requireRole("company"), deleteCompanyApplication);
 
 router.post("/applications/:id/schedule-interview", requireAuth, requireUser, requireRole("company"), scheduleCompanyInterview);
 

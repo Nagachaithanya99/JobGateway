@@ -17,7 +17,6 @@ import {
   updateShortlistedStatus as apiUpdateStatus,
   updateShortlistedStage as apiUpdateStage,
   sendOffer as apiSendOffer,
-  scheduleShortlistedInterview as apiScheduleInterview,
 } from "../../services/companyService.js";
 import { createCompanyThread } from "../../services/messagesService.js";
 
@@ -101,15 +100,17 @@ export default function Shortlisted() {
     message: "",
     file: "",
   });
-  const [schedule, setSchedule] = useState({
-    open: false,
-    candidate: null,
-    date: "",
-    time: "",
-    mode: "Online",
-    link: "",
-    message: "",
-  });
+  const openInterviewScheduler = (candidate) => {
+    if (!candidate?.id) return notify("Candidate not found");
+    const params = new URLSearchParams({
+      openSchedule: "1",
+      applicationId: String(candidate.id),
+      candidate: String(candidate.name || ""),
+      job: String(candidate.job || ""),
+      stage: String(candidate.stage || "HR Round"),
+    });
+    nav(`/company/interviews?${params.toString()}`);
+  };
 
   const notify = (m) => {
     setToast(m);
@@ -322,28 +323,6 @@ export default function Shortlisted() {
     }
   };
 
-  const scheduleInterview = async () => {
-    if (!schedule.candidate) return;
-    if (!schedule.date || !schedule.time) return notify("Date & time required");
-    try {
-      await apiScheduleInterview(schedule.candidate.id, {
-        date: schedule.date,
-        time: schedule.time,
-        mode: schedule.mode,
-        link: schedule.link,
-        message: schedule.message,
-      });
-      setList((p) =>
-        p.map((x) => (x.id === schedule.candidate.id ? { ...x, status: "Interview Scheduled" } : x))
-      );
-      setSchedule({ open: false, candidate: null, date: "", time: "", mode: "Online", link: "", message: "" });
-      notify("Interview invite sent");
-    } catch (e) {
-      notify(e?.response?.data?.message || "Schedule failed");
-      await fetchShortlisted();
-    }
-  };
-
   return (
     <div className="space-y-5 pb-24 md:pb-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -358,7 +337,7 @@ export default function Shortlisted() {
             onClick={() => {
               if (selected.length !== 1) return notify("Select exactly one candidate");
               const row = list.find((x) => x.id === selected[0]);
-              if (row) setSchedule((p) => ({ ...p, open: true, candidate: row }));
+              if (row) openInterviewScheduler(row);
             }}
             className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
@@ -459,7 +438,7 @@ export default function Shortlisted() {
                     <td className="py-3">
                       <div className="flex items-center gap-1">
                         <button onClick={() => setDrawer({ open: true, candidate: c })} className="rounded-md border border-blue-200 p-1.5 text-[#2563EB] hover:bg-blue-50"><FiEye /></button>
-                        <button onClick={() => setSchedule((p) => ({ ...p, open: true, candidate: c }))} className="rounded-md border border-blue-200 p-1.5 text-[#2563EB] hover:bg-blue-50"><FiCalendar /></button>
+                        <button onClick={() => openInterviewScheduler(c)} className="rounded-md border border-blue-200 p-1.5 text-[#2563EB] hover:bg-blue-50"><FiCalendar /></button>
                         <button onClick={() => openMessages(c)} disabled={msgBusyId === c.id} className={`rounded-md border border-blue-200 p-1.5 text-[#2563EB] hover:bg-blue-50 ${msgBusyId === c.id ? "opacity-60 cursor-not-allowed" : ""}`}><FiMessageCircle /></button>
                         <button onClick={() => setOffer((p) => ({ ...p, open: true, candidate: c }))} className="rounded-md border border-orange-200 p-1.5 text-[#F97316] hover:bg-orange-50"><FiFileText /></button>
                         <button onClick={() => updateStatus(c.id, "Hired")} className="rounded-md border border-green-200 p-1.5 text-green-700 hover:bg-green-50"><FiCheckCircle /></button>
@@ -481,7 +460,7 @@ export default function Shortlisted() {
           <div className="mx-auto flex w-full max-w-[1200px] flex-wrap items-center justify-between gap-2">
             <p className="text-sm font-semibold text-[#1E40AF]">{selected.length} selected</p>
             <div className="flex flex-wrap gap-2">
-              <button onClick={() => { if (selected.length !== 1) return notify("Select exactly one candidate"); const row = list.find((x) => x.id === selected[0]); if (row) setSchedule((p) => ({ ...p, open: true, candidate: row })); }} className="rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#2563EB]">Schedule Interview</button>
+              <button onClick={() => { if (selected.length !== 1) return notify("Select exactly one candidate"); const row = list.find((x) => x.id === selected[0]); if (row) openInterviewScheduler(row); }} className="rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#2563EB]">Schedule Interview</button>
               <button onClick={() => { if (selected.length !== 1) return notify("Select exactly one candidate"); const row = list.find((x) => x.id === selected[0]); if (row) openMessages(row); }} className="rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#2563EB]">Send Message</button>
               <button onClick={() => { if (selected.length !== 1) return notify("Select exactly one candidate"); const row = list.find((x) => x.id === selected[0]); if (row) setOffer((p) => ({ ...p, open: true, candidate: row })); }} className="rounded-lg border border-orange-200 bg-white px-3 py-1.5 text-xs font-semibold text-[#F97316]">Send Offer</button>
               <button onClick={() => bulkUpdate("Hired")} className="rounded-lg border border-green-200 bg-white px-3 py-1.5 text-xs font-semibold text-green-700">Move to Hired</button>
@@ -514,7 +493,7 @@ export default function Shortlisted() {
               </div>
               <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-[#1E40AF]">AI Match: {drawer.candidate?.aiMatch}</div>
               <div className="flex flex-wrap gap-2">
-                <button onClick={() => setSchedule((p) => ({ ...p, open: true, candidate: drawer.candidate }))} className="rounded-lg border border-blue-200 px-3 py-2 text-xs font-semibold text-[#2563EB] hover:bg-blue-50">Schedule Interview</button>
+                <button onClick={() => openInterviewScheduler(drawer.candidate)} className="rounded-lg border border-blue-200 px-3 py-2 text-xs font-semibold text-[#2563EB] hover:bg-blue-50">Schedule Interview</button>
                 <button onClick={() => openMessages(drawer.candidate)} className="rounded-lg border border-blue-200 px-3 py-2 text-xs font-semibold text-[#2563EB] hover:bg-blue-50">Message</button>
                 <button onClick={() => setOffer((p) => ({ ...p, open: true, candidate: drawer.candidate }))} className="rounded-lg border border-orange-200 px-3 py-2 text-xs font-semibold text-[#F97316] hover:bg-orange-50">Send Offer</button>
                 <button onClick={() => openResume(drawer.candidate)} className="rounded-lg border border-blue-200 px-3 py-2 text-xs font-semibold text-[#2563EB] hover:bg-blue-50">Resume</button>
@@ -542,26 +521,6 @@ export default function Shortlisted() {
           <input type="date" value={offer.expiry} onChange={(e) => setOffer((p) => ({ ...p, expiry: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm" />
           <input value={offer.file} onChange={(e) => setOffer((p) => ({ ...p, file: e.target.value }))} placeholder="Offer PDF filename" className="h-10 rounded-lg border border-slate-200 px-3 text-sm" />
           <textarea value={offer.message} onChange={(e) => setOffer((p) => ({ ...p, message: e.target.value }))} rows={3} placeholder="Message" className="rounded-lg border border-slate-200 px-3 py-2 text-sm sm:col-span-2" />
-        </div>
-      </Modal>
-
-      <Modal
-        open={schedule.open}
-        onClose={() => setSchedule({ open: false, candidate: null, date: "", time: "", mode: "Online", link: "", message: "" })}
-        title="Schedule Interview"
-        footer={
-          <>
-            <button onClick={() => setSchedule({ open: false, candidate: null, date: "", time: "", mode: "Online", link: "", message: "" })} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">Cancel</button>
-            <button onClick={scheduleInterview} className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white">Send Invite</button>
-          </>
-        }
-      >
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <input type="date" value={schedule.date} onChange={(e) => setSchedule((p) => ({ ...p, date: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm" />
-          <input type="time" value={schedule.time} onChange={(e) => setSchedule((p) => ({ ...p, time: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm" />
-          <select value={schedule.mode} onChange={(e) => setSchedule((p) => ({ ...p, mode: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm"><option>Online</option><option>Onsite</option></select>
-          <input value={schedule.link} onChange={(e) => setSchedule((p) => ({ ...p, link: e.target.value }))} placeholder="Meeting Link" className="h-10 rounded-lg border border-slate-200 px-3 text-sm" />
-          <textarea value={schedule.message} onChange={(e) => setSchedule((p) => ({ ...p, message: e.target.value }))} rows={3} placeholder="Message" className="rounded-lg border border-slate-200 px-3 py-2 text-sm sm:col-span-2" />
         </div>
       </Modal>
 

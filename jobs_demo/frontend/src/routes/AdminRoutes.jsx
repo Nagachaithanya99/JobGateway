@@ -20,6 +20,8 @@ import Settings from "../pages/admin/Settings.jsx";
 import Profile from "../pages/admin/Profile.jsx";
 import RolesPermissions from "../pages/admin/RolesPermissions.jsx";
 import Notifications from "../pages/admin/Notifications.jsx";
+import AdminInterviews from "../pages/admin/Interviews.jsx";
+import AdminInterviewWorkspace from "../pages/admin/InterviewWorkspace.jsx";
 
 export default function AdminRoutes() {
   return (
@@ -50,6 +52,8 @@ export default function AdminRoutes() {
         <Route path="gov" element={<GovernmentUpdates />} />
         <Route path="roles" element={<RolesPermissions />} />
         <Route path="notifications" element={<Notifications />} />
+        <Route path="interviews" element={<AdminInterviews />} />
+        <Route path="interviews/:id/workspace" element={<AdminInterviewWorkspace />} />
         <Route path="profile" element={<Profile />} />
         <Route path="settings" element={<Settings />} />
       </Route>

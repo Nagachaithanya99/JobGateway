@@ -2,11 +2,31 @@ import mongoose from "mongoose";
 import Interview from "../../models/Interview.js";
 import Application from "../../models/Application.js";
 import StudentNotification from "../../models/StudentNotification.js";
+import MessageThread from "../../models/MessageThread.js";
+import Message from "../../models/Message.js";
+import { emitInterviewSignal } from "../../realtime/interviewSignaling.js";
 
-const STATUS_ALLOWED = ["Scheduled", "Completed", "Rescheduled", "Cancelled", "Pending Confirmation"];
 const MODE_ALLOWED = ["Online", "Onsite"];
-const STAGE_ALLOWED = ["HR", "Technical", "Final"];
+const STAGE_ALLOWED = ["HR", "Technical", "Managerial", "Final"];
 const VERIFICATION_STATUS_ALLOWED = ["Pending", "Submitted", "Verified", "Rejected"];
+const WORKFLOW_STATUS_ALLOWED = [
+  "Scheduled",
+  "Waiting Room",
+  "Live",
+  "Completed",
+  "Review Ready",
+  "Rescheduled",
+  "Cancelled",
+  "No Show",
+  "Pending Confirmation",
+];
+
+function normalizeDurationMins(input, fallback = 30) {
+  const n = Number(input);
+  if (!Number.isFinite(n)) return fallback;
+  if (n < 0) return fallback;
+  return Math.floor(n);
+}
 
 function normalizeStringList(value) {
   if (Array.isArray(value)) {
@@ -26,23 +46,114 @@ function normalizeStringList(value) {
 }
 
 function toDateOnly(d) {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
+  const safe = d instanceof Date && !Number.isNaN(d.getTime()) ? d : new Date();
+  const yyyy = safe.getFullYear();
+  const mm = String(safe.getMonth() + 1).padStart(2, "0");
+  const dd = String(safe.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
 }
 
 function toTime12h(d) {
-  let h = d.getHours();
-  const m = String(d.getMinutes()).padStart(2, "0");
+  const safe = d instanceof Date && !Number.isNaN(d.getTime()) ? d : new Date();
+  let h = safe.getHours();
+  const m = String(safe.getMinutes()).padStart(2, "0");
   const ampm = h >= 12 ? "PM" : "AM";
   h = h % 12;
   if (h === 0) h = 12;
   return `${String(h).padStart(2, "0")}:${m} ${ampm}`;
 }
 
+function randomId(prefix) {
+  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeRoomId(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return raw.replace(/\s+/g, "-").slice(0, 80);
+}
+
+function normalizeWebRtcSdp(raw) {
+  let source = "";
+  if (raw && typeof raw === "object" && typeof raw.sdp === "string") {
+    source = raw.sdp;
+  } else {
+    source = String(raw || "").trim();
+    if (source.startsWith("{") && source.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(source);
+        if (parsed && typeof parsed.sdp === "string") source = parsed.sdp;
+      } catch {
+        // keep original source
+      }
+    }
+  }
+
+  const sdp = String(source || "")
+    .replace(/\\r\\n/g, "\r\n")
+    .replace(/\\n/g, "\n")
+    .trim();
+  if (!sdp) return "";
+
+  const lines = sdp
+    .split(/\r?\n/)
+    .map((line) => String(line || "").trim())
+    .filter(Boolean);
+  const startIndex = lines.findIndex((line) => line.startsWith("v=0"));
+  if (startIndex < 0) return "";
+
+  const allowed = /^(v|o|s|t|a|m|c|b)=/;
+  const cleaned = lines.slice(startIndex).filter((line) => allowed.test(line));
+  if (!cleaned.length || !cleaned[0].startsWith("v=0")) return "";
+  if (!cleaned.some((line) => line.startsWith("m="))) return "";
+
+  const normalized = `${cleaned.join("\r\n")}\r\n`;
+  return normalized.slice(0, 200000);
+}
+
+function normalizeIceCandidate(input = {}) {
+  const parsedMLine = Number(input?.sdpMLineIndex);
+  const safeMLine = Number.isFinite(parsedMLine) ? parsedMLine : null;
+  return {
+    candidate: String(input?.candidate || "").slice(0, 4000),
+    sdpMid: String(input?.sdpMid || "").slice(0, 100),
+    sdpMLineIndex: safeMLine,
+    usernameFragment: String(input?.usernameFragment || "").slice(0, 100),
+    createdAt: new Date(),
+  };
+}
+
+function runJavascriptSnippet(code) {
+  const logs = [];
+  const mockConsole = {
+    log: (...args) => logs.push(args.map((x) => String(x)).join(" ")),
+  };
+  const fn = new Function("console", `"use strict";\n${String(code || "")}`);
+  fn(mockConsole);
+  return logs.join("\n") || "Code executed successfully.";
+}
+
+function computeStartWindow(scheduledAt) {
+  const t = new Date(scheduledAt).getTime();
+  return {
+    startAllowedAt: new Date(t - 15 * 60 * 1000),
+  };
+}
+
+function isStartAllowedNow(scheduledAt) {
+  const now = Date.now();
+  const { startAllowedAt } = computeStartWindow(scheduledAt);
+  return now >= startAllowedAt.getTime();
+}
+
 function mapInterview(x) {
-  const d = new Date(x.scheduledAt);
+  const d = new Date(x?.scheduledAt || Date.now());
+  const safeScheduledAt = Number.isNaN(d.getTime()) ? new Date() : d;
+  const { startAllowedAt } = computeStartWindow(safeScheduledAt);
+  const now = Date.now();
+  const startAtMs = new Date(startAllowedAt).getTime();
+  const openJoinWindow = now >= startAtMs;
+  const durationMins = normalizeDurationMins(x.durationMins, 30);
   return {
     id: x._id,
     applicationId: x.application || "",
@@ -51,9 +162,10 @@ function mapInterview(x) {
     email: x.student?.email || "",
     job: x.jobTitle,
     stage: x.stage,
-    date: toDateOnly(d),
-    time: toTime12h(d),
-    duration: `${x.durationMins} mins`,
+    date: toDateOnly(safeScheduledAt),
+    time: toTime12h(safeScheduledAt),
+    durationMins,
+    duration: durationMins === 0 ? "Unlimited" : `${durationMins} mins`,
     mode: x.mode,
     interviewer: x.interviewer || "Assigned Interviewer",
     status: x.status,
@@ -71,8 +183,64 @@ function mapInterview(x) {
     verificationDetails: x.verificationDetails || "",
     additionalDetails: x.additionalDetails || "",
     verificationStatus: x.verificationStatus || "Pending",
+    roomId: x.roomId || "",
+    sessionId: x.sessionId || "",
+    startedAt: x.startedAt || null,
+    admittedAt: x.admittedAt || null,
+    endedAt: x.endedAt || null,
+    currentRound: x.currentRound || x.stage || "HR",
+    rounds: Array.isArray(x.rounds) ? x.rounds : [],
+    candidateReadiness: x.candidateReadiness || {
+      online: false,
+      cameraReady: false,
+      microphoneReady: false,
+      networkQuality: "Unknown",
+      consentAccepted: false,
+      rulesAccepted: false,
+    },
+    proctoring: x.proctoring || { baselineCaptured: false, riskLevel: "Low", alerts: [] },
+    scorecard: x.scorecard || {},
+    finalDecision: x.finalDecision || "",
+    collaboration: x.collaboration || {
+      chat: [],
+      questions: [],
+      code: { language: "javascript", content: "", note: "", output: "", error: "" },
+      screenShare: { active: false, by: "" },
+      liveQuestionDraft: { text: "", by: "", updatedAt: null },
+      webrtc: {
+        active: false,
+        sessionId: "",
+        offer: { type: "", sdp: "", by: "", createdAt: null },
+        answer: { type: "", sdp: "", by: "", createdAt: null },
+        companyCandidates: [],
+        studentCandidates: [],
+      },
+    },
+    openJoinWindow,
+    startAvailableAt: Number.isNaN(startAllowedAt.getTime()) ? new Date().toISOString() : startAllowedAt.toISOString(),
     createdAt: x.createdAt,
   };
+}
+
+async function ensureThreadForApplication(app) {
+  if (!app?._id) return null;
+  return MessageThread.findOneAndUpdate(
+    { application: app._id },
+    {
+      $setOnInsert: {
+        company: app.company?._id || app.company,
+        student: app.student?._id || app.student,
+        job: app.job?._id || app.job,
+        application: app._id,
+        status: app.status || "Applied",
+        lastMessageText: "Conversation started",
+        lastMessageAt: new Date(),
+        companyUnread: 0,
+        studentUnread: 0,
+      },
+    },
+    { upsert: true, returnDocument: "after" }
+  ).lean();
 }
 
 async function notifyInterview(studentId, interview, title, description) {
@@ -92,6 +260,8 @@ async function notifyInterview(studentId, interview, title, description) {
       applicationId: interview.application ? String(interview.application) : "",
       jobId: interview.job ? String(interview.job) : "",
       interviewId: String(interview._id),
+      roomId: String(interview.roomId || ""),
+      sessionId: String(interview.sessionId || ""),
       scheduledAt: interview.scheduledAt ? new Date(interview.scheduledAt).toISOString() : "",
       url: joinUrl,
     },
@@ -106,7 +276,12 @@ async function syncApplicationFromInterview(interviewDoc, interviewStatus, stage
   const existingApp = await Application.findOne({ _id: appId, company: interviewDoc.company }).lean();
   if (!existingApp) return;
   const existingMeta = existingApp.meta || {};
-  const stageLabelMap = { HR: "HR Round", Technical: "Technical Round", Final: "Final Round" };
+  const stageLabelMap = {
+    HR: "HR Round",
+    Technical: "Technical Round",
+    Managerial: "Manager Round",
+    Final: "Final Round",
+  };
   const normalizedStage = stageLabelMap[stage || interviewDoc.stage] || "HR Round";
   const baseMeta = {
     ...existingMeta,
@@ -149,7 +324,19 @@ export async function listCompanyInterviews(req, res, next) {
     const companyId = req.user?._id;
     if (!companyId) return res.status(401).json({ message: "Unauthorized" });
 
-    const { job, jobId, stage, mode, status, from, to } = req.query;
+    const {
+      q = "",
+      job,
+      jobId,
+      stage,
+      mode,
+      status,
+      tab = "all",
+      from,
+      to,
+      flaggedOnly = "",
+      risk = "",
+    } = req.query;
 
     const filter = { company: companyId };
 
@@ -157,7 +344,7 @@ export async function listCompanyInterviews(req, res, next) {
     if (jobId && mongoose.isValidObjectId(jobId)) filter.job = jobId;
     if (stage && STAGE_ALLOWED.includes(stage)) filter.stage = stage;
     if (mode && MODE_ALLOWED.includes(mode)) filter.mode = mode;
-    if (status && STATUS_ALLOWED.includes(status)) filter.status = status;
+    if (status && WORKFLOW_STATUS_ALLOWED.includes(status)) filter.status = status;
 
     if (from || to) {
       filter.scheduledAt = {};
@@ -165,11 +352,58 @@ export async function listCompanyInterviews(req, res, next) {
       if (to) filter.scheduledAt.$lte = new Date(`${to}T23:59:59.999Z`);
     }
 
-    const items = await Interview.find(filter)
+    const itemsRaw = await Interview.find(filter)
       .sort({ scheduledAt: -1 })
       .populate("student", "name email")
       .lean();
-    res.json({ items: items.map(mapInterview), total: items.length });
+
+    let items = itemsRaw.map(mapInterview);
+    const qText = String(q || "").trim().toLowerCase();
+    if (qText) {
+      items = items.filter((x) =>
+        `${x.candidate} ${x.email} ${x.job} ${x.interviewer}`.toLowerCase().includes(qText)
+      );
+    }
+
+    if (tab === "scheduled") {
+      items = items.filter((x) => ["Scheduled", "Rescheduled"].includes(x.status));
+    } else if (tab === "ongoing") {
+      items = items.filter((x) => ["Waiting Room", "Live"].includes(x.status));
+    } else if (tab === "completed") {
+      items = items.filter((x) => ["Completed", "Review Ready"].includes(x.status));
+    } else if (tab === "cancelled") {
+      items = items.filter((x) => ["Cancelled", "No Show"].includes(x.status));
+    }
+
+    if (String(flaggedOnly) === "1") {
+      items = items.filter((x) => Array.isArray(x.proctoring?.alerts) && x.proctoring.alerts.length);
+    }
+    if (risk && ["Low", "Medium", "High"].includes(String(risk))) {
+      items = items.filter((x) => (x.proctoring?.riskLevel || "Low") === risk);
+    }
+
+    const today = new Date();
+    const todayYMD = toDateOnly(today);
+    const pendingCount = await Application.countDocuments({
+      company: companyId,
+      status: "Shortlisted",
+    });
+
+    const summary = {
+      shortlistedCandidates: pendingCount,
+      interviewPending: pendingCount,
+      scheduledToday: itemsRaw.filter((x) => toDateOnly(new Date(x.scheduledAt)) === todayYMD).length,
+      upcomingInterviews: itemsRaw.filter((x) =>
+        ["Scheduled", "Rescheduled", "Waiting Room"].includes(x.status)
+      ).length,
+      ongoingNow: itemsRaw.filter((x) => ["Waiting Room", "Live"].includes(x.status)).length,
+      completedInterviews: itemsRaw.filter((x) => ["Completed", "Review Ready"].includes(x.status)).length,
+      flaggedInterviews: itemsRaw.filter(
+        (x) => Array.isArray(x?.proctoring?.alerts) && x.proctoring.alerts.length
+      ).length,
+    };
+
+    res.json({ items, total: items.length, summary });
   } catch (err) {
     next(err);
   }
@@ -189,6 +423,7 @@ export async function createCompanyInterview(req, res, next) {
       time, // "HH:mm"
       durationMins = 30,
       mode = "Online",
+      roomId = "",
       meetingLink = "",
       interviewLinks = [],
       location = "",
@@ -227,7 +462,7 @@ export async function createCompanyInterview(req, res, next) {
 
     if (!STAGE_ALLOWED.includes(stage)) return res.status(400).json({ message: "Invalid stage" });
     if (!MODE_ALLOWED.includes(mode)) return res.status(400).json({ message: "Invalid mode" });
-    if (!STATUS_ALLOWED.includes(status)) return res.status(400).json({ message: "Invalid status" });
+    if (!WORKFLOW_STATUS_ALLOWED.includes(status)) return res.status(400).json({ message: "Invalid status" });
     if (!VERIFICATION_STATUS_ALLOWED.includes(verificationStatus)) {
       return res.status(400).json({ message: "Invalid verificationStatus" });
     }
@@ -240,6 +475,9 @@ export async function createCompanyInterview(req, res, next) {
     const dt = new Date(date);
     dt.setHours(Number.isFinite(hh) ? hh : 0, Number.isFinite(mm) ? mm : 0, 0, 0);
 
+    const createdRoomId = normalizeRoomId(roomId) || randomId("room");
+    const safeMeetingLink = mode === "Online" ? effectiveMeetingLink : "";
+
     const interview = await Interview.create({
       company: companyId,
       application: linkedApplication?._id,
@@ -249,10 +487,15 @@ export async function createCompanyInterview(req, res, next) {
       jobTitle: resolvedJobTitle,
       stage,
       scheduledAt: dt,
-      durationMins: Number(durationMins) || 30,
+      durationMins: normalizeDurationMins(durationMins, 30),
       mode,
-      meetingLink: effectiveMeetingLink,
-      interviewLinks: normalizedLinks.length ? normalizedLinks : effectiveMeetingLink ? [effectiveMeetingLink] : [],
+      meetingLink: safeMeetingLink,
+      interviewLinks:
+        mode === "Online"
+          ? safeMeetingLink
+            ? [safeMeetingLink]
+            : []
+          : [],
       location: String(location || "").trim(),
       messageToCandidate: String(messageToCandidate || "").trim(),
       interviewQuestions: normalizeStringList(interviewQuestions),
@@ -262,10 +505,66 @@ export async function createCompanyInterview(req, res, next) {
       verificationStatus,
       interviewer: String(interviewer || "").trim(),
       status,
+      roomId: createdRoomId,
+      sessionId: "",
+      currentRound: stage,
+      rounds: [{ roundType: stage, status: "Pending" }],
+      candidateReadiness: {
+        online: false,
+        cameraReady: false,
+        microphoneReady: false,
+        networkQuality: "Unknown",
+        consentAccepted: false,
+        rulesAccepted: false,
+      },
+      proctoring: { baselineCaptured: false, riskLevel: "Low", alerts: [] },
+      collaboration: {
+        chat: [],
+        questions: [],
+        code: { language: "javascript", content: "", note: "", output: "", error: "" },
+        screenShare: { active: false, by: "" },
+        webrtc: {
+          active: false,
+          sessionId: "",
+          offer: { type: "", sdp: "", by: "", createdAt: null },
+          answer: { type: "", sdp: "", by: "", createdAt: null },
+          companyCandidates: [],
+          studentCandidates: [],
+        },
+      },
       notes: [],
     });
 
     await syncApplicationFromInterview(interview, status, stage);
+
+    if (linkedApplication) {
+      const thread = await ensureThreadForApplication(linkedApplication);
+      if (thread) {
+        const whenText = `${toDateOnly(dt)} at ${toTime12h(dt)}`;
+        const roomLine = ` Room ID: ${createdRoomId}.`;
+        const joinLine = safeMeetingLink ? ` Join link: ${safeMeetingLink}` : "";
+        const preview = `Interview scheduled for ${whenText}.${roomLine}${joinLine}`;
+
+        await Message.create({
+          thread: thread._id,
+          senderRole: "system",
+          type: "system",
+          text: preview,
+        });
+
+        await MessageThread.updateOne(
+          { _id: thread._id },
+          {
+            $set: {
+              status: "Interview Scheduled",
+              lastMessageText: `Interview scheduled for ${whenText}. Room ID: ${createdRoomId}`,
+              lastMessageAt: new Date(),
+            },
+            $inc: { studentUnread: 1 },
+          }
+        );
+      }
+    }
 
     if (interview.student) {
       await notifyInterview(
@@ -294,7 +593,7 @@ export async function updateCompanyInterview(req, res, next) {
 
     if (payload.stage && STAGE_ALLOWED.includes(payload.stage)) update.stage = payload.stage;
     if (payload.mode && MODE_ALLOWED.includes(payload.mode)) update.mode = payload.mode;
-    if (payload.status && STATUS_ALLOWED.includes(payload.status)) update.status = payload.status;
+    if (payload.status && WORKFLOW_STATUS_ALLOWED.includes(payload.status)) update.status = payload.status;
 
     if (typeof payload.meetingLink === "string") update.meetingLink = payload.meetingLink.trim();
     if (typeof payload.location === "string") update.location = payload.location.trim();
@@ -307,6 +606,16 @@ export async function updateCompanyInterview(req, res, next) {
       if (!update.meetingLink && update.interviewLinks.length) {
         update.meetingLink = update.interviewLinks[0];
       }
+    }
+    if (payload.roomId !== undefined) {
+      update.roomId = normalizeRoomId(payload.roomId) || randomId("room");
+    }
+    if (payload.mode === "Onsite") {
+      update.meetingLink = "";
+      update.interviewLinks = [];
+    }
+    if (payload.meetingLink !== undefined && (payload.mode || update.mode || "Online") === "Online") {
+      update.interviewLinks = update.meetingLink ? [update.meetingLink] : [];
     }
     if (payload.interviewQuestions !== undefined) {
       update.interviewQuestions = normalizeStringList(payload.interviewQuestions);
@@ -327,7 +636,7 @@ export async function updateCompanyInterview(req, res, next) {
       update.verificationStatus = payload.verificationStatus;
     }
 
-    if (payload.durationMins != null) update.durationMins = Number(payload.durationMins) || 30;
+    if (payload.durationMins != null) update.durationMins = normalizeDurationMins(payload.durationMins, 30);
 
     if (payload.date || payload.time) {
       const existing = await Interview.findOne({ _id: id, company: companyId }).lean();
@@ -406,7 +715,7 @@ export async function updateCompanyInterviewStatus(req, res, next) {
 
     const { id } = req.params;
     const { status } = req.body || {};
-    if (!STATUS_ALLOWED.includes(status)) return res.status(400).json({ message: "Invalid status" });
+    if (!WORKFLOW_STATUS_ALLOWED.includes(status)) return res.status(400).json({ message: "Invalid status" });
 
     const updated = await Interview.findOneAndUpdate(
       { _id: id, company: companyId },
@@ -428,6 +737,505 @@ export async function updateCompanyInterviewStatus(req, res, next) {
     }
 
     res.json({ ok: true, interview: mapInterview(updated) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// GET /api/company/interviews/:id/workspace
+export async function getCompanyInterviewWorkspace(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { id } = req.params;
+    const interview = await Interview.findOne({ _id: id, company: companyId })
+      .populate("student", "name email")
+      .lean();
+    if (!interview) return res.status(404).json({ message: "Interview not found" });
+
+    return res.json({ interview: mapInterview(interview) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/company/interviews/:id/start
+export async function startCompanyInterview(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { id } = req.params;
+    const interview = await Interview.findOne({ _id: id, company: companyId });
+    if (!interview) return res.status(404).json({ message: "Interview not found" });
+    if (!["Scheduled", "Rescheduled", "Waiting Room", "Live"].includes(interview.status)) {
+      return res.status(400).json({ message: "Interview cannot be started in current status" });
+    }
+
+    if (!isStartAllowedNow(interview.scheduledAt)) {
+      const { startAllowedAt } = computeStartWindow(interview.scheduledAt);
+      return res.status(400).json({
+        message: "Start is allowed only in the interview start window",
+        startAvailableAt: startAllowedAt.toISOString(),
+      });
+    }
+
+    if (!interview.roomId) interview.roomId = randomId("room");
+    if (!interview.sessionId) interview.sessionId = randomId("session");
+    if (interview.mode === "Online") interview.interviewLinks = interview.meetingLink ? [interview.meetingLink] : [];
+    interview.collaboration = interview.collaboration || {};
+    interview.collaboration.webrtc = {
+      active: false,
+      sessionId: String(interview.sessionId || ""),
+      offer: { type: "", sdp: "", by: "", createdAt: null },
+      answer: { type: "", sdp: "", by: "", createdAt: null },
+      companyCandidates: [],
+      studentCandidates: [],
+    };
+    interview.status = interview.status === "Live" ? "Live" : "Waiting Room";
+    if (!interview.startedAt) interview.startedAt = new Date();
+    if (!interview.currentRound) interview.currentRound = interview.stage || "HR";
+    await interview.save();
+
+    if (interview.student) {
+      await notifyInterview(
+        interview.student,
+        interview,
+        "Interview is ready to join",
+        `Your interview room is active now. Room ID: ${interview.roomId}. Click Join Meeting.`,
+      );
+    }
+
+    return res.json({ ok: true, interview: mapInterview(interview) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/company/interviews/:id/admit
+export async function admitCompanyCandidate(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { id } = req.params;
+    const interview = await Interview.findOne({ _id: id, company: companyId });
+    if (!interview) return res.status(404).json({ message: "Interview not found" });
+
+    if (interview.status === "Live") {
+      return res.json({ ok: true, interview: mapInterview(interview) });
+    }
+    if (!["Waiting Room", "Scheduled", "Rescheduled"].includes(interview.status)) {
+      return res.status(400).json({ message: "Candidate can only be admitted from waiting room flow" });
+    }
+
+    interview.status = "Live";
+    interview.admittedAt = new Date();
+    interview.startedAt = interview.startedAt || new Date();
+    interview.proctoring = {
+      ...(interview.proctoring || {}),
+      baselineCaptured: true,
+    };
+    await interview.save();
+
+    return res.json({ ok: true, interview: mapInterview(interview) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/company/interviews/:id/end-round
+export async function endCompanyInterviewRound(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { id } = req.params;
+    const { nextRound = "", scorecard = {}, summary = "", moveToNextRound = false } = req.body || {};
+    const interview = await Interview.findOne({ _id: id, company: companyId });
+    if (!interview) return res.status(404).json({ message: "Interview not found" });
+
+    const roundType = interview.currentRound || interview.stage || "HR";
+    const rounds = Array.isArray(interview.rounds) ? interview.rounds : [];
+    const idx = rounds.findIndex((x) => String(x?.roundType || "") === String(roundType));
+    const roundPatch = {
+      roundType,
+      status: "Completed",
+      endedAt: new Date(),
+      summary: String(summary || "").trim(),
+      score: Number(scorecard?.overall || 0),
+    };
+    if (idx >= 0) rounds[idx] = { ...rounds[idx].toObject?.(), ...roundPatch };
+    else rounds.push({ ...roundPatch, startedAt: interview.startedAt || new Date() });
+
+    interview.rounds = rounds;
+    interview.scorecard = {
+      ...(interview.scorecard || {}),
+      ...scorecard,
+      overall: Number(scorecard?.overall || interview.scorecard?.overall || 0),
+    };
+
+    if (moveToNextRound && STAGE_ALLOWED.includes(nextRound)) {
+      interview.currentRound = nextRound;
+      interview.status = "Waiting Room";
+      interview.rounds.push({ roundType: nextRound, status: "Pending", startedAt: new Date() });
+    } else {
+      interview.status = "Live";
+    }
+    await interview.save();
+
+    return res.json({ ok: true, interview: mapInterview(interview) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/company/interviews/:id/end
+export async function endCompanyInterview(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { id } = req.params;
+    const { decision = "", scorecard = {}, notes = "" } = req.body || {};
+    const interview = await Interview.findOne({ _id: id, company: companyId });
+    if (!interview) return res.status(404).json({ message: "Interview not found" });
+
+    interview.endedAt = new Date();
+    interview.status = "Review Ready";
+    if (["Strong Hire", "Hire", "Hold", "Reject"].includes(String(decision))) {
+      interview.finalDecision = decision;
+    }
+    interview.scorecard = {
+      ...(interview.scorecard || {}),
+      ...scorecard,
+      notes: String(notes || scorecard?.notes || interview.scorecard?.notes || ""),
+      overall: Number(scorecard?.overall || interview.scorecard?.overall || 0),
+    };
+    await interview.save();
+    try {
+      await syncApplicationFromInterview(interview, "Completed", interview.stage);
+    } catch (syncErr) {
+      console.error("endCompanyInterview syncApplicationFromInterview failed:", syncErr?.message || syncErr);
+    }
+
+    let mapped = null;
+    try {
+      mapped = mapInterview(interview);
+    } catch (mapErr) {
+      console.error("endCompanyInterview mapInterview failed:", mapErr?.message || mapErr);
+      mapped = { id: String(interview._id), status: interview.status, finalDecision: interview.finalDecision || "" };
+    }
+    return res.json({ ok: true, interview: mapped });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/company/interviews/:id/chat
+export async function companyInterviewChat(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+    const { id } = req.params;
+    const { text = "" } = req.body || {};
+    const chatText = String(text).trim();
+    if (!chatText) return res.status(400).json({ message: "Chat text is required" });
+    const createdAt = new Date();
+    const updated = await Interview.findOneAndUpdate(
+      { _id: id, company: companyId },
+      {
+        $push: {
+          "collaboration.chat": {
+            senderRole: "company",
+            text: chatText,
+            createdAt,
+          },
+        },
+      },
+      { returnDocument: "after" }
+    );
+    if (!updated) return res.status(404).json({ message: "Interview not found" });
+    emitInterviewSignal(
+      id,
+      "collab_chat",
+      { senderRole: "company", text: chatText, createdAt: createdAt.toISOString() },
+      { excludeRole: "company" }
+    );
+    return res.json({ ok: true, interview: mapInterview(updated) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/company/interviews/:id/questions
+export async function companyInterviewQuestion(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+    const { id } = req.params;
+    const { text = "" } = req.body || {};
+    const questionText = String(text).trim();
+    if (!questionText) return res.status(400).json({ message: "Question text is required" });
+    const createdAt = new Date();
+    const updated = await Interview.findOneAndUpdate(
+      { _id: id, company: companyId },
+      {
+        $push: {
+          "collaboration.questions": {
+            senderRole: "company",
+            text: questionText,
+            createdAt,
+          },
+        },
+        $set: {
+          "collaboration.liveQuestionDraft.text": "",
+          "collaboration.liveQuestionDraft.by": "company",
+          "collaboration.liveQuestionDraft.updatedAt": createdAt,
+        },
+      },
+      { returnDocument: "after" }
+    );
+    if (!updated) return res.status(404).json({ message: "Interview not found" });
+    emitInterviewSignal(
+      id,
+      "collab_question",
+      { senderRole: "company", text: questionText, createdAt: createdAt.toISOString() },
+      { excludeRole: "company" }
+    );
+    return res.json({ ok: true, interview: mapInterview(updated) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// PATCH /api/company/interviews/:id/questions/draft
+export async function companyInterviewQuestionDraft(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+    const { id } = req.params;
+    const { text = "" } = req.body || {};
+    const draftText = String(text || "").slice(0, 2000);
+    const updatedAt = new Date();
+    const updated = await Interview.findOneAndUpdate(
+      { _id: id, company: companyId },
+      {
+        $set: {
+          "collaboration.liveQuestionDraft.text": draftText,
+          "collaboration.liveQuestionDraft.by": "company",
+          "collaboration.liveQuestionDraft.updatedAt": updatedAt,
+        },
+      },
+      { returnDocument: "after" }
+    );
+    if (!updated) return res.status(404).json({ message: "Interview not found" });
+    emitInterviewSignal(
+      id,
+      "collab_question_draft",
+      { text: draftText, by: "company", updatedAt: updatedAt.toISOString() },
+      { excludeRole: "company" }
+    );
+    return res.json({ ok: true, interview: mapInterview(updated) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// PATCH /api/company/interviews/:id/code
+export async function companyInterviewCode(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+    const { id } = req.params;
+    const { language = "javascript", content = "", note = "" } = req.body || {};
+    const updatedAt = new Date();
+    const updated = await Interview.findOneAndUpdate(
+      { _id: id, company: companyId },
+      {
+        $set: {
+          "collaboration.code.language": String(language || "javascript"),
+          "collaboration.code.content": String(content || ""),
+          "collaboration.code.note": String(note || ""),
+          "collaboration.code.lastUpdatedBy": "company",
+          "collaboration.code.updatedAt": updatedAt,
+        },
+      },
+      { returnDocument: "after" }
+    );
+    if (!updated) return res.status(404).json({ message: "Interview not found" });
+    emitInterviewSignal(
+      id,
+      "collab_code",
+      {
+        language: String(language || "javascript"),
+        content: String(content || ""),
+        note: String(note || ""),
+        lastUpdatedBy: "company",
+        updatedAt: updatedAt.toISOString(),
+      },
+      { excludeRole: "company" }
+    );
+    return res.json({ ok: true, interview: mapInterview(updated) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/company/interviews/:id/code/run
+export async function companyRunInterviewCode(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+    const { id } = req.params;
+    const interview = await Interview.findOne({ _id: id, company: companyId });
+    if (!interview) return res.status(404).json({ message: "Interview not found" });
+    const code = interview?.collaboration?.code?.content || "";
+    const language = String(interview?.collaboration?.code?.language || "javascript").toLowerCase();
+    let output = "";
+    let error = "";
+    try {
+      if (language !== "javascript") {
+        throw new Error("Only JavaScript execution is supported currently.");
+      }
+      output = runJavascriptSnippet(code);
+    } catch (e) {
+      error = e?.message || "Code execution failed";
+    }
+    interview.collaboration = interview.collaboration || {};
+    interview.collaboration.code = {
+      ...(interview.collaboration.code || {}),
+      output,
+      error,
+      updatedAt: new Date(),
+    };
+    await interview.save();
+    return res.json({ ok: true, interview: mapInterview(interview) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// PATCH /api/company/interviews/:id/screen-share
+export async function companyInterviewScreenShare(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+    const { id } = req.params;
+    const { active = false } = req.body || {};
+    const updated = await Interview.findOneAndUpdate(
+      { _id: id, company: companyId },
+      {
+        $set: {
+          "collaboration.screenShare.active": Boolean(active),
+          "collaboration.screenShare.by": Boolean(active) ? "company" : "",
+          "collaboration.screenShare.startedAt": Boolean(active) ? new Date() : null,
+        },
+      },
+      { returnDocument: "after" }
+    );
+    if (!updated) return res.status(404).json({ message: "Interview not found" });
+    return res.json({ ok: true, interview: mapInterview(updated) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/company/interviews/:id/webrtc/offer
+export async function companyInterviewWebrtcOffer(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+    const { id } = req.params;
+    const { type = "offer", sdp = "" } = req.body || {};
+    const safeSdp = normalizeWebRtcSdp(sdp);
+    if (!safeSdp) return res.status(400).json({ message: "Offer SDP is required" });
+
+    const existing = await Interview.findOne({ _id: id, company: companyId }).select("_id sessionId").lean();
+    if (!existing) return res.status(404).json({ message: "Interview not found" });
+
+    const sessionId = String(existing.sessionId || randomId("session"));
+    const interview = await Interview.findOneAndUpdate(
+      { _id: id, company: companyId },
+      {
+        $set: {
+          sessionId,
+          "collaboration.webrtc.active": true,
+          "collaboration.webrtc.sessionId": sessionId,
+          "collaboration.webrtc.offer": {
+            type: String(type || "offer"),
+            sdp: safeSdp,
+            by: "company",
+            createdAt: new Date(),
+          },
+          "collaboration.webrtc.answer": { type: "", sdp: "", by: "", createdAt: null },
+          "collaboration.webrtc.companyCandidates": [],
+          "collaboration.webrtc.studentCandidates": [],
+        },
+      },
+      { returnDocument: "after" }
+    );
+
+    emitInterviewSignal(
+      id,
+      "webrtc_offer",
+      {
+        sessionId,
+        offer: {
+          type: String(type || "offer"),
+          sdp: safeSdp,
+          by: "company",
+          createdAt: new Date().toISOString(),
+        },
+      },
+      { excludeRole: "company" }
+    );
+
+    return res.json({ ok: true, sessionId, interview: mapInterview(interview) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/company/interviews/:id/webrtc/candidate
+export async function companyInterviewWebrtcCandidate(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+    const { id } = req.params;
+    const candidate = normalizeIceCandidate(req.body || {});
+    if (!candidate.candidate) return res.status(400).json({ message: "ICE candidate is required" });
+
+    const existing = await Interview.findOne({ _id: id, company: companyId }).select("_id sessionId").lean();
+    if (!existing) return res.status(404).json({ message: "Interview not found" });
+    const sessionId = String(existing.sessionId || randomId("session"));
+
+    await Interview.updateOne(
+      { _id: id, company: companyId },
+      {
+        $set: {
+          sessionId,
+          "collaboration.webrtc.active": true,
+          "collaboration.webrtc.sessionId": sessionId,
+        },
+        $push: {
+          "collaboration.webrtc.companyCandidates": {
+            $each: [candidate],
+            $slice: -150,
+          },
+        },
+      }
+    );
+
+    emitInterviewSignal(
+      id,
+      "webrtc_candidate",
+      { from: "company", candidate },
+      { excludeRole: "company" }
+    );
+
+    return res.json({ ok: true });
   } catch (err) {
     next(err);
   }

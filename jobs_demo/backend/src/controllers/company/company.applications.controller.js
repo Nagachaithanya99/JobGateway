@@ -63,6 +63,16 @@ function normalizeStringList(value) {
   return [];
 }
 
+function randomRoomId() {
+  return `room_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function ensureMeetingLink(link, roomId) {
+  const raw = String(link || "").trim();
+  if (raw) return raw;
+  return "";
+}
+
 export const listCompanyApplications = async (req, res, next) => {
   try {
     const companyId = req.user._id;
@@ -210,6 +220,43 @@ export const bulkUpdateCompanyApplicationStatus = async (req, res, next) => {
   }
 };
 
+export const deleteCompanyApplication = async (req, res, next) => {
+  try {
+    const companyId = req.user._id;
+    const { id } = req.params;
+
+    const app = await Application.findOne({ _id: id, company: companyId }).select("_id").lean();
+    if (!app) {
+      return res.status(404).json({ message: "Application not found" });
+    }
+
+    const threadIds = await MessageThread.find({ application: app._id }).distinct("_id");
+
+    const [messagesResult, threadsResult, interviewsResult, applicationResult] = await Promise.all([
+      threadIds.length ? Message.deleteMany({ thread: { $in: threadIds } }) : Promise.resolve({ deletedCount: 0 }),
+      threadIds.length ? MessageThread.deleteMany({ _id: { $in: threadIds } }) : Promise.resolve({ deletedCount: 0 }),
+      Interview.deleteMany({ application: app._id, company: companyId }),
+      Application.deleteOne({ _id: app._id, company: companyId }),
+    ]);
+
+    if (!applicationResult?.deletedCount) {
+      return res.status(404).json({ message: "Application not found" });
+    }
+
+    return res.json({
+      ok: true,
+      id,
+      deleted: {
+        interviews: Number(interviewsResult?.deletedCount || 0),
+        threads: Number(threadsResult?.deletedCount || 0),
+        messages: Number(messagesResult?.deletedCount || 0),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const scheduleCompanyInterview = async (req, res, next) => {
   try {
     const companyId = req.user._id;
@@ -244,8 +291,10 @@ export const scheduleCompanyInterview = async (req, res, next) => {
     const dt = new Date(date);
     dt.setHours(Number.isFinite(hh) ? hh : 0, Number.isFinite(mm) ? mm : 0, 0, 0);
     const normalizedLinks = normalizeStringList(interviewLinks);
+    const createdRoomId = randomRoomId();
     const normalizedMeetingLink = String(link || "").trim();
-    const effectiveMeetingLink = normalizedMeetingLink || normalizedLinks[0] || "";
+    const effectiveMeetingLinkRaw = normalizedMeetingLink || normalizedLinks[0] || "";
+    const effectiveMeetingLink = type === "Online" ? ensureMeetingLink(effectiveMeetingLinkRaw, createdRoomId) : "";
 
     const interview = await Interview.create({
       company: companyId,
@@ -256,6 +305,7 @@ export const scheduleCompanyInterview = async (req, res, next) => {
       jobTitle: app.job?.title || "-",
       stage: ["HR", "Technical", "Final"].includes(round) ? round : "HR",
       scheduledAt: dt,
+      durationMins: 0,
       mode: type === "Onsite" ? "Onsite" : "Online",
       meetingLink: type === "Online" ? effectiveMeetingLink : "",
       interviewLinks:
@@ -272,6 +322,7 @@ export const scheduleCompanyInterview = async (req, res, next) => {
       documentsRequired: normalizeStringList(documentsRequired),
       verificationDetails: String(verificationDetails || "").trim(),
       additionalDetails: String(additionalDetails || "").trim(),
+      roomId: createdRoomId,
       status: "Scheduled",
     });
 
@@ -281,9 +332,10 @@ export const scheduleCompanyInterview = async (req, res, next) => {
     );
 
     const whenText = toDateTimeText(dt);
+    const roomLine = ` Room ID: ${createdRoomId}.`;
     const joinLine = type === "Online" && effectiveMeetingLink ? ` Join link: ${effectiveMeetingLink}` : "";
     const noteLine = String(message || "").trim() ? ` Note: ${String(message).trim()}` : "";
-    const preview = `Interview scheduled for ${whenText}.${joinLine}${noteLine}`;
+    const preview = `Interview scheduled for ${whenText}.${roomLine}${joinLine}${noteLine}`;
 
     const thread = await ensureThreadForApplication(app);
     if (thread) {
@@ -298,7 +350,7 @@ export const scheduleCompanyInterview = async (req, res, next) => {
         {
           $set: {
             status: "Interview Scheduled",
-            lastMessageText: `Interview scheduled for ${whenText}`,
+            lastMessageText: `Interview scheduled for ${whenText}. Room ID: ${createdRoomId}`,
             lastMessageAt: new Date(),
           },
           $inc: { studentUnread: 1 },
@@ -322,6 +374,9 @@ export const scheduleCompanyInterview = async (req, res, next) => {
         conversationId: thread ? String(thread._id) : "",
         interviewId: String(interview._id),
         scheduledAt: dt.toISOString(),
+        roomId: createdRoomId,
+        interviewDate: date,
+        interviewTime: time,
         url: type === "Online" ? effectiveMeetingLink : "",
       },
     });

@@ -8,7 +8,7 @@
 }
 
 html, body { height: 100%; }
-body { @apply bg-bg text-ink; }
+body { @apply bg-bg text-ink transition-colors duration-300; }
 
 .card {
   @apply bg-white rounded-xl2 shadow-soft border border-slate-100;
@@ -61,4 +61,82 @@ body { @apply bg-bg text-ink; }
   box-shadow: 0 8px 18px rgba(255, 122, 0, 0.35);
   cursor: pointer;
   border: 3px solid #fff;
+}
+
+/* Dark theme: global inversion to swap light/dark colors across existing UI */
+html.dark {
+  color-scheme: dark;
+}
+
+html.dark body {
+  background: #000;
+}
+
+html.dark #root {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+html.dark img,
+html.dark video,
+html.dark iframe,
+html.dark canvas,
+html.dark svg,
+html.dark input,
+html.dark textarea,
+html.dark select,
+html.dark [data-no-theme-invert="true"] {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+/* Dark mode dropdown consistency for all search filters */
+html.dark select {
+  background-color: #000 !important;
+  color: #fff !important;
+  border-color: #1d4ed8 !important;
+}
+
+html.dark input,
+html.dark textarea {
+  background-color: #000 !important;
+  color: #fff !important;
+  border-color: #1d4ed8 !important;
+}
+
+html.dark select:focus {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3) !important;
+}
+
+html.dark input:focus,
+html.dark textarea:focus {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.3) !important;
+}
+
+html.dark select:disabled {
+  background-color: #111827 !important;
+  color: #94a3b8 !important;
+  border-color: #334155 !important;
+}
+
+html.dark input:disabled,
+html.dark textarea:disabled {
+  background-color: #111827 !important;
+  color: #94a3b8 !important;
+  border-color: #334155 !important;
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #94a3b8 !important;
+}
+
+html.dark select option {
+  background-color: #000;
+  color: #fff;
+}
+
+html.dark select option:checked {
+  background-color: #2563eb;
+  color: #fff;
 }

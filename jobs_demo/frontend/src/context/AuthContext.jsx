@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useMemo, useState } from "react
 import { useAuth as useClerkAuth, useClerk, useUser } from "@clerk/clerk-react";
 
 const DEMO_AUTH_KEY = "demo_auth";
+const ALLOW_DEMO_AUTH = String(import.meta.env.VITE_ALLOW_DEMO_AUTH || "") === "1";
 
 function readDemoUser() {
   try {
@@ -50,11 +51,11 @@ export function AuthProvider({ children }) {
   const { signOut } = useClerk();
   const { user: clerkUser } = useUser();
 
-  const [demoUser, setDemoUser] = useState(readDemoUser);
+  const [demoUser, setDemoUser] = useState(() => (ALLOW_DEMO_AUTH ? readDemoUser() : null));
 
   const user = useMemo(() => {
     if (isSignedIn) return mapClerkUser(clerkUser);
-    return demoUser;
+    return ALLOW_DEMO_AUTH ? demoUser : null;
   }, [isSignedIn, clerkUser, demoUser]);
 
   const role = user?.role || null;
@@ -62,6 +63,7 @@ export function AuthProvider({ children }) {
   const loading = !isLoaded || (isSignedIn && !clerkUser);
 
   const login = useCallback((payload) => {
+    if (!ALLOW_DEMO_AUTH) return;
     const nextUser = payload?.user || payload || null;
     setDemoUser(nextUser);
     writeDemoUser(nextUser);
@@ -72,8 +74,10 @@ export function AuthProvider({ children }) {
       await signOut();
     }
 
-    setDemoUser(null);
-    writeDemoUser(null);
+    if (ALLOW_DEMO_AUTH) {
+      setDemoUser(null);
+      writeDemoUser(null);
+    }
   }, [isSignedIn, signOut]);
 
   const value = useMemo(

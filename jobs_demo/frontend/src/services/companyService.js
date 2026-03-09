@@ -21,6 +21,11 @@ export async function bulkUpdateApplicationStatus(ids = [], status) {
   return data;
 }
 
+export async function deleteCompanyApplication(applicationId) {
+  const { data } = await api.delete(`/company/applications/${applicationId}`);
+  return data;
+}
+
 export async function scheduleInterview(applicationId, payload) {
   const { data } = await api.post(`/company/applications/${applicationId}/schedule-interview`, payload);
   return data;

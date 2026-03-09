@@ -47,6 +47,7 @@ import adminRolesRoutes from "./routes/admin/admin.roles.routes.js";
 import adminNotificationsRoutes from "./routes/admin/admin.notifications.routes.js";
 import adminSettingsRoutes from "./routes/admin/admin.settings.routes.js";
 import adminProfileRoutes from "./routes/admin/admin.profile.routes.js";
+import adminInterviewsRoutes from "./routes/admin/admin.interviews.routes.js";
 import contentRoutes from "./routes/content.routes.js";
 
 // Uploads
@@ -108,6 +109,7 @@ app.use("/api/admin", adminRolesRoutes);
 app.use("/api/admin", adminNotificationsRoutes);
 app.use("/api/admin", adminSettingsRoutes);
 app.use("/api/admin", adminProfileRoutes);
+app.use("/api/admin", adminInterviewsRoutes);
 
 // ✅ Upload routes
 app.use("/api/upload", uploadsRoutes);

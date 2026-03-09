@@ -11,6 +11,7 @@ import {
   FiShield,
   FiBell,
   FiGlobe,
+  FiVideo,
   FiSettings,
   FiX,
 } from "react-icons/fi";
@@ -21,6 +22,7 @@ const navItems = [
   { to: "/admin/jobs", icon: <FiBriefcase />, label: "Jobs" },
   { to: "/admin/applicants", icon: <FiFileText />, label: "Applicants" },
   { to: "/admin/students", icon: <FiUser />, label: "Students" },
+  { to: "/admin/interviews", icon: <FiVideo />, label: "Interviews" },
   { to: "/admin/pricing", icon: <FiDollarSign />, label: "Pricing Plans" },
   { to: "/admin/content", icon: <FiImage />, label: "Content Management" },
   { to: "/admin/gov", icon: <FiGlobe />, label: "Government Updates" },

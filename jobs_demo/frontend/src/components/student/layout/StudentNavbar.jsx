@@ -14,6 +14,7 @@ import {
 import useAuth from "../../../hooks/useAuth.js";
 import Modal from "../../common/Modal.jsx";
 import LanguageSelector from "../../common/LanguageSelector.jsx";
+import ThemeToggle from "../../common/ThemeToggle.jsx";
 import { useI18n } from "../../../context/I18nContext.jsx";
 import {
   studentListConversations,
@@ -150,6 +151,7 @@ export default function StudentNavbar() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
+          <ThemeToggle />
           <LanguageSelector compact />
           <button
             type="button"

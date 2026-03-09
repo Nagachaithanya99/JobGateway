@@ -10,6 +10,7 @@ import {
 import {
   studentApplyJob,
   studentHome,
+  studentMyApplications,
   studentSearchJobs,
 } from "../../services/studentService.js";
 import {
@@ -94,6 +95,9 @@ export default function Jobs() {
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
+  const [applyMsg, setApplyMsg] = useState("");
+  const [applyingIds, setApplyingIds] = useState(new Set());
+  const [appliedJobIds, setAppliedJobIds] = useState(new Set());
   const [items, setItems] = useState([]);
   const [meta, setMeta] = useState({ total: 0, page: 1, pages: 1, limit: 8 });
   const [optionRows, setOptionRows] = useState([]);
@@ -206,15 +210,19 @@ export default function Jobs() {
   useEffect(() => {
     (async () => {
       try {
-        const [jobsRes, homeRes] = await Promise.all([
+        const [jobsRes, homeRes, appsRes] = await Promise.all([
           studentSearchJobs({ page: 1, limit: 200 }),
           studentHome(),
+          studentMyApplications({ page: 1, limit: 300 }),
         ]);
         setOptionRows(normalizeItems(jobsRes?.data || {}));
         setCategories(Array.isArray(homeRes?.data?.categories) ? homeRes.data.categories : []);
-      } catch (e) {
+        const appRows = Array.isArray(appsRes?.data?.items) ? appsRes.data.items : [];
+        setAppliedJobIds(new Set(appRows.map((x) => String(x?.jobId || x?.job?._id || "")).filter(Boolean)));
+      } catch {
         setOptionRows([]);
         setCategories([]);
+        setAppliedJobIds(new Set());
       }
     })();
   }, []);
@@ -257,6 +265,12 @@ export default function Jobs() {
     });
   };
 
+  useEffect(() => {
+    if (!applyMsg) return;
+    const t = setTimeout(() => setApplyMsg(""), 2200);
+    return () => clearTimeout(t);
+  }, [applyMsg]);
+
   const goto = (p) => {
     const next = Math.max(1, Math.min(meta.pages || 1, p));
     fetchJobs(next);
@@ -265,14 +279,34 @@ export default function Jobs() {
   const onQuickApply = async (jobId) => {
     try {
       if (!jobId) return;
-      await studentApplyJob(jobId);
+      if (appliedJobIds.has(String(jobId))) {
+        setApplyMsg("Already applied for this job");
+        return;
+      }
+      setApplyingIds((prev) => new Set(prev).add(String(jobId)));
+      const res = await studentApplyJob(jobId);
+      if (res?.data?.ok) {
+        setAppliedJobIds((prev) => new Set(prev).add(String(jobId)));
+        setApplyMsg(res?.data?.alreadyApplied ? "Already applied for this job" : "Application submitted");
+      }
     } catch (e) {
       const status = Number(e?.response?.status || 0);
       if (status === 401 || status === 403) {
         redirectToLogin();
         return;
       }
+      if (status === 409) {
+        setAppliedJobIds((prev) => new Set(prev).add(String(jobId)));
+        setApplyMsg("Already applied for this job");
+        return;
+      }
       setErr(e?.response?.data?.message || "Apply failed.");
+    } finally {
+      setApplyingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(String(jobId));
+        return next;
+      });
     }
   };
 
@@ -553,6 +587,11 @@ export default function Jobs() {
                   {err}
                 </div>
               ) : null}
+              {applyMsg ? (
+                <div className="mb-3 rounded-[16px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] font-semibold text-emerald-700">
+                  {applyMsg}
+                </div>
+              ) : null}
 
               {loading ? (
                 <div className="py-12 text-center text-[14px] font-semibold text-slate-600">
@@ -571,6 +610,8 @@ export default function Jobs() {
                     const loc = job?.location || job?.city || "India";
                     const tag = job?.category || job?.stream || "General";
                     const rating = Number.isFinite(Number(job?.rating)) ? Number(job.rating) : 0;
+                    const isApplied = appliedJobIds.has(String(id));
+                    const isApplying = applyingIds.has(String(id));
 
                     return (
                       <article
@@ -627,10 +668,12 @@ export default function Jobs() {
                             <button
                               type="button"
                               onClick={() => onQuickApply(id)}
-                              disabled={!id}
-                              className="h-[40px] w-[132px] rounded-[14px] bg-[#ff7a00] text-[13px] font-extrabold text-white shadow-[0_10px_25px_rgba(255,122,0,0.35)] hover:bg-[#ff6a00] disabled:opacity-50"
+                              disabled={!id || isApplied || isApplying}
+                              className={`h-[40px] w-[132px] rounded-[14px] text-[13px] font-extrabold text-white shadow-[0_10px_25px_rgba(255,122,0,0.35)] disabled:opacity-50 ${
+                                isApplied ? "bg-emerald-600 hover:bg-emerald-600" : "bg-[#ff7a00] hover:bg-[#ff6a00]"
+                              }`}
                             >
-                              Quick Apply
+                              {isApplying ? "Applying..." : isApplied ? "Applied" : "Quick Apply"}
                             </button>
                           </div>
                         </div>
@@ -647,10 +690,12 @@ export default function Jobs() {
                           <button
                             type="button"
                             onClick={() => onQuickApply(id)}
-                            disabled={!id}
-                            className="flex-1 rounded-[14px] bg-[#ff7a00] py-2 text-[13px] font-extrabold text-white disabled:opacity-50"
+                            disabled={!id || isApplied || isApplying}
+                            className={`flex-1 rounded-[14px] py-2 text-[13px] font-extrabold text-white disabled:opacity-50 ${
+                              isApplied ? "bg-emerald-600" : "bg-[#ff7a00]"
+                            }`}
                           >
-                            Quick Apply
+                            {isApplying ? "Applying..." : isApplied ? "Applied" : "Quick Apply"}
                           </button>
                         </div>
                       </article>

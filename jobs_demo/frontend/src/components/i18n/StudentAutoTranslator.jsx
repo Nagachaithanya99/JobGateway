@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { useI18n } from "../../context/I18nContext.jsx";
+import { SUPPORTED_LANGUAGE_CODES } from "../../context/i18nLanguages.js";
 import { translateTexts } from "../../services/i18nService.js";
 
 const ORIGINAL_TEXT = new WeakMap();
@@ -99,7 +100,7 @@ function loadLocalCache() {
   if (localCacheLoaded) return;
   localCacheLoaded = true;
   try {
-    ["hi", "te", "ta", "kn"].forEach((lang) => {
+    SUPPORTED_LANGUAGE_CODES.forEach((lang) => {
       const raw = localStorage.getItem(`${LOCAL_CACHE_PREFIX}${lang}`);
       if (!raw) return;
       const obj = JSON.parse(raw);

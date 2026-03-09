@@ -1,11 +1,14 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "./AuthContext.jsx";
 import { getMyLanguagePreference, saveMyLanguagePreference } from "../services/i18nService.js";
+import {
+  DEFAULT_LANGUAGE,
+  LANGUAGE_CATALOG,
+  normalizeLanguage,
+} from "./i18nLanguages.js";
 
 const GUEST_STORAGE_KEY = "i18n_lang_guest";
 const USER_STORAGE_PREFIX = "i18n_lang_user_";
-const DEFAULT_LANGUAGE = "en";
-const SUPPORTED = ["en", "hi", "te", "ta", "kn"];
 
 const messages = {
   en: {
@@ -23,48 +26,10 @@ const messages = {
     "nav.settings": "Settings",
     "nav.logout": "Logout",
     "lang.label": "Language",
-    "lang.english": "English",
-    "lang.hindi": "Hindi",
-    "lang.telugu": "Telugu",
-    "lang.tamil": "Tamil",
-    "lang.kannada": "Kannada",
     "search.anything": "Search anything...",
     "search.student.quick": "Quick Search",
   },
-  hi: {
-    "lang.english": "English",
-    "lang.hindi": "Hindi",
-    "lang.telugu": "Telugu",
-    "lang.tamil": "Tamil",
-    "lang.kannada": "Kannada",
-  },
-  te: {
-    "lang.english": "English",
-    "lang.hindi": "Hindi",
-    "lang.telugu": "Telugu",
-    "lang.tamil": "Tamil",
-    "lang.kannada": "Kannada",
-  },
-  ta: {
-    "lang.english": "English",
-    "lang.hindi": "Hindi",
-    "lang.telugu": "Telugu",
-    "lang.tamil": "Tamil",
-    "lang.kannada": "Kannada",
-  },
-  kn: {
-    "lang.english": "English",
-    "lang.hindi": "Hindi",
-    "lang.telugu": "Telugu",
-    "lang.tamil": "Tamil",
-    "lang.kannada": "Kannada",
-  },
 };
-
-function normalizeLanguage(value) {
-  const next = String(value || "").trim().toLowerCase();
-  return SUPPORTED.includes(next) ? next : DEFAULT_LANGUAGE;
-}
 
 function userStorageKey(userId) {
   return `${USER_STORAGE_PREFIX}${userId}`;
@@ -95,6 +60,14 @@ export function I18nProvider({ children }) {
   const userId = user?.id || "";
   const [language, setLanguageState] = useState(() => readLocalLanguage(""));
   const [busy, setBusy] = useState(false);
+  const persistTimerRef = useRef(null);
+  const persistSeqRef = useRef(0);
+
+  const clearPersistTimer = useCallback(() => {
+    if (!persistTimerRef.current) return;
+    clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = null;
+  }, []);
 
   const setLanguage = useCallback(
     async (nextLanguage, options = {}) => {
@@ -106,20 +79,20 @@ export function I18nProvider({ children }) {
 
       if (!shouldPersist || !isAuthed) return next;
 
-      try {
-        setBusy(true);
-        const res = await saveMyLanguagePreference(next);
-        const confirmed = normalizeLanguage(res?.language || next);
-        setLanguageState(confirmed);
-        writeLocalLanguage(confirmed, userId);
-        return confirmed;
-      } catch {
-        return next;
-      } finally {
-        setBusy(false);
-      }
+      clearPersistTimer();
+      const seq = ++persistSeqRef.current;
+      persistTimerRef.current = setTimeout(async () => {
+        try {
+          await saveMyLanguagePreference(next);
+          if (seq !== persistSeqRef.current) return;
+        } catch {
+          // keep optimistic local language for better responsiveness
+        }
+      }, 200);
+
+      return next;
     },
-    [isAuthed, userId],
+    [clearPersistTimer, isAuthed, userId],
   );
 
   useEffect(() => {
@@ -141,8 +114,12 @@ export function I18nProvider({ children }) {
         const res = await getMyLanguagePreference();
         if (!active) return;
         const remoteLang = normalizeLanguage(res?.language || localLang);
-        setLanguageState(remoteLang);
-        writeLocalLanguage(remoteLang, userId);
+        // Preserve local selection for responsiveness and broader language coverage.
+        // Only hydrate from server when local is still default.
+        if (localLang === DEFAULT_LANGUAGE && remoteLang !== DEFAULT_LANGUAGE) {
+          setLanguageState(remoteLang);
+          writeLocalLanguage(remoteLang, userId);
+        }
       } catch {
         if (active) setLanguageState(localLang);
       } finally {
@@ -156,6 +133,8 @@ export function I18nProvider({ children }) {
     };
   }, [isAuthed, userId]);
 
+  useEffect(() => clearPersistTimer, [clearPersistTimer]);
+
   const t = useCallback(
     (key, fallback = "") => {
       const pack = messages[language] || {};
@@ -167,14 +146,17 @@ export function I18nProvider({ children }) {
   );
 
   const languages = useMemo(
-    () => [
-      { code: "en", label: t("lang.english") },
-      { code: "hi", label: t("lang.hindi") },
-      { code: "te", label: t("lang.telugu") },
-      { code: "ta", label: t("lang.tamil") },
-      { code: "kn", label: t("lang.kannada") },
-    ],
-    [t],
+    () =>
+      [...LANGUAGE_CATALOG]
+        .sort((a, b) => {
+          if (a.popular !== b.popular) return a.popular ? -1 : 1;
+          return a.label.localeCompare(b.label);
+        })
+        .map((lang) => ({
+          code: lang.code,
+          label: `${lang.native} (${lang.label})`,
+        })),
+    [],
   );
 
   const value = useMemo(
@@ -190,13 +172,10 @@ export function useI18n() {
   if (ctx) return ctx;
   return {
     language: DEFAULT_LANGUAGE,
-    languages: [
-      { code: "en", label: "English" },
-      { code: "hi", label: "Hindi" },
-      { code: "te", label: "Telugu" },
-      { code: "ta", label: "Tamil" },
-      { code: "kn", label: "Kannada" },
-    ],
+    languages: LANGUAGE_CATALOG.map((x) => ({
+      code: x.code,
+      label: `${x.native} (${x.label})`,
+    })),
     busy: false,
     setLanguage: async () => DEFAULT_LANGUAGE,
     t: (key, fallback = "") => fallback || key,
