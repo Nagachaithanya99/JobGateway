@@ -61,7 +61,10 @@ function normalizeRemoteSdp(raw) {
 }
 
 function buildInterviewWsUrl(interviewId) {
-  const apiBase = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000/api";
+  const apiBase =
+    import.meta.env.VITE_API_BASE_URL ||
+    import.meta.env.VITE_API_URL ||
+    "http://localhost:5000/api";
   const u = new URL(apiBase);
   const wsProtocol = u.protocol === "https:" ? "wss:" : "ws:";
   const q = `interviewId=${encodeURIComponent(String(interviewId || ""))}&role=student`;

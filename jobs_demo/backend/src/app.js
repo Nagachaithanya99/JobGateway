@@ -60,7 +60,27 @@ import socialRoutes from "./routes/social.routes.js";
 
 const app = express();
 
-app.use(cors({ origin: "http://localhost:5173", credentials: true }));
+const allowedOrigins = [
+  ...new Set([
+    "http://localhost:5173",
+    ...String(process.env.CLIENT_URL || "")
+      .split(",")
+      .map((origin) => origin.trim())
+      .filter(Boolean),
+  ]),
+];
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  }),
+);
 app.use(express.json());
 
 // ✅ Serve uploaded files publicly
@@ -68,6 +88,7 @@ app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
 // Public content endpoints (About/Contact/Home sections) must be accessible without auth
 app.use("/api/content", contentRoutes);
+app.get("/api/health", (req, res) => res.json({ ok: true }));
 
 // ✅ Clerk middleware (global) — must be BEFORE routes
 app.use(requireAuth);
@@ -122,8 +143,6 @@ app.use("/api/admin", adminAdsRoutes);
 app.use("/api/upload", uploadsRoutes);
 app.use("/api/preferences", preferencesRoutes);
 app.use("/api/social", socialRoutes);
-
-app.get("/api/health", (req, res) => res.json({ ok: true }));
 
 app.use(errorHandler);
 
