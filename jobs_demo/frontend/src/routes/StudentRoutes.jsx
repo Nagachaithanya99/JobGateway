@@ -21,18 +21,17 @@ import GovernmentJobs from "../pages/student/GovernmentJobs";
 import GovernmentJobDetails from "../pages/student/GovernmentJobDetails";
 import ResumeBuilder from "../pages/student/ResumeBuilder";
 import AiMatch from "../pages/student/AiMatch";
+import StudentBilling from "../pages/student/Billing.jsx";
 import StudentSettings from "../pages/student/StudentSettings";
 import About from "../pages/student/About";
 import Contact from "../pages/student/Contact";
 import StudentInterviews from "../pages/student/Interviews.jsx";
 import StudentInterviewWorkspace from "../pages/student/InterviewWorkspace.jsx";
-import StudentAutoTranslator from "../components/i18n/StudentAutoTranslator.jsx";
+import CareerPulsePage from "../pages/shared/CareerPulsePage.jsx";
 
 export default function StudentRoutes() {
   return (
-    <>
-      <StudentAutoTranslator />
-      <Routes>
+    <Routes>
         <Route path="login" element={<StudentLogin />} />
         <Route path="signup" element={<StudentSignup />} />
 
@@ -46,6 +45,7 @@ export default function StudentRoutes() {
         }
       >
         <Route index element={<Home />} />
+        <Route path="career-pulse" element={<CareerPulsePage />} />
         <Route path="jobs" element={<Jobs />} />
         <Route path="jobs/:id" element={<JobDetails />} />
         <Route path="my-jobs" element={<MyJobs />} />
@@ -60,6 +60,7 @@ export default function StudentRoutes() {
         <Route path="government" element={<GovernmentJobs />} />
         <Route path="government/:id" element={<GovernmentJobDetails />} />
         <Route path="resume-builder" element={<ResumeBuilder />} />
+        <Route path="billing" element={<StudentBilling />} />
         <Route path="ai-match" element={<AiMatch />} />
         <Route path="settings" element={<StudentSettings />} />
         <Route path="about" element={<About />} />
@@ -68,6 +69,5 @@ export default function StudentRoutes() {
 
         <Route path="*" element={<Navigate to="/student/login" replace />} />
       </Routes>
-    </>
   );
 }

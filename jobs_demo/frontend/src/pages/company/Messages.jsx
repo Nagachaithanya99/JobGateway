@@ -28,6 +28,7 @@ import { updateApplicationStatus, sendOffer as apiSendOffer } from "../../servic
 import { createCompanyInterview } from "../../services/interviewsService.js";
 
 const statusCls = {
+  Connected: "border-sky-200 bg-sky-50 text-sky-700",
   Shortlisted: "border-green-200 bg-green-50 text-green-700",
   "Interview Scheduled": "border-blue-200 bg-blue-50 text-[#2563EB]",
   "Offer Sent": "border-orange-200 bg-orange-50 text-[#F97316]",

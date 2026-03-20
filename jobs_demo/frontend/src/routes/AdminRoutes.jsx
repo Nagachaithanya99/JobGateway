@@ -22,6 +22,7 @@ import RolesPermissions from "../pages/admin/RolesPermissions.jsx";
 import Notifications from "../pages/admin/Notifications.jsx";
 import AdminInterviews from "../pages/admin/Interviews.jsx";
 import AdminInterviewWorkspace from "../pages/admin/InterviewWorkspace.jsx";
+import AdsUsers from "../pages/admin/AdsUsers.jsx";
 
 export default function AdminRoutes() {
   return (
@@ -52,6 +53,7 @@ export default function AdminRoutes() {
         <Route path="gov" element={<GovernmentUpdates />} />
         <Route path="roles" element={<RolesPermissions />} />
         <Route path="notifications" element={<Notifications />} />
+        <Route path="ads" element={<AdsUsers />} />
         <Route path="interviews" element={<AdminInterviews />} />
         <Route path="interviews/:id/workspace" element={<AdminInterviewWorkspace />} />
         <Route path="profile" element={<Profile />} />

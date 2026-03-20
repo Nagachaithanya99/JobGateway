@@ -7,6 +7,7 @@ import {
   FiCalendar,
   FiCheckCircle,
 } from "react-icons/fi";
+import StatusPopup from "../../components/common/StatusPopup.jsx";
 import { studentGetGovernmentJobDetails } from "../../services/studentService.js";
 
 const HERO_IMG = "/images/student-government/gov-details-hero.png";
@@ -38,6 +39,13 @@ export default function GovernmentJobDetails() {
   const [notFound, setNotFound] = useState(false);
   const [err, setErr] = useState("");
   const [item, setItem] = useState(null);
+  const [externalPopup, setExternalPopup] = useState({
+    open: false,
+    title: "",
+    message: "",
+    details: [],
+    href: "",
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -114,6 +122,16 @@ export default function GovernmentJobDetails() {
       source: item.source || data.source || "",
     };
   }, [item]);
+
+  const openExternalPopup = ({ title, message, details = [], href }) => {
+    setExternalPopup({
+      open: true,
+      title,
+      message,
+      details,
+      href,
+    });
+  };
 
   if (notFound) return <Navigate to={withBase("/government")} replace />;
 
@@ -271,36 +289,64 @@ export default function GovernmentJobDetails() {
 
                   <div className="mt-4 space-y-2">
                     {view.pdfUrl ? (
-                      <a
-                        href={view.pdfUrl}
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openExternalPopup({
+                            title: "Open official notification PDF",
+                            message: "You are about to open the official PDF notification in a new tab.",
+                            details: [
+                              view.department ? `Department: ${view.department}` : "",
+                              view.endDate ? `Last date to apply: ${fmt(view.endDate)}` : "",
+                            ].filter(Boolean),
+                            href: view.pdfUrl,
+                          })
+                        }
                         className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                       >
                         <FiDownload /> Download Official PDF
-                      </a>
+                      </button>
                     ) : null}
 
                     {view.officialWebsite ? (
-                      <a
-                        href={view.officialWebsite}
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openExternalPopup({
+                            title: "Open official website",
+                            message: "You are about to visit the official government website in a new tab.",
+                            details: [
+                              view.department ? `Department: ${view.department}` : "",
+                              "Verify the domain before sharing personal details or payment information.",
+                            ].filter(Boolean),
+                            href: view.officialWebsite,
+                          })
+                        }
                         className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 px-4 py-2 text-sm font-semibold text-[#2563EB] hover:bg-blue-50"
                       >
                         <FiExternalLink /> Visit Official Website
-                      </a>
+                      </button>
                     ) : null}
 
                     {view.applicationLink ? (
-                      <a
-                        href={view.applicationLink}
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openExternalPopup({
+                            title: "Continue to official application portal",
+                            message: "You are leaving the platform and moving to the official government application portal.",
+                            details: [
+                              view.endDate ? `Application deadline: ${fmt(view.endDate)}` : "",
+                              view.qualification ? `Qualification: ${view.qualification}` : "",
+                              "Always read the official notification before submitting payment or documents.",
+                            ].filter(Boolean),
+                            href: view.applicationLink,
+                          })
+                        }
                         className="inline-flex w-full items-center justify-center rounded-xl bg-[#F97316] px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600"
                       >
                         Apply Now
-                      </a>
+                      </button>
                     ) : null}
                   </div>
 
@@ -323,6 +369,24 @@ export default function GovernmentJobDetails() {
           </>
         ) : null}
       </div>
+
+      <StatusPopup
+        open={externalPopup.open}
+        onClose={() => setExternalPopup((prev) => ({ ...prev, open: false }))}
+        variant="external"
+        badge="Official Link"
+        title={externalPopup.title}
+        message={externalPopup.message}
+        details={externalPopup.details}
+        primaryLabel="Continue"
+        onPrimary={() => {
+          if (externalPopup.href) {
+            window.open(externalPopup.href, "_blank", "noopener,noreferrer");
+          }
+          setExternalPopup((prev) => ({ ...prev, open: false }));
+        }}
+        secondaryLabel="Stay Here"
+      />
     </div>
   );
 }

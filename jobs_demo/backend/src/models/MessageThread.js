@@ -16,10 +16,16 @@ const messageThreadSchema = new mongoose.Schema(
 
     job: { type: mongoose.Schema.Types.ObjectId, ref: "Job" },
     application: { type: mongoose.Schema.Types.ObjectId, ref: "Application" },
+    source: {
+      type: String,
+      enum: ["application", "social"],
+      default: "application",
+    },
+    subject: { type: String, default: "" },
 
     status: {
       type: String,
-      enum: ["Applied", "Shortlisted", "Hold", "Rejected", "Interview Scheduled"],
+      enum: ["Applied", "Shortlisted", "Hold", "Rejected", "Interview Scheduled", "Connected"],
       default: "Applied",
     },
 
@@ -36,5 +42,12 @@ const messageThreadSchema = new mongoose.Schema(
 messageThreadSchema.index({ student: 1, updatedAt: -1 });
 messageThreadSchema.index({ company: 1, updatedAt: -1 });
 messageThreadSchema.index({ application: 1 }, { unique: true, sparse: true });
+messageThreadSchema.index(
+  { student: 1, company: 1, source: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { source: "social" },
+  }
+);
 
 export default mongoose.model("MessageThread", messageThreadSchema);

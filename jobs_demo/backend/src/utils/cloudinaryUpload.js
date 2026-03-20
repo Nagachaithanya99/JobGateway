@@ -38,3 +38,34 @@ export function uploadBufferToCloudinary(buffer, options = {}) {
     stream.end(buffer);
   });
 }
+
+export async function uploadRemoteUrlToCloudinary(remoteUrl, options = {}) {
+  ensureConfigured();
+
+  const url = String(remoteUrl || "").trim();
+  if (!/^https?:\/\//i.test(url)) {
+    const err = new Error("A valid http or https media link is required");
+    err.status = 400;
+    throw err;
+  }
+
+  try {
+    return await cloudinary.uploader.upload(url, {
+      resource_type: "auto",
+      ...options,
+    });
+  } catch (error) {
+    const providerMessage =
+      error?.message ||
+      error?.error?.message ||
+      "Cloudinary upload failed";
+    const providerCode =
+      Number(error?.http_code) ||
+      Number(error?.error?.http_code) ||
+      Number(error?.status) ||
+      502;
+    const err = new Error(providerMessage);
+    err.status = providerCode;
+    throw err;
+  }
+}

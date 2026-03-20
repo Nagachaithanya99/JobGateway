@@ -17,7 +17,7 @@ function mapThreadToUI(t) {
     email: t.student?.email || "",
     candidateEmail: t.student?.email || "",
     candidate: t.student?.name || "Candidate",
-    job: t.job?.title || "-",
+    job: t.job?.title || t.subject || "-",
     status: t.status || "Applied",
     unread: t.companyUnread || 0,
     time: t.lastMessageAt,

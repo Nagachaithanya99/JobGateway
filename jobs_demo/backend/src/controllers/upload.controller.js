@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import User from "../models/User.js";
-import { uploadBufferToCloudinary } from "../utils/cloudinaryUpload.js";
+import { uploadBufferToCloudinary, uploadRemoteUrlToCloudinary } from "../utils/cloudinaryUpload.js";
 
 // ---------- helpers ----------
 function safeObj(x) {
@@ -191,6 +191,85 @@ export const uploadContentImage = async (req, res, next) => {
       mimeType: file.mimetype || "",
       width: Number(result?.width || 0),
       height: Number(result?.height || 0),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const uploadAdMedia = async (req, res, next) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ message: "Media file is required" });
+
+    const result = await uploadBufferToCloudinary(file.buffer, {
+      folder: "jobgateway/ads",
+      resource_type: "auto",
+      use_filename: true,
+      unique_filename: true,
+      overwrite: false,
+    });
+
+    return res.json({
+      ok: true,
+      mediaUrl: result?.secure_url || "",
+      fileName: file.originalname || result?.original_filename || "ad-media",
+      publicId: result?.public_id || "",
+      mimeType: file.mimetype || "",
+      resourceType: result?.resource_type || "",
+      bytes: Number(result?.bytes || file.size || 0),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const uploadAdMediaFromUrl = async (req, res, next) => {
+  try {
+    const remoteUrl = String(req.body?.url || "").trim();
+    if (!remoteUrl) return res.status(400).json({ message: "Media URL is required" });
+
+    const result = await uploadRemoteUrlToCloudinary(remoteUrl, {
+      folder: "jobgateway/ads",
+      use_filename: true,
+      unique_filename: true,
+      overwrite: false,
+    });
+
+    return res.json({
+      ok: true,
+      mediaUrl: result?.secure_url || "",
+      fileName: result?.original_filename || "ad-media",
+      publicId: result?.public_id || "",
+      resourceType: result?.resource_type || "",
+      bytes: Number(result?.bytes || 0),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const uploadSocialMedia = async (req, res, next) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ message: "Media file is required" });
+
+    const result = await uploadBufferToCloudinary(file.buffer, {
+      folder: "jobgateway/social",
+      resource_type: "auto",
+      use_filename: true,
+      unique_filename: true,
+      overwrite: false,
+    });
+
+    return res.json({
+      ok: true,
+      mediaUrl: result?.secure_url || "",
+      fileName: file.originalname || result?.original_filename || "social-media",
+      publicId: result?.public_id || "",
+      mimeType: file.mimetype || "",
+      resourceType: result?.resource_type || "",
+      bytes: Number(result?.bytes || file.size || 0),
     });
   } catch (err) {
     next(err);

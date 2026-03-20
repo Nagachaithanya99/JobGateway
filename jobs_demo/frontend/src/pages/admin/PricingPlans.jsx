@@ -599,6 +599,8 @@ export default function PricingPlans() {
             <tbody>
               {requestRows.map((row) => {
                 const isPending = String(row.status).toLowerCase() === "pending";
+                const isAutoPayment = row.source === "razorpay";
+                const isLegacy = row.source === "legacy-subscription";
                 return (
                   <tr key={row.id} className="border-t border-slate-100 transition hover:bg-blue-50/40">
                     <td className="px-4 py-3">
@@ -611,7 +613,10 @@ export default function PricingPlans() {
                     </td>
                     <td className="px-4 py-3 font-medium text-slate-800">{row.companyName}</td>
                     <td className="px-4 py-3 text-slate-700">{row.planName}</td>
-                    <td className="px-4 py-3 font-semibold text-slate-800">{row.amount}</td>
+                    <td className="px-4 py-3 text-slate-700">
+                      <p className="font-semibold text-slate-800">{row.amount}</p>
+                      {row.billing ? <p className="mt-1 text-xs text-slate-500">GST: {formatMoney(row.billing.gst)} | Total: {formatMoney(row.billing.total)}</p> : null}
+                    </td>
                     <td className="px-4 py-3 text-slate-700">{row.paymentMethod}</td>
                     <td className="px-4 py-3 text-slate-700">{row.transactionId}</td>
                     <td className="px-4 py-3 text-slate-600">{row.createdAt}</td>
@@ -635,7 +640,7 @@ export default function PricingPlans() {
                         <button
                           type="button"
                           onClick={() => applyDecision(row, "approved")}
-                          disabled={!isPending}
+                          disabled={!isPending || isAutoPayment || isLegacy}
                           className="rounded-lg bg-[#2563EB] px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           Approve
@@ -643,7 +648,7 @@ export default function PricingPlans() {
                         <button
                           type="button"
                           onClick={() => applyDecision(row, "rejected")}
-                          disabled={!isPending}
+                          disabled={!isPending || isAutoPayment || isLegacy}
                           className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           Reject

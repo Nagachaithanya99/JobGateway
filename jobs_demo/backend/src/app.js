@@ -5,6 +5,7 @@ import path from "path";
 
 import requireAuth from "./middleware/requireAuth.js";
 import errorHandler from "./middleware/errorHandler.js";
+import authRoutes from "./routes/auth.routes.js";
 
 // Company
 import companyDashboardRoutes from "./routes/company/company.dashboard.routes.js";
@@ -33,6 +34,7 @@ import studentMessagesRoutes from "./routes/student/student.messages.routes.js";
 import studentNotificationsRoutes from "./routes/student/student.notifications.routes.js";
 import studentSettingsRoutes from "./routes/student/student.settings.routes.js";
 import studentInterviewsRoutes from "./routes/student/student.interviews.routes.js";
+import studentAdsRoutes from "./routes/student/student.ads.routes.js";
 
 // Admin
 import adminDashboardRoutes from "./routes/admin/admin.dashboard.routes.js";
@@ -48,11 +50,13 @@ import adminNotificationsRoutes from "./routes/admin/admin.notifications.routes.
 import adminSettingsRoutes from "./routes/admin/admin.settings.routes.js";
 import adminProfileRoutes from "./routes/admin/admin.profile.routes.js";
 import adminInterviewsRoutes from "./routes/admin/admin.interviews.routes.js";
+import adminAdsRoutes from "./routes/admin/admin.ads.routes.js";
 import contentRoutes from "./routes/content.routes.js";
 
 // Uploads
 import uploadsRoutes from "./routes/uploads.routes.js";
 import preferencesRoutes from "./routes/preferences.routes.js";
+import socialRoutes from "./routes/social.routes.js";
 
 const app = express();
 
@@ -69,6 +73,7 @@ app.use("/api/content", contentRoutes);
 app.use(requireAuth);
 
 // Company routes
+app.use("/api/auth", authRoutes);
 app.use("/api/company", companyDashboardRoutes);
 app.use("/api/company", companyApplicationsRoutes);
 app.use("/api/company", companyMetaRoutes);
@@ -95,6 +100,7 @@ app.use("/api/student", studentMessagesRoutes);
 app.use("/api/student", studentNotificationsRoutes);
 app.use("/api/student", studentSettingsRoutes);
 app.use("/api/student", studentInterviewsRoutes);
+app.use("/api/student", studentAdsRoutes);
 
 // Admin routes
 app.use("/api/admin", adminDashboardRoutes);
@@ -110,10 +116,12 @@ app.use("/api/admin", adminNotificationsRoutes);
 app.use("/api/admin", adminSettingsRoutes);
 app.use("/api/admin", adminProfileRoutes);
 app.use("/api/admin", adminInterviewsRoutes);
+app.use("/api/admin", adminAdsRoutes);
 
 // ✅ Upload routes
 app.use("/api/upload", uploadsRoutes);
 app.use("/api/preferences", preferencesRoutes);
+app.use("/api/social", socialRoutes);
 
 app.get("/api/health", (req, res) => res.json({ ok: true }));
 

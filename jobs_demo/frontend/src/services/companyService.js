@@ -146,6 +146,16 @@ export async function subscribeCompanyPlan(planId, cycle = "monthly") {
   return data;
 }
 
+export async function createCompanySubscriptionOrder(planId, cycle = "monthly") {
+  const { data } = await api.post("/company/billing/create-order", { planId, cycle });
+  return data;
+}
+
+export async function verifyCompanySubscriptionPayment(payload = {}) {
+  const { data } = await api.post("/company/billing/verify-payment", payload);
+  return data;
+}
+
 export async function cancelCompanyPlan() {
   const { data } = await api.post("/company/billing/cancel");
   return data;

@@ -3,7 +3,7 @@ import { FiCheck, FiChevronDown, FiGlobe } from "react-icons/fi";
 import { useI18n } from "../../context/I18nContext.jsx";
 
 export default function LanguageSelector({ compact = false }) {
-  const { language, languages, setLanguage, busy, t } = useI18n();
+  const { language, languages, setLanguage, busy, translating, t } = useI18n();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
 
@@ -30,11 +30,12 @@ export default function LanguageSelector({ compact = false }) {
     >
       <button
         type="button"
+        disabled={translating}
         onClick={() => setOpen((v) => !v)}
         aria-label={t("lang.label")}
         className={`inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white ${
           compact ? "px-2 py-1.5" : "px-2.5 py-1.5"
-        }`}
+        } ${translating ? "cursor-not-allowed opacity-70" : ""}`}
       >
         <FiGlobe className="text-slate-500" />
         <span className="max-w-[150px] truncate text-xs font-semibold text-slate-700">
@@ -66,7 +67,8 @@ export default function LanguageSelector({ compact = false }) {
               </button>
             );
           })}
-          {busy ? <div className="px-3 py-2 text-[10px] font-semibold text-slate-400">Saving...</div> : null}
+          {translating ? <div className="px-3 py-2 text-[10px] font-semibold text-slate-400">Translating...</div> : null}
+          {!translating && busy ? <div className="px-3 py-2 text-[10px] font-semibold text-slate-400">Saving...</div> : null}
         </div>
       ) : null}
     </div>

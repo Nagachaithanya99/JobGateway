@@ -144,6 +144,23 @@ const studentSettingsSchema = new Schema(
   { _id: false }
 );
 
+const adAccessSchema = new Schema(
+  {
+    canPost: { type: Boolean, default: false },
+    planStatus: {
+      type: String,
+      enum: ["none", "pending", "approved", "rejected"],
+      default: "none",
+    },
+    planName: { type: String, default: "Ads Starter Plan" },
+    requestedAt: { type: Date, default: null },
+    approvedAt: { type: Date, default: null },
+    expiresAt: { type: Date, default: null },
+    note: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
 /* -----------------------------
    Main User schema
 ------------------------------*/
@@ -218,6 +235,7 @@ const userSchema = new Schema(
 
     // Student settings
     studentSettings: { type: studentSettingsSchema, default: () => ({}) },
+    adAccess: { type: adAccessSchema, default: () => ({}) },
 
     // Admin profile
     adminProfile: {

@@ -11,10 +11,22 @@ export default async function requireAdminClerk(req, res, next) {
     const clerkId = req.auth()?.userId;
     if (!clerkId) return res.status(401).json({ message: "Unauthorized" });
 
+    let user = await User.findOne({ clerkId });
+    if (user && String(user.role || "").toLowerCase() === "admin" && user.isActive !== false) {
+      req.user = user;
+      req.dbUser = user;
+      return next();
+    }
+
     let clerkUser;
     try {
       clerkUser = await clerkClient.users.getUser(clerkId);
     } catch {
+      if (user && String(user.role || "").toLowerCase() === "admin" && user.isActive !== false) {
+        req.user = user;
+        req.dbUser = user;
+        return next();
+      }
       return res.status(503).json({ message: "Auth profile unavailable. Please retry." });
     }
 
@@ -25,8 +37,6 @@ export default async function requireAdminClerk(req, res, next) {
 
     const email = clerkUser?.emailAddresses?.[0]?.emailAddress || "";
     const name = [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ").trim() || "Admin";
-
-    let user = await User.findOne({ clerkId });
 
     if (!user) {
       user = await User.create({

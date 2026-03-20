@@ -2,19 +2,20 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   FiBookmark,
-  FiCheckCircle,
   FiChevronDown,
   FiMapPin,
   FiSearch,
   FiPhoneCall,
   FiExternalLink,
 } from "react-icons/fi";
-import Modal from "../../components/common/Modal";
+import StatusPopup from "../../components/common/StatusPopup.jsx";
 import useAuth from "../../hooks/useAuth.js";
 import api from "../../services/api.js";
 import {
   studentApplyJob,
   studentGetSavedJobs,
+  studentMe,
+  studentMyApplications,
   studentToggleSaveJob,
 } from "../../services/studentService.js";
 
@@ -111,8 +112,15 @@ function isNew(createdAt) {
   return diffDays <= 7;
 }
 
+function readProfileCompletion(payload) {
+  const data = payload?.data ?? payload ?? {};
+  const n = Number(data?.profileCompletion ?? data?.studentProfile?.profileCompletion ?? 0);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
 export default function Internship() {
-  const { user, isAuthed, role } = useAuth();
+  const { isAuthed, role } = useAuth();
   const navigate = useNavigate();
   const routeLocation = useLocation();
   const isStudentView = routeLocation.pathname.startsWith("/student");
@@ -127,8 +135,6 @@ export default function Internship() {
     }
     navigate(`/login?role=student&redirect=${encodeURIComponent(redirect)}`);
   };
-  const completion = Number(user?.profileCompletion ?? 0);
-
   const [q, setQ] = useState("");
   const [location, setLocation] = useState("");
   const [activeTab, setActiveTab] = useState("All Internships");
@@ -143,9 +149,20 @@ export default function Internship() {
 
   const [savedMap, setSavedMap] = useState({});
   const [savedBusy, setSavedBusy] = useState({});
-  const [applyModal, setApplyModal] = useState({ open: false, item: null });
-  const [profileModal, setProfileModal] = useState(false);
-  const [successModal, setSuccessModal] = useState(false);
+  const [appliedIds, setAppliedIds] = useState(new Set());
+  const [profileCompletion, setProfileCompletion] = useState(0);
+  const [popup, setPopup] = useState({
+    open: false,
+    variant: "info",
+    badge: "Status",
+    title: "",
+    message: "",
+    details: [],
+    primaryLabel: "Done",
+    primaryHref: "",
+    secondaryLabel: "",
+    onPrimary: null,
+  });
 
   const mainStreamOptions = useMemo(() => Object.keys(internshipTaxonomy), []);
   const categoryOptions = useMemo(() => {
@@ -212,16 +229,27 @@ export default function Internship() {
     let mounted = true;
     (async () => {
       try {
-        const res = await studentGetSavedJobs();
-        const rows = Array.isArray(res?.data) ? res.data : [];
+        const [savedRes, appsRes, meRes] = await Promise.all([
+          studentGetSavedJobs(),
+          studentMyApplications({ page: 1, limit: 300 }),
+          studentMe(),
+        ]);
+        const rows = Array.isArray(savedRes?.data) ? savedRes.data : [];
         const next = {};
         rows.forEach((r) => {
           const id = String(r?._id || r?.id || "");
           if (id) next[id] = true;
         });
-        if (mounted) setSavedMap(next);
+        if (!mounted) return;
+        setSavedMap(next);
+        const appRows = Array.isArray(appsRes?.data?.items) ? appsRes.data.items : [];
+        setAppliedIds(new Set(appRows.map((x) => String(x?.jobId || x?.job?._id || x?.job || "")).filter(Boolean)));
+        setProfileCompletion(readProfileCompletion(meRes));
       } catch {
-        if (mounted) setSavedMap({});
+        if (mounted) {
+          setSavedMap({});
+          setAppliedIds(new Set());
+        }
       }
     })();
     return () => {
@@ -229,16 +257,126 @@ export default function Internship() {
     };
   }, []);
 
+  const openPopup = (next) => {
+    setPopup({
+      open: true,
+      variant: next.variant || "info",
+      badge: next.badge || "Status",
+      title: next.title || "",
+      message: next.message || "",
+      details: Array.isArray(next.details) ? next.details : [],
+      primaryLabel: next.primaryLabel || "Done",
+      primaryHref: next.primaryHref || "",
+      secondaryLabel: next.secondaryLabel || "",
+      onPrimary: next.onPrimary || null,
+    });
+  };
+
+  const closePopup = () => {
+    setPopup((prev) => ({ ...prev, open: false, onPrimary: null, primaryHref: "" }));
+  };
+
+  const ensureLatestCompletion = async () => {
+    try {
+      const meRes = await studentMe();
+      const value = readProfileCompletion(meRes);
+      setProfileCompletion(value);
+      return value;
+    } catch {
+      return profileCompletion;
+    }
+  };
+
   const onApply = (item) => {
     if (!isAuthed || role !== "student") {
       redirectToLogin();
       return;
     }
-    if (completion < 100) {
-      setProfileModal(true);
+    if (appliedIds.has(String(item?.id || ""))) {
+      openPopup({
+        variant: "info",
+        badge: "Already Applied",
+        title: "Application already exists",
+        message: "You already applied for this internship. You can wait for the recruiter response.",
+      });
       return;
     }
-    setApplyModal({ open: true, item });
+    openPopup({
+      variant: "info",
+      badge: "Confirm Apply",
+      title: "Apply with your saved profile",
+      message: `We will use your current profile and resume for ${item?.title || "this internship"}.`,
+      primaryLabel: "Confirm Apply",
+      secondaryLabel: "Cancel",
+      onPrimary: async () => {
+        try {
+          const completion = await ensureLatestCompletion();
+          if (completion < 100) {
+            openPopup({
+              variant: "warning",
+              badge: "Complete Profile",
+              title: "Finish your profile before applying",
+              message: "Your profile needs to be fully completed before this application can be submitted.",
+              details: [`Current profile completion: ${completion}%`],
+              primaryLabel: "Complete Profile",
+              primaryHref: "/student/profile",
+              secondaryLabel: "Close",
+            });
+            return;
+          }
+          const res = await studentApplyJob(item?.id);
+          setAppliedIds((prev) => new Set(prev).add(String(item?.id || "")));
+          openPopup(
+            res?.data?.alreadyApplied
+              ? {
+                  variant: "info",
+                  badge: "Already Applied",
+                  title: "Application already exists",
+                  message: "You already applied for this internship. No duplicate application was created.",
+                }
+              : {
+                  variant: "success",
+                  badge: "Applied",
+                  title: "Internship application submitted",
+                  message: "Your internship application has been sent successfully.",
+                }
+          );
+        } catch (e) {
+          const status = Number(e?.response?.status || 0);
+          if (status === 401 || status === 403) {
+            redirectToLogin();
+            return;
+          }
+          if (e?.response?.data?.profileIncomplete) {
+            const completion = readProfileCompletion(e?.response);
+            setProfileCompletion(completion);
+            openPopup({
+              variant: "warning",
+              badge: "Complete Profile",
+              title: "Finish your profile before applying",
+              message: "Your profile needs to be fully completed before this application can be submitted.",
+              details: [`Current profile completion: ${completion}%`],
+              primaryLabel: "Complete Profile",
+              primaryHref: "/student/profile",
+              secondaryLabel: "Close",
+            });
+            return;
+          }
+          if (e?.response?.data?.alreadyApplied) {
+            setAppliedIds((prev) => new Set(prev).add(String(item?.id || "")));
+            openPopup({
+              variant: "info",
+              badge: "Already Applied",
+              title: "Application already exists",
+              message: "You already applied for this internship. No duplicate application was created.",
+            });
+            return;
+          }
+          setErr(e?.response?.data?.message || "Apply failed. Please try again.");
+          closePopup();
+        }
+      },
+    });
   };
 
   const onSearch = () => fetchList(1);
@@ -563,9 +701,11 @@ export default function Internship() {
                     <button
                       type="button"
                       onClick={() => onApply(it)}
-                      className="ml-auto inline-flex items-center justify-center rounded-full bg-[#F97316] px-5 py-2 text-xs font-extrabold text-white hover:bg-orange-600"
+                      className={`ml-auto inline-flex items-center justify-center rounded-full px-5 py-2 text-xs font-extrabold text-white ${
+                        appliedIds.has(String(it.id)) ? "bg-emerald-600 hover:bg-emerald-600" : "bg-[#F97316] hover:bg-orange-600"
+                      }`}
                     >
-                      Quick Apply
+                      {appliedIds.has(String(it.id)) ? "Applied" : "Quick Apply"}
                     </button>
 
                     <button
@@ -654,97 +794,19 @@ export default function Internship() {
         </div>
       </div>
 
-      <Modal
-        open={applyModal.open}
-        onClose={() => setApplyModal({ open: false, item: null })}
-        title="Confirm Application"
-        footer={
-          <>
-            <button
-              type="button"
-              onClick={() => setApplyModal({ open: false, item: null })}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  await studentApplyJob(applyModal.item?.id);
-                  setApplyModal({ open: false, item: null });
-                  setSuccessModal(true);
-                } catch (e) {
-                  const status = Number(e?.response?.status || 0);
-                  if (status === 401 || status === 403) {
-                    setApplyModal({ open: false, item: null });
-                    redirectToLogin();
-                    return;
-                  }
-                  setApplyModal({ open: false, item: null });
-                  setErr(e?.response?.data?.message || "Apply failed. Please try again.");
-                }
-              }}
-              className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-            >
-              Confirm Apply
-            </button>
-          </>
-        }
-      >
-        <p className="text-sm text-slate-600">
-          We will use your saved profile and resume for{" "}
-          <span className="font-semibold text-[#0F172A]">{applyModal.item?.title}</span>.
-        </p>
-      </Modal>
-
-      <Modal
-        open={profileModal}
-        onClose={() => setProfileModal(false)}
-        title="Complete your profile to apply"
-        footer={
-          <>
-            <button
-              type="button"
-              onClick={() => setProfileModal(false)}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-            >
-              Close
-            </button>
-            <Link
-              to="/student/profile"
-              className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-            >
-              Complete Profile
-            </Link>
-          </>
-        }
-      >
-        <p className="text-sm text-slate-600">
-          Your profile completion is below 100%. Complete your profile before applying.
-          <span className="ml-2 font-semibold text-[#F97316]">{completion}%</span>
-        </p>
-      </Modal>
-
-      <Modal
-        open={successModal}
-        onClose={() => setSuccessModal(false)}
-        title="Application Submitted"
-        footer={
-          <button
-            type="button"
-            onClick={() => setSuccessModal(false)}
-            className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            Done
-          </button>
-        }
-      >
-        <div className="flex items-center gap-2 text-sm text-slate-700">
-          <FiCheckCircle className="text-green-600" />
-          Internship application submitted successfully.
-        </div>
-      </Modal>
+      <StatusPopup
+        open={popup.open}
+        onClose={closePopup}
+        variant={popup.variant}
+        badge={popup.badge}
+        title={popup.title}
+        message={popup.message}
+        details={popup.details}
+        primaryLabel={popup.primaryLabel}
+        primaryHref={popup.primaryHref}
+        onPrimary={popup.onPrimary}
+        secondaryLabel={popup.secondaryLabel}
+      />
     </div>
   );
 }

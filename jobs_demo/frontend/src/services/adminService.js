@@ -347,4 +347,29 @@ export async function adminSaveSettings(updated) {
   return data;
 }
 
+export async function adminGetAdsCenter() {
+  const { data } = await api.get("/admin/ads-center");
+  return data || { requests: [], ads: [] };
+}
+
+export async function adminUpdateAdsPlanRequest(id, status) {
+  const { data } = await api.patch(`/admin/ads/plan-requests/${id}`, { status });
+  return data;
+}
+
+export async function adminUpdateAdStatus(id, payload = {}) {
+  const { data } = await api.patch(`/admin/ads/${id}/status`, payload);
+  return data;
+}
+
+export async function adminSaveAdPlan(plan) {
+  const { data } = await api.post("/admin/ads/plans", plan);
+  return data;
+}
+
+export async function adminDeleteAdPlan(id) {
+  const { data } = await api.delete(`/admin/ads/plans/${id}`);
+  return data;
+}
+
 

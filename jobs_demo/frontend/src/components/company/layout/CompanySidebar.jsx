@@ -4,6 +4,7 @@ import {
   FiBell,
   FiBriefcase,
   FiCalendar,
+  FiCompass,
   FiDollarSign,
   FiGrid,
   FiMessageSquare,
@@ -17,6 +18,7 @@ import {
 
 const nav = [
   { to: "/company/dashboard", label: "Dashboard", icon: <FiGrid /> },
+  { to: "/company/career-pulse", label: "Career Pulse", icon: <FiCompass /> },
   { to: "/company/post-job", label: "Post Job", icon: <FiPlusSquare /> },
   { to: "/company/my-jobs", label: "Posted Jobs", icon: <FiBriefcase /> },
   { to: "/company/candidates", label: "Applications", icon: <FiUsers /> },
@@ -26,6 +28,7 @@ const nav = [
   { to: "/company/messages", label: "Messages", icon: <FiMessageSquare /> },
   { to: "/company/notifications", label: "Notifications", icon: <FiBell /> },
   { to: "/company/pricing", label: "Subscription Plans", icon: <FiDollarSign /> },
+  { to: "/company/billing", label: "Billing & Invoices", icon: <FiDollarSign /> },
   { to: "/company/boost-job", label: "Boost Job", icon: <FiTrendingUp />, premium: true },
   { to: "/company/settings", label: "Settings", icon: <FiSettings /> },
 ];

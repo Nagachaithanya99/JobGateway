@@ -1,15 +1,15 @@
+/* eslint-disable react-refresh/only-export-components */
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import {
-  FiChevronDown,
-  FiMapPin,
-  FiSearch,
-  FiClock,
-  FiStar,
-} from "react-icons/fi";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { FiChevronDown, FiMapPin, FiSearch } from "react-icons/fi";
+import JobCard from "../../components/student/jobs/JobCard.jsx";
+import JobsHeroVideo from "../../components/student/jobs/JobsHeroVideo.jsx";
+import StatusPopup from "../../components/common/StatusPopup.jsx";
+import useAuth from "../../hooks/useAuth.js";
 import {
   studentApplyJob,
   studentHome,
+  studentMe,
   studentMyApplications,
   studentSearchJobs,
 } from "../../services/studentService.js";
@@ -26,7 +26,7 @@ const TIPS_ILLUS = "/images/jobs/tips-illustration.png";
 const INITIAL_TAXONOMY = getJobTaxonomy();
 const DEFAULT_HIERARCHY = getDefaultHierarchy(INITIAL_TAXONOMY);
 
-function moneyRange(job) {
+export function moneyRange(job) {
   if (job?.salaryText) return job.salaryText;
   const min = Number(job?.salaryMin || 0);
   const max = Number(job?.salaryMax || 0);
@@ -34,7 +34,7 @@ function moneyRange(job) {
   return "—";
 }
 
-function postedAgo(createdAt) {
+export function postedAgo(createdAt) {
   if (!createdAt) return "";
   const d = new Date(createdAt);
   const ms = Date.now() - d.getTime();
@@ -47,7 +47,7 @@ function postedAgo(createdAt) {
   return `${days} days ago`;
 }
 
-function initials(name = "") {
+export function initials(name = "") {
   return name
     .split(" ")
     .filter(Boolean)
@@ -63,7 +63,15 @@ function normalizeItems(payload) {
   return [];
 }
 
+function readProfileCompletion(payload) {
+  const data = payload?.data ?? payload ?? {};
+  const n = Number(data?.profileCompletion ?? data?.studentProfile?.profileCompletion ?? 0);
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
 export default function Jobs() {
+  const { isAuthed, role } = useAuth();
   const locationPath = useLocation();
   const nav = useNavigate();
   const [searchParams] = useSearchParams();
@@ -82,7 +90,6 @@ export default function Jobs() {
   const initialQ = String(searchParams.get("q") || "").trim();
 
   const [q, setQ] = useState(initialQ);
-  const [stream, setStream] = useState("");
   const [location, setLocation] = useState("");
   const [pill, setPill] = useState("All Jobs");
   const [taxonomy, setTaxonomy] = useState(INITIAL_TAXONOMY);
@@ -95,13 +102,24 @@ export default function Jobs() {
 
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
-  const [applyMsg, setApplyMsg] = useState("");
   const [applyingIds, setApplyingIds] = useState(new Set());
   const [appliedJobIds, setAppliedJobIds] = useState(new Set());
+  const [profileCompletion, setProfileCompletion] = useState(0);
   const [items, setItems] = useState([]);
   const [meta, setMeta] = useState({ total: 0, page: 1, pages: 1, limit: 8 });
   const [optionRows, setOptionRows] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [popup, setPopup] = useState({
+    open: false,
+    variant: "info",
+    badge: "Status",
+    title: "",
+    message: "",
+    details: [],
+    primaryLabel: "Done",
+    secondaryLabel: "",
+    secondaryHref: "",
+  });
 
   const streamCounts = useMemo(() => {
     const map = new Map();
@@ -166,9 +184,8 @@ export default function Jobs() {
       limit: meta.limit,
     };
 
-    const topStream = stream || undefined;
     const pillStream = pill !== "All Jobs" ? pill : undefined;
-    params.stream = (isOnlyDefaultHierarchySelection ? "" : mainStream) || topStream || pillStream;
+    params.stream = (isOnlyDefaultHierarchySelection ? "" : mainStream) || pillStream;
     if (!isOnlyDefaultHierarchySelection && category) params.category = category;
     if (!isOnlyDefaultHierarchySelection && subCategory) {
       params.subCategory = subCategory;
@@ -228,7 +245,6 @@ export default function Jobs() {
   }, []);
 
   const clearFilters = () => {
-    setStream("");
     setLocation("");
     setPill("All Jobs");
     setSelectedMainStream(DEFAULT_HIERARCHY.stream);
@@ -265,11 +281,35 @@ export default function Jobs() {
     });
   };
 
-  useEffect(() => {
-    if (!applyMsg) return;
-    const t = setTimeout(() => setApplyMsg(""), 2200);
-    return () => clearTimeout(t);
-  }, [applyMsg]);
+  const openPopup = (next) => {
+    setPopup({
+      open: true,
+      variant: next.variant || "info",
+      badge: next.badge || "Status",
+      title: next.title || "",
+      message: next.message || "",
+      details: Array.isArray(next.details) ? next.details : [],
+      primaryLabel: next.primaryLabel || "Done",
+      primaryHref: next.primaryHref || "",
+      secondaryLabel: next.secondaryLabel || "",
+      secondaryHref: next.secondaryHref || "",
+    });
+  };
+
+  const closePopup = () => {
+    setPopup((prev) => ({ ...prev, open: false }));
+  };
+
+  const ensureLatestCompletion = async () => {
+    try {
+      const meRes = await studentMe();
+      const value = readProfileCompletion(meRes);
+      setProfileCompletion(value);
+      return value;
+    } catch {
+      return profileCompletion;
+    }
+  };
 
   const goto = (p) => {
     const next = Math.max(1, Math.min(meta.pages || 1, p));
@@ -279,15 +319,53 @@ export default function Jobs() {
   const onQuickApply = async (jobId) => {
     try {
       if (!jobId) return;
+      if (!isAuthed || role !== "student") {
+        redirectToLogin();
+        return;
+      }
       if (appliedJobIds.has(String(jobId))) {
-        setApplyMsg("Already applied for this job");
+        openPopup({
+          variant: "info",
+          badge: "Already Applied",
+          title: "Application already exists",
+          message: "You already applied for this job. You can track the result from your applications page.",
+        });
+        return;
+      }
+
+      const completion = await ensureLatestCompletion();
+      if (completion < 100) {
+        openPopup({
+          variant: "warning",
+          badge: "Complete Profile",
+          title: "Finish your profile before applying",
+          message: "Your profile needs to be fully completed before this application can be submitted.",
+          details: [`Current profile completion: ${completion}%`],
+          primaryLabel: "Complete Profile",
+          primaryHref: "/student/profile",
+          secondaryLabel: "Close",
+        });
         return;
       }
       setApplyingIds((prev) => new Set(prev).add(String(jobId)));
       const res = await studentApplyJob(jobId);
       if (res?.data?.ok) {
         setAppliedJobIds((prev) => new Set(prev).add(String(jobId)));
-        setApplyMsg(res?.data?.alreadyApplied ? "Already applied for this job" : "Application submitted");
+        openPopup(
+          res?.data?.alreadyApplied
+            ? {
+                variant: "info",
+                badge: "Already Applied",
+                title: "Application already exists",
+                message: "You already applied for this job. No duplicate application was created.",
+              }
+            : {
+                variant: "success",
+                badge: "Applied",
+                title: "Application submitted successfully",
+                message: "Your profile has been sent to the employer. Keep an eye on your job status for updates.",
+              }
+        );
       }
     } catch (e) {
       const status = Number(e?.response?.status || 0);
@@ -295,9 +373,29 @@ export default function Jobs() {
         redirectToLogin();
         return;
       }
-      if (status === 409) {
+      if (e?.response?.data?.profileIncomplete) {
+        const completion = readProfileCompletion(e?.response);
+        setProfileCompletion(completion);
+        openPopup({
+          variant: "warning",
+          badge: "Complete Profile",
+          title: "Finish your profile before applying",
+          message: "Your profile needs to be fully completed before this application can be submitted.",
+          details: [`Current profile completion: ${completion}%`],
+          primaryLabel: "Complete Profile",
+          primaryHref: "/student/profile",
+          secondaryLabel: "Close",
+        });
+        return;
+      }
+      if (status === 409 || e?.response?.data?.alreadyApplied) {
         setAppliedJobIds((prev) => new Set(prev).add(String(jobId)));
-        setApplyMsg("Already applied for this job");
+        openPopup({
+          variant: "info",
+          badge: "Already Applied",
+          title: "Application already exists",
+          message: "You already applied for this job. No duplicate application was created.",
+        });
         return;
       }
       setErr(e?.response?.data?.message || "Apply failed.");
@@ -318,18 +416,14 @@ export default function Jobs() {
       </div>
 
       <div className="w-full px-6 pb-12 pt-7">
-        <div className="text-[12px] text-slate-500">
-          <span>Home</span>
-          <span className="mx-2">/</span>
-          <span className="text-slate-700">Jobs</span>
-        </div>
+        <JobsHeroVideo
+          totalJobs={meta.total}
+          locationCount={Math.max(1, locationOptions.length)}
+          streamCount={Math.max(1, streamCounts.length)}
+        />
 
-        <h1 className="mt-2 text-[40px] font-extrabold tracking-tight text-slate-900">
-          {meta.total.toLocaleString()} Jobs Available
-        </h1>
-
-        <div className="mt-5 rounded-[22px] border border-white/70 bg-white/70 p-3 shadow-[0_16px_45px_rgba(15,23,42,0.08)] backdrop-blur">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.1fr_0.7fr_0.8fr_0.55fr]">
+        <div className="relative z-10 -mt-8 rounded-[22px] border border-white/70 bg-white/75 p-3 shadow-[0_18px_45px_rgba(15,23,42,0.10)] backdrop-blur md:-mt-12">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-[1.25fr_0.9fr_0.65fr]">
             <div className="relative">
               <FiSearch className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
@@ -338,22 +432,6 @@ export default function Jobs() {
                 placeholder="Job Title, Skills..."
                 className="h-[46px] w-full rounded-[16px] border border-slate-200 bg-white pl-11 pr-4 text-[14px] font-medium outline-none focus:border-orange-300 focus:ring-4 focus:ring-orange-100"
               />
-            </div>
-
-            <div className="relative">
-              <select
-                value={stream}
-                onChange={(e) => setStream(e.target.value)}
-                className="h-[46px] w-full appearance-none rounded-[16px] border border-slate-200 bg-white px-4 pr-10 text-[14px] font-medium outline-none focus:border-orange-300 focus:ring-4 focus:ring-orange-100"
-              >
-                <option value="">Select Stream</option>
-                {streamCounts.map((s) => (
-                  <option key={s.name} value={s.name}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
-              <FiChevronDown className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
             </div>
 
             <div className="relative">
@@ -383,7 +461,7 @@ export default function Jobs() {
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap gap-3">
+        <div className="mt-6 flex flex-wrap gap-3">
           {categoryPills.map((x) => {
             const active = pill === x;
             return (
@@ -587,12 +665,6 @@ export default function Jobs() {
                   {err}
                 </div>
               ) : null}
-              {applyMsg ? (
-                <div className="mb-3 rounded-[16px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] font-semibold text-emerald-700">
-                  {applyMsg}
-                </div>
-              ) : null}
-
               {loading ? (
                 <div className="py-12 text-center text-[14px] font-semibold text-slate-600">
                   Loading jobs...
@@ -602,103 +674,24 @@ export default function Jobs() {
                   No jobs found.
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                   {items.map((job) => {
                     const id = String(job?._id || job?.id || "");
-                    const title = job?.title || "Job";
-                    const company = job?.companyName || job?.company?.name || "Company";
-                    const loc = job?.location || job?.city || "India";
-                    const tag = job?.category || job?.stream || "General";
-                    const rating = Number.isFinite(Number(job?.rating)) ? Number(job.rating) : 0;
                     const isApplied = appliedJobIds.has(String(id));
                     const isApplying = applyingIds.has(String(id));
 
                     return (
-                      <article
-                        key={id || `${title}-${company}`}
-                        className="rounded-[22px] border border-slate-200/70 bg-white/80 px-5 py-4 shadow-[0_10px_25px_rgba(15,23,42,0.06)]"
-                      >
-                        <div className="flex gap-4">
-                          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[14px] bg-gradient-to-b from-orange-400 to-orange-500 text-[18px] font-extrabold text-white shadow-sm">
-                            {initials(company) || "JG"}
-                          </div>
-
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <h3 className="truncate text-[22px] font-extrabold text-slate-900">
-                                {title}
-                              </h3>
-                              <div className="ml-auto flex items-center gap-2 text-[12px] font-semibold text-slate-500">
-                                <FiClock />
-                                {postedAgo(job?.createdAt)}
-                              </div>
-                            </div>
-
-                            <p className="-mt-0.5 text-[15px] font-semibold text-slate-600">{company}</p>
-
-                            <div className="mt-2 flex flex-wrap items-center gap-x-6 gap-y-2 text-[14px] font-semibold text-slate-600">
-                              <span className="inline-flex items-center gap-2">
-                                <FiMapPin className="text-slate-500" />
-                                {loc}
-                              </span>
-
-                              <span className="text-[18px] font-extrabold text-emerald-700">{moneyRange(job)}</span>
-
-                              <span className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-4 py-1 text-[13px] font-bold text-slate-700">
-                                <span className="h-2 w-2 rounded-full bg-slate-400" />
-                                {tag}
-                              </span>
-
-                              <span className="ml-auto inline-flex items-center gap-2 text-[13px] font-extrabold text-orange-600">
-                                <Stars value={rating} />
-                                <span className="text-slate-600">{rating ? rating.toFixed(1) : "N/A"}</span>
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="hidden shrink-0 flex-col items-end gap-2 md:flex">
-                            {id ? (
-                              <Link
-                                to={withBase(`/jobs/${id}`)}
-                                className="h-[40px] w-[132px] rounded-[14px] border border-slate-200 bg-white text-center text-[13px] font-extrabold leading-[40px] text-slate-700 hover:bg-slate-50"
-                              >
-                                View Details
-                              </Link>
-                            ) : null}
-                            <button
-                              type="button"
-                              onClick={() => onQuickApply(id)}
-                              disabled={!id || isApplied || isApplying}
-                              className={`h-[40px] w-[132px] rounded-[14px] text-[13px] font-extrabold text-white shadow-[0_10px_25px_rgba(255,122,0,0.35)] disabled:opacity-50 ${
-                                isApplied ? "bg-emerald-600 hover:bg-emerald-600" : "bg-[#ff7a00] hover:bg-[#ff6a00]"
-                              }`}
-                            >
-                              {isApplying ? "Applying..." : isApplied ? "Applied" : "Quick Apply"}
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="mt-4 flex gap-2 md:hidden">
-                          {id ? (
-                            <Link
-                              to={withBase(`/jobs/${id}`)}
-                              className="flex-1 rounded-[14px] border border-slate-200 bg-white py-2 text-center text-[13px] font-extrabold text-slate-700"
-                            >
-                              View Details
-                            </Link>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => onQuickApply(id)}
-                            disabled={!id || isApplied || isApplying}
-                            className={`flex-1 rounded-[14px] py-2 text-[13px] font-extrabold text-white disabled:opacity-50 ${
-                              isApplied ? "bg-emerald-600" : "bg-[#ff7a00]"
-                            }`}
-                          >
-                            {isApplying ? "Applying..." : isApplied ? "Applied" : "Quick Apply"}
-                          </button>
-                        </div>
-                      </article>
+                      <JobCard
+                        key={
+                          id ||
+                          `${job?.title || "job"}-${job?.companyName || job?.company?.name || "company"}`
+                        }
+                        job={job}
+                        detailsHref={id ? withBase(`/jobs/${id}`) : ""}
+                        onQuickApply={onQuickApply}
+                        isApplying={isApplying}
+                        isApplied={isApplied}
+                      />
                     );
                   })}
                 </div>
@@ -810,18 +803,21 @@ export default function Jobs() {
           </section>
         </div>
       </div>
-    </div>
-  );
-}
 
-function Stars({ value = 0 }) {
-  const full = Math.max(0, Math.min(5, Math.round(value)));
-  return (
-    <span className="inline-flex items-center gap-[2px]">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <FiStar key={i} className={i < full ? "text-orange-500" : "text-slate-300"} />
-      ))}
-    </span>
+      <StatusPopup
+        open={popup.open}
+        onClose={closePopup}
+        variant={popup.variant}
+        badge={popup.badge}
+        title={popup.title}
+        message={popup.message}
+        details={popup.details}
+        primaryLabel={popup.primaryLabel}
+        primaryHref={popup.primaryHref}
+        secondaryLabel={popup.secondaryLabel}
+        secondaryHref={popup.secondaryHref}
+      />
+    </div>
   );
 }
 

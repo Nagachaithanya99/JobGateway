@@ -1,14 +1,17 @@
 // src/pages/company/PricingPlans.jsx
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { FiCheckCircle, FiStar, FiTrendingUp, FiZap } from "react-icons/fi";
 import Toast from "../../components/common/Toast.jsx";
 import Modal from "../../components/common/Modal.jsx";
 import {
+  createCompanySubscriptionOrder,
   getCompanyPlans,
   getCompanyBillingMe,
-  subscribeCompanyPlan,
   cancelCompanyPlan,
+  verifyCompanySubscriptionPayment,
 } from "../../services/companyService.js";
+import { loadRazorpayCheckout } from "../../utils/razorpay.js";
 
 function Card({ children, className = "" }) {
   return (
@@ -51,6 +54,7 @@ export default function PricingPlans() {
 
   const [cycle, setCycle] = useState("monthly");
   const [confirm, setConfirm] = useState({ open: false, plan: null });
+  const [paying, setPaying] = useState(false);
 
   const [toast, setToast] = useState({ show: false, message: "", tone: "dark" });
   const ping = (message, tone = "dark") => setToast({ show: true, message, tone });
@@ -92,12 +96,58 @@ export default function PricingPlans() {
 
   const onSubscribe = async (planId) => {
     try {
-      await subscribeCompanyPlan(planId, cycle);
+      setPaying(true);
+      const orderRes = await createCompanySubscriptionOrder(planId, cycle);
+      const Razorpay = await loadRazorpayCheckout();
+
+      await new Promise((resolve, reject) => {
+        const instance = new Razorpay({
+          key: orderRes?.keyId,
+          amount: orderRes?.order?.amount,
+          currency: orderRes?.order?.currency || "INR",
+          name: "JobGateway",
+          description: `${orderRes?.payment?.planName || "Company Plan"} (${cycle})`,
+          order_id: orderRes?.order?.id,
+          prefill: {
+            name: orderRes?.company?.name || "",
+            email: orderRes?.company?.email || "",
+          },
+          notes: {
+            paymentId: orderRes?.payment?.id || "",
+          },
+          handler: async (response) => {
+            try {
+              await verifyCompanySubscriptionPayment({
+                paymentId: orderRes?.payment?.id,
+                ...response,
+              });
+              resolve();
+            } catch (err) {
+              reject(err);
+            }
+          },
+          modal: {
+            ondismiss: () => reject(new Error("Payment cancelled.")),
+          },
+          theme: {
+            color: "#2563EB",
+          },
+        });
+        if (!instance) {
+          reject(new Error("Razorpay checkout failed to initialize."));
+          return;
+        }
+        instance.open();
+      });
+
       setConfirm({ open: false, plan: null });
       ping(`Plan activated (${cycle})`, "success");
       await load();
     } catch (e) {
+      console.error("company subscribe error:", e);
       ping(e?.response?.data?.message || "Subscribe failed", "error");
+    } finally {
+      setPaying(false);
     }
   };
 
@@ -124,6 +174,9 @@ export default function PricingPlans() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <Link to="/company/billing" className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            View Billing
+          </Link>
           <Badge tone={isActive ? "green" : "slate"}>{isActive ? "Active" : "Inactive"}</Badge>
           <Badge tone="orange">Current: {currentPlanName}</Badge>
           {sub?.billingCycle ? <Badge tone="blue">Cycle: {sub.billingCycle}</Badge> : null}
@@ -161,11 +214,16 @@ export default function PricingPlans() {
         </div>
       </Card>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <Card>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Current Plan Price</p>
           <p className="mt-2 text-2xl font-bold text-[#0F172A]">Rs {selectedPrice || sub?.price || 0}</p>
           <p className="mt-1 text-xs text-slate-500">{cycle === "yearly" ? "Per year" : "Per month"} for {currentPlanName}</p>
+        </Card>
+        <Card>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">GST (18%)</p>
+          <p className="mt-2 text-2xl font-bold text-[#0F172A]">Rs {sub?.gst || 0}</p>
+          <p className="mt-1 text-xs text-slate-500">Billing tax amount</p>
         </Card>
         <Card>
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Jobs Capacity</p>
@@ -173,9 +231,9 @@ export default function PricingPlans() {
           <p className="mt-1 text-xs text-slate-500">Posting limit in selected cycle</p>
         </Card>
         <Card>
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Applications Capacity</p>
-          <p className="mt-2 text-2xl font-bold text-[#0F172A]">{appsLimit >= 999999 ? "Unlimited" : appsLimit}</p>
-          <p className="mt-1 text-xs text-slate-500">Application processing limit</p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Total Bill</p>
+          <p className="mt-2 text-2xl font-bold text-[#0F172A]">Rs {sub?.total || 0}</p>
+          <p className="mt-1 text-xs text-slate-500">{appsLimit >= 999999 ? "Unlimited" : appsLimit} applications capacity</p>
         </Card>
       </section>
 
@@ -284,8 +342,12 @@ export default function PricingPlans() {
             <button onClick={() => setConfirm({ open: false, plan: null })} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">
               Cancel
             </button>
-            <button onClick={() => onSubscribe(confirm.plan?.id)} className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white">
-              Confirm and Activate
+            <button
+              onClick={() => onSubscribe(confirm.plan?.id)}
+              disabled={paying}
+              className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {paying ? "Processing..." : "Pay and Activate"}
             </button>
           </>
         }
@@ -301,7 +363,7 @@ export default function PricingPlans() {
             Price: <span className="font-semibold">Rs {confirm.plan ? (cycle === "yearly" ? confirm.plan.yearlyPrice : confirm.plan.monthlyPrice) : ""}</span>
           </p>
           <p className="text-xs text-slate-500">
-            Subscription will be activated instantly for the selected cycle.
+            Razorpay checkout will open and the subscription activates after payment verification.
           </p>
         </div>
       </Modal>

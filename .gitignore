@@ -1,0 +1,10 @@
+*.zip
+
+jobs_demo/backend/node_modules/
+jobs_demo/backend/uploads/
+
+jobs_demo/backend/.env
+jobs_demo/frontend/.env
+
+jobs_demo/**/dist/
+jobs_demo/**/build/

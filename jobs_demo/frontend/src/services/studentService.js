@@ -123,3 +123,18 @@ export const studentSaveNotificationPrefs = async (payload = {}) =>
 
 export const studentListInterviews = async (params = {}) =>
   api.get("/student/interviews", { params });
+
+export const studentGetAdsStatus = async () =>
+  api.get("/student/ads/status");
+
+export const studentRequestAdPlan = async (payload = {}) =>
+  api.post("/student/ads/plan-request", payload);
+
+export const studentCreateAd = async (payload = {}) =>
+  api.post("/student/ads", payload);
+
+export const studentCreateAdPlanOrder = async (payload = {}) =>
+  api.post("/student/ads/plans/create-order", payload);
+
+export const studentVerifyAdPlanPayment = async (payload = {}) =>
+  api.post("/student/ads/plans/verify-payment", payload);

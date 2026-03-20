@@ -28,6 +28,14 @@ import {
   endCompanyInterviewRound,
   getCompanyInterviewWorkspace,
 } from "../../services/interviewsService.js";
+import {
+  optimizeSpeechStream,
+  optimizeVideoStream,
+  SPEECH_AUDIO_CONSTRAINTS,
+  ULTRA_HD_VIDEO_CONSTRAINTS,
+} from "../../utils/media.js";
+import useVirtualBackground from "../../hooks/useVirtualBackground.js";
+import VirtualBackgroundPicker from "../../components/interview/VirtualBackgroundPicker.jsx";
 
 const ICE_CONFIG = {
   iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }],
@@ -126,6 +134,16 @@ export default function InterviewWorkspace() {
   const appliedAnswerSdpRef = useRef("");
   const suppressQuestionDraftSyncRef = useRef(false);
   const suppressCodeSyncRef = useRef(false);
+  const {
+    backgroundOptions,
+    bindStream: bindVirtualBackgroundStream,
+    bindVideoSender,
+    getOutgoingVideoTrack,
+    reset: resetVirtualBackground,
+    selectedBackground,
+    setSelectedBackground,
+    syncVideoEnabled,
+  } = useVirtualBackground(localVideoRef);
   const [scorecard, setScorecard] = useState({
     technicalKnowledge: 0,
     problemSolving: 0,
@@ -422,31 +440,21 @@ export default function InterviewWorkspace() {
       setCameraErr("");
       if (streamRef.current) return streamRef.current;
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-          channelCount: 1,
-          sampleRate: 48000,
-          sampleSize: 16,
-          latency: 0,
-          googEchoCancellation: true,
-          googAutoGainControl: true,
-          googNoiseSuppression: true,
-          googHighpassFilter: true,
-        },
+        video: ULTRA_HD_VIDEO_CONSTRAINTS,
+        audio: SPEECH_AUDIO_CONSTRAINTS,
       });
+      await optimizeVideoStream(stream);
+      await optimizeSpeechStream(stream);
       streamRef.current = stream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-      setCameraOn(true);
+      await bindVirtualBackgroundStream(stream);
+      setCameraOn(Boolean(stream.getVideoTracks()?.[0]?.enabled));
       setMicOn(Boolean(stream.getAudioTracks()?.[0]?.enabled));
       return stream;
     } catch (e) {
       setCameraErr(e?.message || "Unable to access camera/microphone");
       throw e;
     }
-  }, []);
+  }, [bindVirtualBackgroundStream]);
 
   const leaveMeeting = useCallback(() => {
     if (peerRef.current) {
@@ -467,7 +475,7 @@ export default function InterviewWorkspace() {
       remoteScreenStreamRef.current.getTracks().forEach((t) => t.stop());
       remoteScreenStreamRef.current = null;
     }
-    if (localVideoRef.current) localVideoRef.current.srcObject = null;
+    resetVirtualBackground();
     if (remoteVideoRef.current) remoteVideoRef.current.srcObject = null;
     if (remoteScreenVideoRef.current) remoteScreenVideoRef.current.srcObject = null;
     appliedStudentCandidatesRef.current = new Set();
@@ -478,7 +486,7 @@ export default function InterviewWorkspace() {
     setRemoteReady(false);
     setRemoteScreenReady(false);
     setJoined(false);
-  }, []);
+  }, [resetVirtualBackground]);
 
   const joinMeeting = useCallback(async () => {
     try {
@@ -487,7 +495,15 @@ export default function InterviewWorkspace() {
       const pc = new RTCPeerConnection(ICE_CONFIG);
       peerRef.current = pc;
 
-      localStream.getTracks().forEach((track) => pc.addTrack(track, localStream));
+      const audioTracks = localStream.getAudioTracks();
+      const outgoingVideoTrack = await getOutgoingVideoTrack(localStream);
+      const outgoingStream = new MediaStream([...audioTracks, ...(outgoingVideoTrack ? [outgoingVideoTrack] : [])]);
+
+      audioTracks.forEach((track) => pc.addTrack(track, outgoingStream));
+      if (outgoingVideoTrack) {
+        const videoSender = pc.addTrack(outgoingVideoTrack, outgoingStream);
+        await bindVideoSender(videoSender);
+      }
       pc.addTransceiver("video", { direction: "recvonly" });
 
       pc.ontrack = (event) => {
@@ -559,7 +575,7 @@ export default function InterviewWorkspace() {
     } catch (e) {
       setMsg(e?.response?.data?.message || e?.message || "Unable to join meeting");
     }
-  }, [ensureLocalMedia, id]);
+  }, [bindVideoSender, ensureLocalMedia, getOutgoingVideoTrack, id]);
 
   useEffect(() => () => leaveMeeting(), [leaveMeeting]);
 
@@ -647,6 +663,7 @@ export default function InterviewWorkspace() {
       const track = stream.getVideoTracks()[0];
       if (!track) return;
       track.enabled = !track.enabled;
+      syncVideoEnabled(track.enabled);
       setCameraOn(track.enabled);
     } catch {
       // handled in ensureLocalMedia
@@ -785,6 +802,11 @@ export default function InterviewWorkspace() {
           </div>
 
           <div ref={videoShellRef} className="relative h-[420px] overflow-hidden rounded-xl border border-slate-300 bg-black">
+            <VirtualBackgroundPicker
+              options={backgroundOptions}
+              value={selectedBackground}
+              onChange={setSelectedBackground}
+            />
             <video
               ref={remoteVideoRef}
               autoPlay

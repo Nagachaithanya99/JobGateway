@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="wall" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#edf3fb"/>
+      <stop offset="100%" stop-color="#d7e2ef"/>
+    </linearGradient>
+    <linearGradient id="floor" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0%" stop-color="#e8eef5"/>
+      <stop offset="100%" stop-color="#c7d4e2"/>
+    </linearGradient>
+    <filter id="blurLarge" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="22"/>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="730" fill="url(#wall)"/>
+  <rect y="730" width="1600" height="170" fill="url(#floor)"/>
+
+  <g opacity="0.9" filter="url(#blurLarge)">
+    <polygon points="1020,210 1350,200 1450,530 1125,575" fill="#ffffff" fill-opacity="0.88"/>
+    <polygon points="1110,235 1170,230 1255,557 1190,565" fill="#d3dfef" fill-opacity="0.72"/>
+    <polygon points="1240,225 1290,222 1380,520 1332,528" fill="#d3dfef" fill-opacity="0.72"/>
+    <polygon points="1085,340 1410,325 1420,364 1095,382" fill="#cfdbeb" fill-opacity="0.56"/>
+  </g>
+
+  <g opacity="0.2" filter="url(#blurLarge)">
+    <ellipse cx="930" cy="760" rx="460" ry="55" fill="#b4c2d2"/>
+  </g>
+</svg>

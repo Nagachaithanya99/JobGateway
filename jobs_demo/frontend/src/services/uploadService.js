@@ -31,10 +31,35 @@ export const uploadContentImage = async (file) => {
   });
 };
 
+export const uploadAdMedia = async (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return api.post("/upload/ad-media", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+};
+
+export const uploadAdMediaFromUrl = async (url) => {
+  return api.post("/upload/ad-media/link", { url });
+};
+
+export const uploadSocialMedia = async (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return api.post("/upload/social-media", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+};
+
 const uploadService = {
   uploadResume,
   uploadMessageAttachment,
   uploadContentImage,
+  uploadAdMedia,
+  uploadAdMediaFromUrl,
+  uploadSocialMedia,
 };
 
 export default uploadService;

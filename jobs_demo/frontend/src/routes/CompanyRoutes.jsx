@@ -7,6 +7,7 @@ import CompanyLogin from "../pages/auth/CompanyLogin.jsx";
 import CompanySignup from "../pages/auth/CompanySignup.jsx";
 
 import Dashboard from "../pages/company/Dashboard.jsx";
+import CompanyBilling from "../pages/company/Billing.jsx";
 import PricingPlans from "../pages/company/PricingPlans.jsx";
 import PostJob from "../pages/company/PostJob.jsx";
 import MyJobs from "../pages/company/MyJobs.jsx";
@@ -20,6 +21,7 @@ import BoostJob from "../pages/company/BoostJob.jsx";
 import AICandidateScoring from "../pages/company/AICandidateScoring.jsx";
 import Profile from "../pages/company/Profile.jsx";
 import Settings from "../pages/company/Settings.jsx";
+import CareerPulsePage from "../pages/shared/CareerPulsePage.jsx";
 
 export default function CompanyRoutes() {
   return (
@@ -39,7 +41,9 @@ export default function CompanyRoutes() {
       >
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
+        <Route path="career-pulse" element={<CareerPulsePage />} />
         <Route path="pricing" element={<PricingPlans />} />
+        <Route path="billing" element={<CompanyBilling />} />
         <Route path="post-job" element={<PostJob />} />
         <Route path="my-jobs" element={<MyJobs />} />
         <Route path="candidates" element={<AppliedCandidates />} />

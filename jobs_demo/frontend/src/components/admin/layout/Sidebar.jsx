@@ -25,6 +25,7 @@ const navItems = [
   { to: "/admin/interviews", icon: <FiVideo />, label: "Interviews" },
   { to: "/admin/pricing", icon: <FiDollarSign />, label: "Pricing Plans" },
   { to: "/admin/content", icon: <FiImage />, label: "Content Management" },
+  { to: "/admin/ads", icon: <FiImage />, label: "Ads Users" },
   { to: "/admin/gov", icon: <FiGlobe />, label: "Government Updates" },
   { to: "/admin/roles", icon: <FiShield />, label: "Roles & Permissions" },
   { to: "/admin/notifications", icon: <FiBell />, label: "Notifications" },

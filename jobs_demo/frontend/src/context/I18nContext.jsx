@@ -60,6 +60,7 @@ export function I18nProvider({ children }) {
   const userId = user?.id || "";
   const [language, setLanguageState] = useState(() => readLocalLanguage(""));
   const [busy, setBusy] = useState(false);
+  const [translating, setTranslating] = useState(false);
   const persistTimerRef = useRef(null);
   const persistSeqRef = useRef(0);
 
@@ -73,6 +74,7 @@ export function I18nProvider({ children }) {
     async (nextLanguage, options = {}) => {
       const next = normalizeLanguage(nextLanguage);
       const shouldPersist = options.persist !== false;
+      if (next === language) return next;
 
       setLanguageState(next);
       writeLocalLanguage(next, isAuthed ? userId : "");
@@ -92,7 +94,7 @@ export function I18nProvider({ children }) {
 
       return next;
     },
-    [clearPersistTimer, isAuthed, userId],
+    [clearPersistTimer, isAuthed, language, userId],
   );
 
   useEffect(() => {
@@ -160,8 +162,8 @@ export function I18nProvider({ children }) {
   );
 
   const value = useMemo(
-    () => ({ language, languages, busy, setLanguage, t }),
-    [language, languages, busy, setLanguage, t],
+    () => ({ language, languages, busy, translating, setLanguage, setTranslating, t }),
+    [language, languages, busy, translating, setLanguage, t],
   );
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
@@ -177,7 +179,9 @@ export function useI18n() {
       label: `${x.native} (${x.label})`,
     })),
     busy: false,
+    translating: false,
     setLanguage: async () => DEFAULT_LANGUAGE,
+    setTranslating: () => {},
     t: (key, fallback = "") => fallback || key,
   };
 }

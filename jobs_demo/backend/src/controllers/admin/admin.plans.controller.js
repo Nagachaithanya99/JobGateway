@@ -1,8 +1,10 @@
 import mongoose from "mongoose";
 import Plan from "../../models/Plan.js";
+import Payment from "../../models/Payment.js";
 import PlanRequest from "../../models/PlanRequest.js";
 import Subscription from "../../models/Subscription.js";
 import User from "../../models/User.js";
+import { makeBillingAmounts } from "../../utils/billing.js";
 
 function toId(x) {
   return String(x?._id || x?.id || x || "");
@@ -126,12 +128,25 @@ export async function adminListPlanRequests(req, res, next) {
       .populate("planId", "name price durationDays")
       .lean();
 
-    const companyIds = [...new Set(requests.map((r) => toId(r.company)).filter(Boolean))]
+    const payments = await Payment.find({ purpose: "company_subscription" })
+      .sort({ createdAt: -1 })
+      .populate("user", "name email")
+      .lean();
+    const allSubscriptions = await Subscription.find({}).sort({ createdAt: -1 }).lean();
+
+    const companyIds = [...new Set([
+      ...requests.map((r) => toId(r.company)),
+      ...payments.map((r) => toId(r.user)),
+      ...allSubscriptions.map((r) => toId(r.company)),
+    ].filter(Boolean))]
       .filter((id) => mongoose.isValidObjectId(id))
       .map((id) => new mongoose.Types.ObjectId(id));
 
     const subscriptions = companyIds.length
-      ? await Subscription.find({ company: { $in: companyIds } }).sort({ createdAt: -1 }).lean()
+      ? allSubscriptions.filter((row) => companyIds.some((id) => String(id) === toId(row.company)))
+      : [];
+    const companies = companyIds.length
+      ? await User.find({ _id: { $in: companyIds } }).select("name email").lean()
       : [];
 
     const subMap = new Map();
@@ -139,9 +154,10 @@ export async function adminListPlanRequests(req, res, next) {
       const key = toId(s.company);
       if (!subMap.has(key)) subMap.set(key, s);
     }
+    const companyMap = new Map(companies.map((row) => [toId(row), row]));
 
     const search = String(q || "").trim().toLowerCase();
-    const rows = requests
+    const manualRows = requests
       .map((r) => {
         const companyId = toId(r.company);
         const sub = subMap.get(companyId);
@@ -153,19 +169,77 @@ export async function adminListPlanRequests(req, res, next) {
           planId: toId(r.planId) || "",
           planName,
           amount: r.amount || (r.planId?.price ? `₹${r.planId.price}` : ""),
+          billing: makeBillingAmounts(r.planId?.price || String(r.amount || "").replace(/[^\d.]/g, "") || 0),
           utr: r.utr || "",
           transactionId: r.utr || "",
           paymentMethod: "Manual",
+          source: "manual",
           createdAt: formatDate(r.requestedAt || r.createdAt),
           status: r.status || "pending",
           activationDate: sub && sub.status === "active" ? formatDate(sub.start) : "",
           expiryDate: sub && sub.status === "active" ? formatDate(sub.end) : "",
         };
-      })
+      });
+
+    const paymentRows = payments.map((p) => {
+      const companyId = toId(p.user);
+      const sub = subMap.get(companyId);
+      const statusMap = {
+        created: "pending",
+        paid: "approved",
+        failed: "rejected",
+      };
+      return {
+        id: toId(p),
+        companyId,
+        companyName: p.user?.name || "Company",
+        planId: toId(p.planId) || "",
+        planName: p.planName || "",
+        amount: `Rs ${Number(p.amount || 0)}`,
+        billing: makeBillingAmounts(p.amount || 0),
+        utr: p.razorpayPaymentId || "",
+        transactionId: p.razorpayPaymentId || p.razorpayOrderId || "",
+        orderId: p.razorpayOrderId || "",
+        paymentMethod: "Razorpay",
+        source: "razorpay",
+        createdAt: formatDate(p.paidAt || p.createdAt),
+        status: statusMap[String(p.status || "created").toLowerCase()] || "pending",
+        activationDate: sub && sub.status === "active" ? formatDate(sub.start) : "",
+        expiryDate: sub && sub.status === "active" ? formatDate(sub.end) : "",
+      };
+    });
+
+    const legacyRows = subscriptions
+      .filter((sub) => !paymentRows.some((row) => row.companyId === toId(sub.company) && row.planName === (sub.planName || "")))
+      .map((sub) => {
+        const companyId = toId(sub.company);
+        const company = companyMap.get(companyId);
+        return {
+          id: `legacy-${toId(sub)}`,
+          companyId,
+          companyName: company?.name || "Company",
+          planId: "",
+          planName: sub.planName || "Plan",
+          amount: `Rs ${Number(sub.price || 0)}`,
+          billing: makeBillingAmounts(sub.price || 0),
+          utr: "",
+          transactionId: "",
+          orderId: "",
+          paymentMethod: "Legacy / Manual",
+          source: "legacy-subscription",
+          createdAt: formatDate(sub.createdAt || sub.start),
+          status: sub.status === "active" ? "approved" : "pending",
+          activationDate: formatDate(sub.start),
+          expiryDate: formatDate(sub.end),
+        };
+      });
+
+    const rows = [...paymentRows, ...manualRows, ...legacyRows]
       .filter((row) => {
         if (!search) return true;
         return `${row.companyName} ${row.planName} ${row.transactionId}`.toLowerCase().includes(search);
-      });
+      })
+      .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
     return res.json({ rows });
   } catch (e) {
@@ -246,6 +320,7 @@ export async function adminUpdatePlanRequest(req, res, next) {
       planId: toId(pr.planId) || "",
       planName: pr.planName || pr.planId?.name || "",
       amount: pr.amount || (pr.planId?.price ? `₹${pr.planId.price}` : ""),
+      billing: makeBillingAmounts(pr.planId?.price || String(pr.amount || "").replace(/[^\d.]/g, "") || 0),
       utr: pr.utr || "",
       transactionId: pr.utr || "",
       paymentMethod: "Manual",

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { FiExternalLink, FiFilter, FiSearch, FiChevronDown } from "react-icons/fi";
+import StatusPopup from "../../components/common/StatusPopup.jsx";
 import { studentListGovernmentJobs } from "../../services/studentService.js";
 
 const ILL_TOP = "/images/student-government/gov-illustration-top.png";
@@ -41,6 +42,13 @@ export default function GovernmentJobs() {
     sort: "Most Recent",
   });
   const [draft, setDraft] = useState({ ...filters });
+  const [externalPopup, setExternalPopup] = useState({
+    open: false,
+    title: "",
+    message: "",
+    details: [],
+    href: "",
+  });
 
   const departmentOptions = useMemo(
     () =>
@@ -182,6 +190,16 @@ export default function GovernmentJobs() {
     setFilters(reset);
     setSelectedChip("All Updates");
     load({ nextPage: 1, nextFilters: reset, chip: "All Updates" });
+  };
+
+  const openExternalPopup = ({ title, message, details = [], href }) => {
+    setExternalPopup({
+      open: true,
+      title,
+      message,
+      details,
+      href,
+    });
   };
 
   return (
@@ -439,14 +457,24 @@ export default function GovernmentJobs() {
                           View Details
                         </Link>
                         {item.link ? (
-                          <a
-                            href={item.link}
-                            target="_blank"
-                            rel="noreferrer"
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openExternalPopup({
+                                title: "Open official government link",
+                                message: "You are about to open the official link for this government update in a new tab.",
+                                details: [
+                                  item.department ? `Department: ${item.department}` : "",
+                                  item.endDate ? `Last date to apply: ${fmt(item.endDate)}` : "",
+                                  "Verify the official domain before entering any personal or payment information.",
+                                ].filter(Boolean),
+                                href: item.link,
+                              })
+                            }
                             className="inline-flex items-center gap-1 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                           >
                             Official <FiExternalLink />
-                          </a>
+                          </button>
                         ) : null}
                       </div>
                     </div>
@@ -525,6 +553,24 @@ export default function GovernmentJobs() {
           </aside>
         </div>
       </div>
+
+      <StatusPopup
+        open={externalPopup.open}
+        onClose={() => setExternalPopup((prev) => ({ ...prev, open: false }))}
+        variant="external"
+        badge="Official Link"
+        title={externalPopup.title}
+        message={externalPopup.message}
+        details={externalPopup.details}
+        primaryLabel="Continue"
+        onPrimary={() => {
+          if (externalPopup.href) {
+            window.open(externalPopup.href, "_blank", "noopener,noreferrer");
+          }
+          setExternalPopup((prev) => ({ ...prev, open: false }));
+        }}
+        secondaryLabel="Stay Here"
+      />
     </div>
   );
 }

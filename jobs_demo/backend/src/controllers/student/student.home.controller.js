@@ -5,6 +5,7 @@ import User from "../../models/User.js";
 import Application from "../../models/Application.js";
 import ContentItem from "../../models/ContentItem.js";
 import GovernmentUpdate from "../../models/GovernmentUpdate.js";
+import Advertisement from "../../models/Advertisement.js";
 
 function safeStr(x) {
   return typeof x === "string" ? x : "";
@@ -127,7 +128,7 @@ async function loadCompanyMap(...lists) {
 
 export const getStudentHome = async (req, res, next) => {
   try {
-    const [categoryItems, testimonialItems, bannerItems, announcementItems, gov, jobsDocs, internshipsDocs, liveJobs, topCompanies, studentsHired] = await Promise.all([
+    const [categoryItems, testimonialItems, bannerItems, announcementItems, gov, jobsDocs, internshipsDocs, adsDocs, liveJobs, topCompanies, studentsHired] = await Promise.all([
       ContentItem.find({ type: "CATEGORY", status: "Active" })
         .sort({ priority: -1, createdAt: -1 })
         .limit(30)
@@ -162,6 +163,11 @@ export const getStudentHome = async (req, res, next) => {
       })
         .sort({ boostActive: -1, createdAt: -1 })
         .limit(6)
+        .lean(),
+      Advertisement.find({ status: "active", placement: "student-home" })
+        .sort({ createdAt: -1 })
+        .limit(8)
+        .populate("user", "name email")
         .lean(),
       Job.countDocuments({ status: "Active" }),
       User.countDocuments({ role: "company", isActive: true }),
@@ -211,6 +217,21 @@ export const getStudentHome = async (req, res, next) => {
         imageUrl: x.imageUrl || "",
       }));
 
+    const ads = adsDocs.map((ad) => ({
+      id: String(ad._id),
+      title: ad.title || "",
+      description: ad.description || "",
+      mediaType: ad.mediaType || "banner",
+      mediaUrl: ad.mediaUrl || "",
+      mediaResourceType: ad.mediaResourceType || "",
+      ctaLabel: ad.ctaLabel || "Learn More",
+      targetUrl: ad.targetUrl || "",
+      contactLabel: ad.contactLabel || "",
+      audience: ad.audience || "",
+      advertiserName: ad.user?.name || "Sponsored",
+      createdAt: ad.createdAt,
+    }));
+
     const companyMap = await loadCompanyMap(jobsDocs, internshipsDocs);
     const jobs = jobsDocs.map((j) => mapJob(j, companyMap));
     const internships = internshipsDocs.map((j) => mapInternship(j, companyMap));
@@ -237,6 +258,7 @@ export const getStudentHome = async (req, res, next) => {
       testimonials,
       banners,
       announcements,
+      ads,
     });
   } catch (err) {
     next(err);

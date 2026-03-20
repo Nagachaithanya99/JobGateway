@@ -15,6 +15,7 @@ const titleMap = {
   "/admin/interviews": "Interviews",
   "/admin/pricing": "Pricing Plans",
   "/admin/content": "Content Management",
+  "/admin/ads": "Ads Users",
   "/admin/gov": "Government Updates",
   "/admin/roles": "Roles & Permissions",
   "/admin/notifications": "Notification Center",

@@ -4,6 +4,9 @@ import PublicLayout from "../components/public/PublicLayout.jsx";
 import ForgotPassword from "../pages/auth/ForgotPassword.jsx";
 import PublicLogin from "../pages/auth/PublicLogin.jsx";
 import PublicRegister from "../pages/auth/PublicRegister.jsx";
+import AuthCallbackPage from "../components/auth/AuthCallbackPage.jsx";
+import AuthFinishPage from "../components/auth/AuthFinishPage.jsx";
+import CompanyOnboardingPage from "../components/auth/CompanyOnboardingPage.jsx";
 
 // Reuse student/public content pages
 import Home from "../pages/student/Home.jsx";
@@ -34,6 +37,9 @@ export default function PublicRoutes() {
 
       <Route path="/login" element={<PublicLogin />} />
       <Route path="/register" element={<PublicRegister />} />
+      <Route path="/auth/callback" element={<AuthCallbackPage />} />
+      <Route path="/auth/finish" element={<AuthFinishPage />} />
+      <Route path="/auth/company-details" element={<CompanyOnboardingPage />} />
       <Route path="/forgot" element={<ForgotPassword />} />
       <Route path="/public" element={<Navigate to="/" replace />} />
       <Route path="/public/login" element={<Navigate to="/login" replace />} />

@@ -9,6 +9,8 @@ import {
   getMyBilling,
   subscribePlan,
   cancelSubscription,
+  createSubscriptionOrder,
+  verifySubscriptionPayment,
 } from "../../controllers/company/company.billing.controller.js";
 
 const router = express.Router();
@@ -21,6 +23,8 @@ router.get("/plans", listPlans);
 router.get("/me", getMyBilling);
 
 // subscribe / cancel
+router.post("/create-order", createSubscriptionOrder);
+router.post("/verify-payment", verifySubscriptionPayment);
 router.post("/subscribe", subscribePlan);
 router.post("/cancel", cancelSubscription);
 

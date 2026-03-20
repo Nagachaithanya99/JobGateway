@@ -23,6 +23,7 @@ function postedAgo(createdAt) {
 
 function salaryText(job) {
   if (!job) return "-";
+  if (job.showSalary === false) return "Compensation not disclosed";
   if (job.salaryText) return job.salaryText;
   const min = Number(job.salaryMin || 0);
   const max = Number(job.salaryMax || 0);
@@ -73,6 +74,7 @@ export default function JobDetails() {
   const [applyModalOpen, setApplyModalOpen] = useState(false);
   const [incompleteModalOpen, setIncompleteModalOpen] = useState(false);
   const [successModalOpen, setSuccessModalOpen] = useState(false);
+  const [successModalTitle, setSuccessModalTitle] = useState("Application Submitted");
   const [successMessage, setSuccessMessage] = useState("Application submitted successfully.");
 
   useEffect(() => {
@@ -108,7 +110,11 @@ export default function JobDetails() {
         const appRows = Array.isArray(appRes?.data?.items) ? appRes.data.items : [];
         setAlreadyApplied(appRows.some((x) => String(x?.jobId || x?.job?._id || x?.job) === String(id)));
         setProfileCompletion(readProfileCompletion(meRes));
-      } catch (_) {}
+      } catch {
+        if (!mounted) return;
+        setSaved(false);
+        setAlreadyApplied(false);
+      }
     })();
     return () => { mounted = false; };
   }, [id]);
@@ -121,7 +127,7 @@ export default function JobDetails() {
         const res = await studentSearchJobs({ stream: job?.stream || undefined, category: job?.category || undefined, page: 1, limit: 8 });
         const rows = Array.isArray(res?.data?.items) ? res.data.items : [];
         if (mounted) setRelated(rows.filter((x) => String(x?._id || x?.id) !== String(id)));
-      } catch (_) {
+      } catch {
         if (mounted) setRelated([]);
       }
     })();
@@ -145,7 +151,7 @@ export default function JobDetails() {
       const value = readProfileCompletion(meRes);
       setProfileCompletion(value);
       return value;
-    } catch (_) {
+    } catch {
       return profileCompletion;
     } finally {
       setCheckingProfile(false);
@@ -158,6 +164,7 @@ export default function JobDetails() {
       return;
     }
     if (alreadyApplied) {
+      setSuccessModalTitle("Already Applied");
       setSuccessMessage("You have already applied for this job.");
       setSuccessModalOpen(true);
       return;
@@ -173,14 +180,28 @@ export default function JobDetails() {
   const confirmApply = async () => {
     try {
       setApplyModalOpen(false);
-      await studentApplyJob(job);
+      const res = await studentApplyJob(job);
+      const alreadyExists = !!res?.data?.alreadyApplied;
       setAlreadyApplied(true);
-      setSuccessMessage("Application submitted successfully.");
+      setSuccessModalTitle(alreadyExists ? "Already Applied" : "Application Submitted");
+      setSuccessMessage(alreadyExists ? "You have already applied for this job." : "Application submitted successfully.");
       setSuccessModalOpen(true);
     } catch (e) {
       const status = Number(e?.response?.status || 0);
       if (status === 401 || status === 403) {
         redirectToLogin();
+        return;
+      }
+      if (e?.response?.data?.profileIncomplete) {
+        setProfileCompletion(readProfileCompletion(e?.response));
+        setIncompleteModalOpen(true);
+        return;
+      }
+      if (e?.response?.data?.alreadyApplied) {
+        setAlreadyApplied(true);
+        setSuccessModalTitle("Already Applied");
+        setSuccessMessage("You have already applied for this job.");
+        setSuccessModalOpen(true);
         return;
       }
       const msg = e?.response?.data?.message || "Apply failed.";
@@ -222,7 +243,7 @@ export default function JobDetails() {
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button type="button" onClick={onApplyNow} disabled={checkingProfile || alreadyApplied} className="rounded-full bg-orange-500 px-5 py-2 text-sm font-extrabold text-white disabled:opacity-60">{alreadyApplied ? "Already Applied" : "Apply Now"}</button>
+          <button type="button" onClick={onApplyNow} disabled={checkingProfile} className="rounded-full bg-orange-500 px-5 py-2 text-sm font-extrabold text-white disabled:opacity-60">{alreadyApplied ? "Already Applied" : "Apply Now"}</button>
           <button type="button" onClick={toggleSave} disabled={saveBusy} className="rounded-full border border-slate-200 px-5 py-2 text-sm font-extrabold text-slate-700 disabled:opacity-60 inline-flex items-center gap-2"><FiBookmark />{saved ? "Saved" : "Save"}</button>
           {companyPhone ? <a href={`tel:${companyPhone}`} className="rounded-full border border-blue-200 bg-blue-50 px-5 py-2 text-sm font-extrabold text-blue-700 inline-flex items-center gap-2"><FiPhone />Call HR</a> : null}
           {companyPhone ? <a href={`https://wa.me/${companyPhone.replace(/\D/g, "")}`} className="rounded-full border border-emerald-200 bg-emerald-50 px-5 py-2 text-sm font-extrabold text-emerald-700 inline-flex items-center gap-2"><FiMessageCircle />WhatsApp HR</a> : null}
@@ -276,7 +297,7 @@ export default function JobDetails() {
         <div className="rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm text-[#9A3412]">Your profile completion is {profileCompletion}%.</div>
       </Modal>
 
-      <Modal open={successModalOpen} onClose={() => setSuccessModalOpen(false)} title="Application Submitted" footer={<button type="button" onClick={() => setSuccessModalOpen(false)} className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white">Done</button>}>
+      <Modal open={successModalOpen} onClose={() => setSuccessModalOpen(false)} title={successModalTitle} footer={<button type="button" onClick={() => setSuccessModalOpen(false)} className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white">Done</button>}>
         <div className="inline-flex items-center gap-2 text-sm text-slate-700"><FiCheckCircle className="text-green-600" />{successMessage}</div>
       </Modal>
     </div>

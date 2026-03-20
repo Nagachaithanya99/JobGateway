@@ -25,6 +25,123 @@ function safeRegex(q) {
   return new RegExp(esc, "i");
 }
 
+function safeStr(x) {
+  return typeof x === "string" ? x : "";
+}
+
+function safeObj(x) {
+  return x && typeof x === "object" ? x : {};
+}
+
+function safeArr(x) {
+  return Array.isArray(x) ? x : [];
+}
+
+function toStringArray(value) {
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((v) => String(v ?? "").split(/[\n,;/|]+/g))
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split(/[\n,;/|]+/g)
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+const currencyFormatter = new Intl.NumberFormat("en-IN");
+
+function salarySuffix(type = "") {
+  const raw = String(type || "").trim().toLowerCase();
+  if (raw === "monthly") return " / month";
+  if (raw === "yearly") return " / year";
+  return "";
+}
+
+function buildSalaryText(jobDoc = {}) {
+  if (jobDoc?.showSalary === false) return "";
+
+  const explicit = safeStr(jobDoc.salaryText).trim();
+  if (explicit) return explicit;
+
+  let min = toNum(jobDoc.salaryMin, 0);
+  let max = toNum(jobDoc.salaryMax, 0);
+
+  if (min && max && max < min) {
+    [min, max] = [max, min];
+  }
+
+  const suffix = salarySuffix(jobDoc.salaryType);
+
+  if (min && max) {
+    return `\u20B9${currencyFormatter.format(min)} - \u20B9${currencyFormatter.format(max)}${suffix}`;
+  }
+
+  if (min) {
+    return `From \u20B9${currencyFormatter.format(min)}${suffix}`;
+  }
+
+  if (max) {
+    return `Up to \u20B9${currencyFormatter.format(max)}${suffix}`;
+  }
+
+  return "";
+}
+
+function countQuestions(questions = []) {
+  return safeArr(questions).filter((q) => safeStr(q?.text).trim()).length;
+}
+
+function normalizeSkillCount(skills = []) {
+  return safeArr(skills)
+    .flatMap((s) =>
+      String(typeof s === "string" ? s : s?.name || s?.skill || "").split(",")
+    )
+    .map((s) => s.trim())
+    .filter(Boolean).length;
+}
+
+function hasValidEducation(education = []) {
+  return safeArr(education).some((e) => e?.degree && e?.college && e?.year);
+}
+
+function calcProfileCompletion(studentProfile, resumeUrl, resumeDoc = {}) {
+  const p = safeObj(studentProfile);
+
+  const personal = safeObj(p.personal);
+  const education = safeArr(p.education);
+  const skills = safeArr(p.skills);
+  const experience = safeArr(p.experience);
+  const preferred = safeObj(p.preferred);
+
+  const resume = safeObj(resumeDoc);
+  const resumeSectionsFilled =
+    Boolean(safeObj(resume.personal).name || safeObj(resume.personal).email) ||
+    safeArr(resume.education).length > 0 ||
+    safeArr(resume.skills).length > 0 ||
+    safeArr(resume.experience).length > 0;
+
+  const checks = {
+    personal: !!(personal.fullName && personal.phone && personal.city && personal.state),
+    education: hasValidEducation(education),
+    skills: normalizeSkillCount(skills) >= 2,
+    experience: p.fresher === true || experience.some((e) => e.company && e.role),
+    resume: !!(p.resumeMeta?.fileName || p.resumeMeta?.updatedAt || resumeUrl || resumeSectionsFilled),
+    preferred:
+      !!safeStr(preferred.stream).trim() &&
+      !!safeStr(preferred.category).trim() &&
+      toStringArray(preferred.locations).length > 0,
+  };
+
+  const total = Object.keys(checks).length;
+  const done = Object.values(checks).filter(Boolean).length;
+  return Math.round((done / total) * 100);
+}
+
 function mapJob(jobDoc) {
   // Keep rich info for JobDetails too (you can reuse same endpoint later)
   return {
@@ -39,13 +156,18 @@ function mapJob(jobDoc) {
     location: jobDoc.location || jobDoc.city || "",
     city: jobDoc.city || "",
     state: jobDoc.state || "",
+    openings: Math.max(1, Number(jobDoc.openings || 1)),
+    deadline: jobDoc.deadline || "",
 
     experience: jobDoc.experience || jobDoc.experienceText || "",
     experienceText: jobDoc.experienceText || "",
 
+    salaryType: jobDoc.salaryType || "",
     salaryMin: jobDoc.salaryMin || 0,
     salaryMax: jobDoc.salaryMax || 0,
-    salaryText: jobDoc.salaryText || "",
+    salaryText: buildSalaryText(jobDoc),
+    showSalary: jobDoc.showSalary !== false,
+    benefits: jobDoc.benefits || "",
     overview: jobDoc.overview || "",
     description: jobDoc.description || jobDoc.overview || "",
     responsibilities: jobDoc.responsibilities || "",
@@ -59,6 +181,13 @@ function mapJob(jobDoc) {
 
     boostActive: Boolean(jobDoc.boostActive),
     status: jobDoc.status,
+    requireResume: jobDoc.requireResume !== false,
+    requireProfile100: Boolean(jobDoc.requireProfile100),
+    oneClickApply: jobDoc.oneClickApply !== false,
+    allowWhatsapp: Boolean(jobDoc.allowWhatsapp),
+    allowCall: Boolean(jobDoc.allowCall),
+    allowEmailThread: jobDoc.allowEmailThread !== false,
+    questionsCount: countQuestions(jobDoc.questions),
 
     company: jobDoc.company?._id || jobDoc.company,
     companyName: jobDoc.company?.name || jobDoc.companyName || "Company",
@@ -221,6 +350,21 @@ export const applyStudentJob = async (req, res, next) => {
         alreadyApplied: true,
         message: "Already applied for this job",
         applicationId: existing._id,
+      });
+    }
+
+    const student = await User.findById(studentId).lean();
+    if (!student) {
+      return res.status(404).json({ message: "Student not found" });
+    }
+
+    const profileCompletion = calcProfileCompletion(student.studentProfile, student.resumeUrl, student.resume);
+    if (profileCompletion < 100) {
+      return res.status(400).json({
+        ok: false,
+        profileIncomplete: true,
+        profileCompletion,
+        message: "Complete your profile before applying",
       });
     }
 
