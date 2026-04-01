@@ -45,7 +45,8 @@ export default function StudentRoutes() {
         }
       >
         <Route index element={<Home />} />
-        <Route path="career-pulse" element={<CareerPulsePage />} />
+        <Route path="explore" element={<CareerPulsePage />} />
+        <Route path="career-pulse" element={<Navigate to="/student/explore" replace />} />
         <Route path="jobs" element={<Jobs />} />
         <Route path="jobs/:id" element={<JobDetails />} />
         <Route path="my-jobs" element={<MyJobs />} />

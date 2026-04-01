@@ -21,6 +21,13 @@ const messageThreadSchema = new mongoose.Schema(
       enum: ["application", "social"],
       default: "application",
     },
+    socialState: {
+      type: String,
+      enum: ["accepted", "pending"],
+      default: "accepted",
+    },
+    socialRequestedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    socialAcceptedAt: { type: Date, default: null },
     subject: { type: String, default: "" },
 
     status: {

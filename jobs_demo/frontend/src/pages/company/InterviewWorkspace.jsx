@@ -34,6 +34,7 @@ import {
   SPEECH_AUDIO_CONSTRAINTS,
   ULTRA_HD_VIDEO_CONSTRAINTS,
 } from "../../utils/media.js";
+import { getApiOrigin } from "../../utils/apiBaseUrl.js";
 import useVirtualBackground from "../../hooks/useVirtualBackground.js";
 import VirtualBackgroundPicker from "../../components/interview/VirtualBackgroundPicker.jsx";
 
@@ -78,11 +79,7 @@ function normalizeRemoteSdp(raw) {
 }
 
 function buildInterviewWsUrl(interviewId) {
-  const apiBase =
-    import.meta.env.VITE_API_BASE_URL ||
-    import.meta.env.VITE_API_URL ||
-    "http://localhost:5000/api";
-  const u = new URL(apiBase);
+  const u = new URL(getApiOrigin());
   const wsProtocol = u.protocol === "https:" ? "wss:" : "ws:";
   const q = `interviewId=${encodeURIComponent(String(interviewId || ""))}&role=company`;
   return [

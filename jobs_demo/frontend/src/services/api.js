@@ -1,5 +1,6 @@
 // frontend/src/services/api.js
 import axios from "axios";
+import { getApiBaseUrl } from "../utils/apiBaseUrl.js";
 
 /**
  * Axios Instance
@@ -8,10 +9,7 @@ import axios from "axios";
  * - Sends cookies if backend uses them
  */
 const api = axios.create({
-  baseURL:
-    import.meta.env.VITE_API_BASE_URL ||
-    import.meta.env.VITE_API_URL ||
-    "http://localhost:5000/api",
+  baseURL: getApiBaseUrl(),
   withCredentials: true,
   headers: {
     "Content-Type": "application/json",

@@ -3,11 +3,72 @@ import Company from "../models/Company.js";
 import Message from "../models/Message.js";
 import MessageThread from "../models/MessageThread.js";
 import SocialFollow from "../models/SocialFollow.js";
+import SocialNotification from "../models/SocialNotification.js";
 import SocialPost from "../models/SocialPost.js";
+import SocialStory from "../models/SocialStory.js";
 import User from "../models/User.js";
+
+const JAMENDO_CLIENT_ID = process.env.JAMENDO_CLIENT_ID || "96cd8d1e";
+const JAMENDO_BASE_URL = process.env.JAMENDO_BASE_URL || "https://api.jamendo.com/v3.0";
+const SPOTIFY_CLIENT_ID = safeStr(process.env.SPOTIFY_CLIENT_ID);
+const SPOTIFY_CLIENT_SECRET = safeStr(process.env.SPOTIFY_CLIENT_SECRET);
+const SPOTIFY_TOKEN_URL = process.env.SPOTIFY_TOKEN_URL || "https://accounts.spotify.com/api/token";
+const SPOTIFY_API_BASE_URL = process.env.SPOTIFY_API_BASE_URL || "https://api.spotify.com/v1";
+const ITUNES_SEARCH_URL = process.env.ITUNES_SEARCH_URL || "https://itunes.apple.com/search";
+const DEFAULT_INDIAN_HITS_QUERY = process.env.MUSIC_DEFAULT_INDIAN_HITS_QUERY || "indian hit songs bollywood tamil telugu malayalam punjabi";
+const SOCIAL_REPORT_REASONS = new Set([
+  "Abusive Language",
+  "Hate Speech",
+  "Sexual Content",
+  "Violence or Threat",
+  "Illegal Activity",
+  "Spam or Misleading",
+  "Other",
+]);
+const SOCIAL_TEXT_BLOCK_RULES = [
+  {
+    reason: "Abusive language",
+    patterns: ["fuck", "bitch", "bastard", "asshole", "motherfucker", "mf", "shit", "slut", "whore"],
+  },
+  {
+    reason: "Hate speech",
+    patterns: ["nigger", "faggot", "terrorist lover", "kill muslim", "kill hindu", "kill christian"],
+  },
+  {
+    reason: "Sexual content",
+    patterns: ["sex", "sexy", "sexual", "nude", "nudes", "porn", "xxx", "sex video", "escort", "onlyfans", "boobs", "breasts", "hot video"],
+  },
+  {
+    reason: "Violence or threat",
+    patterns: ["kill you", "murder", "bomb attack", "school shooting", "behead"],
+  },
+  {
+    reason: "Illegal activity",
+    patterns: ["sell drugs", "buy drugs", "fake certificate", "fake degree", "gun for sale", "human trafficking", "child porn"],
+  },
+];
+const AUTO_HIDE_REPORT_THRESHOLD = 3;
+const AUTO_HIDE_SEVERE_REASON_THRESHOLD = 2;
+const AUTO_HIDE_SEVERE_REASONS = new Set([
+  "Hate Speech",
+  "Sexual Content",
+  "Violence or Threat",
+  "Illegal Activity",
+]);
+let spotifyTokenCache = { token: "", expiresAt: 0 };
 
 function safeStr(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function asNumber(value, fallback = 0) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function clampNumber(value, { min = 0, max = Number.POSITIVE_INFINITY, fallback = 0 } = {}) {
+  const numeric = asNumber(value, fallback);
+  return Math.min(max, Math.max(min, numeric));
 }
 
 function toTextArray(value) {
@@ -32,6 +93,347 @@ function uniqueStrings(items = []) {
   return [...new Set(items.map((item) => safeStr(item)).filter(Boolean))];
 }
 
+function normalizeModerationText(value = "") {
+  return safeStr(value)
+    .toLowerCase()
+    .replace(/[0@]/g, "o")
+    .replace(/[1!|]/g, "i")
+    .replace(/3/g, "e")
+    .replace(/4/g, "a")
+    .replace(/5/g, "s")
+    .replace(/7/g, "t")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildModerationHaystacks(values = []) {
+  const normalizedValues = values
+    .map((value) => normalizeModerationText(value))
+    .filter(Boolean);
+
+  const source = normalizedValues.join(" ").trim();
+  const collapsed = normalizedValues
+    .map((value) =>
+      value.replace(/\b(?:[a-z0-9]\s+){1,}[a-z0-9]\b/g, (match) =>
+        match.replace(/\s+/g, "")
+      )
+    )
+    .join(" ")
+    .trim();
+
+  return uniqueStrings([source, collapsed]).filter(Boolean);
+}
+
+function scanUnsafeText(values = []) {
+  const haystacks = buildModerationHaystacks(values);
+
+  if (!haystacks.length) {
+    return { blocked: false, matchedTerms: [], reasons: [] };
+  }
+
+  const matchedTerms = [];
+  const reasons = [];
+
+  SOCIAL_TEXT_BLOCK_RULES.forEach((rule) => {
+    const ruleMatches = rule.patterns.filter((pattern) => {
+      const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const regex = new RegExp(`(^|\\s)${escaped}(?=\\s|$)`, "i");
+      return haystacks.some((source) => regex.test(source));
+    });
+    if (!ruleMatches.length) return;
+    reasons.push(rule.reason);
+    matchedTerms.push(...ruleMatches);
+  });
+
+  return {
+    blocked: matchedTerms.length > 0,
+    matchedTerms: uniqueStrings(matchedTerms),
+    reasons: uniqueStrings(reasons),
+  };
+}
+
+function evaluatePostReports(post) {
+  const reports = Array.isArray(post?.reports) ? post.reports : [];
+  const total = reports.length;
+  const severeCount = reports.filter((report) =>
+    AUTO_HIDE_SEVERE_REASONS.has(String(report?.reason || ""))
+  ).length;
+
+  return {
+    total,
+    severeCount,
+    shouldHide:
+      total >= AUTO_HIDE_REPORT_THRESHOLD ||
+      severeCount >= AUTO_HIDE_SEVERE_REASON_THRESHOLD,
+  };
+}
+
+function normalizeMediaModerationPayload(payload = {}) {
+  if (!payload || typeof payload !== "object") return null;
+
+  return {
+    scanned: Boolean(payload?.scanned),
+    blocked: Boolean(payload?.blocked),
+    unsafeScore: clampNumber(payload?.unsafeScore, {
+      min: 0,
+      max: 1,
+      fallback: 0,
+    }),
+    mediaKind: safeStr(payload?.mediaKind || "unknown"),
+    framesScanned: clampNumber(payload?.framesScanned, {
+      min: 0,
+      max: 20,
+      fallback: 0,
+    }),
+    version: safeStr(payload?.version || ""),
+    reasons: uniqueStrings(Array.isArray(payload?.reasons) ? payload.reasons : []),
+  };
+}
+
+function validateMediaModeration(payload, { required = false, label = "media" } = {}) {
+  const moderation = normalizeMediaModerationPayload(payload);
+  if (!moderation) {
+    if (!required) return { moderation: null };
+    return { error: `Safety scan is required before publishing this ${label}.` };
+  }
+
+  if (!moderation.scanned) {
+    return { error: `Safety scan is required before publishing this ${label}.` };
+  }
+
+  if (moderation.blocked || moderation.unsafeScore >= 0.58) {
+    return {
+      error: `This ${label} may contain unsafe visual content and cannot be published.`,
+      reasons: moderation.reasons,
+    };
+  }
+
+  return { moderation };
+}
+
+function shouldDeletePostForReport(post, reason) {
+  const reportReason = safeStr(reason);
+  const mediaModeration = post?.mediaModeration || {};
+  const unsafeScore = Number(mediaModeration?.unsafeScore || 0);
+  const normalizedMediaReasons = uniqueStrings(
+    Array.isArray(mediaModeration?.reasons) ? mediaModeration.reasons.map((item) => normalizeModerationText(item)) : []
+  );
+  const textModeration = scanUnsafeText([
+    post?.headline,
+    post?.content,
+    ...(Array.isArray(post?.tags) ? post.tags : []),
+  ]);
+  const normalizedTextReasons = new Set(
+    (textModeration.reasons || []).map((item) => normalizeModerationText(item))
+  );
+
+  const reasonMatchers = {
+    "Abusive Language": () =>
+      normalizedTextReasons.has("abusive language") || normalizedTextReasons.has("hate speech"),
+    "Hate Speech": () => normalizedTextReasons.has("hate speech"),
+    "Sexual Content": () =>
+      normalizedTextReasons.has("sexual content") ||
+      unsafeScore >= 0.4 ||
+      normalizedMediaReasons.some((item) => item.includes("unsafe") || item.includes("sexual") || item.includes("nud")),
+    "Violence or Threat": () =>
+      normalizedTextReasons.has("violence or threat") ||
+      normalizedMediaReasons.some((item) => item.includes("violence") || item.includes("weapon")),
+    "Illegal Activity": () =>
+      normalizedTextReasons.has("illegal activity") ||
+      normalizedMediaReasons.some((item) => item.includes("illegal") || item.includes("unsafe")),
+    "Spam or Misleading": () => false,
+    Other: () => false,
+  };
+
+  return Boolean(reasonMatchers[reportReason]?.());
+}
+
+function mapNotification(notification) {
+  return {
+    id: String(notification?._id || ""),
+    kind: safeStr(notification?.kind || "social"),
+    title: safeStr(notification?.title || ""),
+    message: safeStr(notification?.message || ""),
+    severity: safeStr(notification?.severity || "info"),
+    createdAt: notification?.createdAt || null,
+    readAt: notification?.readAt || null,
+    actor: {
+      id: String(notification?.actorUser || ""),
+      name: safeStr(notification?.actorName || ""),
+      avatarUrl: safeStr(notification?.actorAvatarUrl || ""),
+    },
+    relatedPostId: String(notification?.relatedPost || ""),
+  };
+}
+
+function mapSocialMessage(message, viewer) {
+  const senderRole = safeStr(message?.senderRole);
+  const viewerRole = safeStr(viewer?.role);
+  const sender =
+    senderRole === "system"
+      ? "system"
+      : senderRole === viewerRole
+        ? "self"
+        : "other";
+
+  return {
+    id: String(message?._id || ""),
+    sender,
+    type: safeStr(message?.type || "text"),
+    text: safeStr(message?.text || ""),
+    fileName: safeStr(message?.fileName || ""),
+    fileSize: safeStr(message?.fileSize || ""),
+    fileUrl: safeStr(message?.fileUrl || ""),
+    mimeType: safeStr(message?.mimeType || ""),
+    createdAt: message?.createdAt || null,
+  };
+}
+
+async function mapSocialThreadsForViewer(threads = [], viewer) {
+  const participantIds = uniqueStrings(
+    threads.map((thread) => {
+      const isStudentViewer = String(thread?.student?._id || thread?.student || "") === String(viewer?._id || "");
+      return String(isStudentViewer ? thread?.company?._id || thread?.company || "" : thread?.student?._id || thread?.student || "");
+    })
+  );
+
+  const [companyMap, followRows] = await Promise.all([
+    getCompanyMap(participantIds),
+    SocialFollow.find({
+      follower: viewer._id,
+      following: { $in: participantIds.map((id) => new mongoose.Types.ObjectId(id)) },
+    })
+      .select("following")
+      .lean(),
+  ]);
+
+  const followedSet = new Set(followRows.map((row) => String(row.following)));
+
+  return threads.map((thread) => {
+    const isStudentViewer = String(thread?.student?._id || thread?.student || "") === String(viewer?._id || "");
+    const otherUser = isStudentViewer ? thread.company : thread.student;
+    const otherId = String(otherUser?._id || otherUser || "");
+    const actor = buildActorProfile(otherUser, companyMap.get(otherId));
+    const pending = safeStr(thread?.socialState || "accepted") === "pending";
+    const requestedByViewer = String(thread?.socialRequestedBy || "") === String(viewer?._id || "");
+
+    return {
+      id: String(thread?._id || ""),
+      type: pending ? (requestedByViewer ? "request_sent" : "request_received") : "conversation",
+      unread: isStudentViewer ? Number(thread?.studentUnread || 0) : Number(thread?.companyUnread || 0),
+      updatedAt: thread?.lastMessageAt || thread?.updatedAt || null,
+      preview: safeStr(thread?.lastMessageText || ""),
+      participant: {
+        ...actor,
+        isFollowed: followedSet.has(otherId),
+      },
+      socialState: pending ? "pending" : "accepted",
+      canReply: !pending,
+      canAccept: pending && !requestedByViewer,
+      requestedByViewer,
+    };
+  });
+}
+
+async function getSocialMessageThreadForViewer(threadId, viewer) {
+  if (!mongoose.Types.ObjectId.isValid(threadId)) return null;
+
+  return MessageThread.findOne({
+    _id: new mongoose.Types.ObjectId(threadId),
+    source: "social",
+    $or: [{ student: viewer._id }, { company: viewer._id }],
+  })
+    .populate("student")
+    .populate("company")
+    .lean();
+}
+
+function buildSocialThreadPairQuery(firstUserId, secondUserId) {
+  return {
+    source: "social",
+    $or: [
+      { student: firstUserId, company: secondUserId },
+      { student: secondUserId, company: firstUserId },
+    ],
+  };
+}
+
+function buildSocialThreadParticipants(viewer, recipient) {
+  const viewerRole = String(viewer?.role || "").toLowerCase();
+  const recipientRole = String(recipient?.role || "").toLowerCase();
+
+  if (viewerRole === "student" && recipientRole === "company") {
+    return { student: viewer._id, company: recipient._id };
+  }
+
+  if (viewerRole === "company" && recipientRole === "student") {
+    return { student: recipient._id, company: viewer._id };
+  }
+
+  return null;
+}
+
+async function findExistingSocialThreadBetweenUsers(firstUserId, secondUserId) {
+  return MessageThread.findOne(buildSocialThreadPairQuery(firstUserId, secondUserId))
+    .populate("student")
+    .populate("company")
+    .lean();
+}
+
+async function resolveSocialRecipient(recipientId) {
+  const directUser = await User.findById(recipientId).lean();
+  if (
+    directUser &&
+    directUser.isActive &&
+    ["student", "company"].includes(String(directUser.role || "").toLowerCase())
+  ) {
+    return directUser;
+  }
+
+  if (!mongoose.Types.ObjectId.isValid(recipientId)) return null;
+
+  const company = await Company.findById(recipientId).lean();
+  if (!company?.ownerUserId) return null;
+
+  const companyOwner = await User.findById(company.ownerUserId).lean();
+  if (
+    companyOwner &&
+    companyOwner.isActive &&
+    String(companyOwner.role || "").toLowerCase() === "company"
+  ) {
+    return companyOwner;
+  }
+
+  return null;
+}
+
+async function createExploreNotification({
+  userId,
+  actorUser = null,
+  actorName = "",
+  actorAvatarUrl = "",
+  kind = "social",
+  title = "",
+  message = "",
+  severity = "info",
+  relatedPost = null,
+} = {}) {
+  if (!mongoose.Types.ObjectId.isValid(String(userId || ""))) return null;
+
+  return SocialNotification.create({
+    user: userId,
+    actorUser: actorUser && mongoose.Types.ObjectId.isValid(String(actorUser)) ? actorUser : null,
+    actorName: safeStr(actorName),
+    actorAvatarUrl: safeStr(actorAvatarUrl),
+    kind,
+    title,
+    message,
+    severity,
+    relatedPost: relatedPost && mongoose.Types.ObjectId.isValid(String(relatedPost)) ? relatedPost : null,
+  });
+}
+
 function capitalize(label = "") {
   const value = safeStr(label);
   return value ? `${value.charAt(0).toUpperCase()}${value.slice(1)}` : "";
@@ -46,6 +448,278 @@ function extractTags(content = "", extra = []) {
     match = regex.exec(String(content || ""));
   }
   return uniqueStrings([...matches, ...toTextArray(extra)]).slice(0, 8);
+}
+
+function mapJamendoTrack(track = {}) {
+  const id = String(track?.id ?? "").trim();
+  const title = safeStr(track?.name || track?.title || "Untitled");
+  const artist = safeStr(track?.artist_name || track?.artist || "Unknown artist");
+  const album = safeStr(track?.album_name || track?.album || "");
+  const coverUrl = safeStr(track?.image || track?.album_image || track?.album_cover || "");
+  const audioUrl = safeStr(track?.audio || track?.audiodownload || "");
+  const durationSeconds = Math.max(0, Math.floor(asNumber(track?.duration, 0)));
+
+  return {
+    id,
+    title,
+    artist,
+    album,
+    coverUrl,
+    audioUrl,
+    durationSeconds,
+    provider: "jamendo",
+  };
+}
+
+function mapSpotifyTrack(track = {}) {
+  const id = String(track?.id ?? "").trim();
+  const title = safeStr(track?.name || "Untitled");
+  const artist = Array.isArray(track?.artists)
+    ? track.artists.map((item) => safeStr(item?.name)).filter(Boolean).join(", ")
+    : "";
+  const album = safeStr(track?.album?.name || "");
+  const coverUrl = Array.isArray(track?.album?.images) ? safeStr(track.album.images?.[0]?.url) : "";
+  const audioUrl = safeStr(track?.preview_url);
+  const durationSeconds = Math.max(0, Math.floor(asNumber(track?.duration_ms, 0) / 1000));
+
+  return {
+    id,
+    title,
+    artist: artist || "Unknown artist",
+    album,
+    coverUrl,
+    audioUrl,
+    durationSeconds,
+    provider: "spotify",
+  };
+}
+
+function mapITunesTrack(track = {}) {
+  const id = String(track?.trackId ?? "").trim();
+  const title = safeStr(track?.trackName || "Untitled");
+  const artist = safeStr(track?.artistName || "Unknown artist");
+  const album = safeStr(track?.collectionName || "");
+  const coverSmall = safeStr(track?.artworkUrl100 || track?.artworkUrl60 || track?.artworkUrl30 || "");
+  const coverUrl = coverSmall ? coverSmall.replace(/([0-9]+x[0-9]+)bb\./i, "512x512bb.") : "";
+  const audioUrl = safeStr(track?.previewUrl);
+  const durationSeconds = Math.max(0, Math.floor(asNumber(track?.trackTimeMillis, 0) / 1000));
+
+  return {
+    id,
+    title,
+    artist,
+    album,
+    coverUrl,
+    audioUrl,
+    durationSeconds,
+    provider: "itunes",
+  };
+}
+
+function withTrackKey(track = {}) {
+  const id = safeStr(track?.id || track?.trackId);
+  const provider = safeStr(track?.provider || "unknown");
+  const fallback = `${safeStr(track?.title)}|${safeStr(track?.artist)}|${safeStr(track?.audioUrl)}`;
+  return `${provider}:${id || fallback}`;
+}
+
+function uniqTrackResults(items = []) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = withTrackKey(item);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function hasSpotifyCredentials() {
+  return Boolean(SPOTIFY_CLIENT_ID && SPOTIFY_CLIENT_SECRET);
+}
+
+async function getSpotifyAccessToken() {
+  if (!hasSpotifyCredentials()) {
+    throw new Error("Spotify credentials are not configured.");
+  }
+
+  if (spotifyTokenCache.token && Date.now() < spotifyTokenCache.expiresAt - 30 * 1000) {
+    return spotifyTokenCache.token;
+  }
+
+  const auth = Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString("base64");
+  const response = await fetch(SPOTIFY_TOKEN_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${auth}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({ grant_type: "client_credentials" }).toString(),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Spotify token request failed (${response.status}).`);
+  }
+
+  const payload = await response.json();
+  const token = safeStr(payload?.access_token);
+  const expiresIn = Math.max(60, Number(payload?.expires_in || 3600));
+  if (!token) {
+    throw new Error("Spotify token response was empty.");
+  }
+
+  spotifyTokenCache = {
+    token,
+    expiresAt: Date.now() + expiresIn * 1000,
+  };
+
+  return token;
+}
+
+async function fetchSpotifyTracks({ q, section, limit, offset }) {
+  const token = await getSpotifyAccessToken();
+  const query = safeStr(q) || (section === "trending" ? "trending india songs hits" : DEFAULT_INDIAN_HITS_QUERY);
+  const params = new URLSearchParams({
+    q: query,
+    type: "track",
+    market: "IN",
+    limit: String(limit),
+    offset: String(offset),
+  });
+
+  const response = await fetch(`${SPOTIFY_API_BASE_URL}/search?${params.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw new Error(`Spotify search failed (${response.status}).`);
+  }
+
+  const payload = await response.json();
+  const items = Array.isArray(payload?.tracks?.items) ? payload.tracks.items : [];
+  const total = Math.max(0, Number(payload?.tracks?.total || 0));
+  const tracks = items.map(mapSpotifyTrack).filter((track) => track.id && track.audioUrl);
+
+  return {
+    source: "spotify",
+    tracks,
+    hasMore: offset + items.length < total,
+    nextOffset: offset + items.length,
+  };
+}
+
+async function fetchJamendoTracks({ q, section, limit, offset }) {
+  const params = new URLSearchParams();
+  params.set("client_id", JAMENDO_CLIENT_ID);
+  params.set("format", "json");
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
+  params.set("audioformat", "mp32");
+  params.set("include", "musicinfo");
+  params.set("order", section === "trending" ? "popularity_total" : "popularity_total");
+  if (q) {
+    params.set("search", q);
+  }
+
+  const response = await fetch(`${JAMENDO_BASE_URL}/tracks/?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`Jamendo search failed (${response.status}).`);
+  }
+
+  const payload = await response.json();
+  const status = safeStr(payload?.headers?.status).toLowerCase();
+  if (status && status !== "success") {
+    throw new Error(safeStr(payload?.headers?.error_message) || "Jamendo returned an error.");
+  }
+
+  const tracks = Array.isArray(payload?.results)
+    ? payload.results.map(mapJamendoTrack).filter((track) => track.id && track.audioUrl)
+    : [];
+
+  return {
+    source: "jamendo",
+    tracks,
+    hasMore: tracks.length >= limit,
+    nextOffset: offset + tracks.length,
+  };
+}
+
+async function fetchITunesTracks({ q, section, limit, offset }) {
+  const term = safeStr(q) || (section === "trending" ? "trending india songs" : DEFAULT_INDIAN_HITS_QUERY);
+  const fetchLimit = Math.max(limit, Math.min(200, offset + limit));
+  const params = new URLSearchParams({
+    term,
+    country: "IN",
+    media: "music",
+    entity: "song",
+    limit: String(fetchLimit),
+  });
+
+  const response = await fetch(`${ITUNES_SEARCH_URL}?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`iTunes search failed (${response.status}).`);
+  }
+
+  const payload = await response.json();
+  const allTracks = Array.isArray(payload?.results)
+    ? payload.results.map(mapITunesTrack).filter((track) => track.id && track.audioUrl)
+    : [];
+  const tracks = allTracks.slice(offset, offset + limit);
+
+  return {
+    source: "itunes",
+    tracks,
+    hasMore: allTracks.length > offset + tracks.length,
+    nextOffset: offset + tracks.length,
+  };
+}
+
+function normalizeStoryMusicPayload(payload = {}) {
+  const audioUrl = safeStr(payload?.audioUrl);
+  if (!audioUrl) return null;
+
+  const durationSeconds = Math.max(3, Math.floor(asNumber(payload?.durationSeconds, 15)));
+  const startSeconds = clampNumber(payload?.startSeconds, {
+    min: 0,
+    max: Math.max(0, durationSeconds - 3),
+    fallback: 0,
+  });
+  const maxClip = Math.max(3, durationSeconds - startSeconds);
+  const clipDurationSeconds = clampNumber(payload?.clipDurationSeconds, {
+    min: 3,
+    max: maxClip,
+    fallback: Math.min(15, maxClip),
+  });
+
+  return {
+    provider: safeStr(payload?.provider || "jamendo") || "jamendo",
+    trackId: safeStr(payload?.trackId || payload?.id),
+    title: safeStr(payload?.title || payload?.name),
+    artist: safeStr(payload?.artist),
+    album: safeStr(payload?.album),
+    coverUrl: safeStr(payload?.coverUrl),
+    audioUrl,
+    durationSeconds,
+    startSeconds,
+    clipDurationSeconds,
+  };
+}
+
+function resolveStoryExpiry(inputDateValue) {
+  const DEFAULT_24H = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const value = safeStr(inputDateValue);
+  if (!value) {
+    return { expiresAt: DEFAULT_24H, usingCustomDate: false };
+  }
+
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) {
+    return { error: "Invalid story expiry date." };
+  }
+
+  if (parsed.getTime() <= Date.now() + 60 * 1000) {
+    return { error: "Story expiry must be at least 1 minute in the future." };
+  }
+
+  return { expiresAt: parsed, usingCustomDate: true };
 }
 
 function buildStudentHeadline(user) {
@@ -167,6 +841,9 @@ function mapPost(post, viewerId, followSet, followerMap) {
   const likedByViewer = (post?.likedBy || []).some(
     (item) => String(item) === String(viewerId || "")
   );
+  const savedByViewer = (post?.savedBy || []).some(
+    (item) => String(item) === String(viewerId || "")
+  );
 
   return {
     id: String(post?._id || ""),
@@ -184,6 +861,7 @@ function mapPost(post, viewerId, followSet, followerMap) {
     tags: Array.isArray(post?.tags) ? post.tags : [],
     metrics: {
       likes: Array.isArray(post?.likedBy) ? post.likedBy.length : 0,
+      saves: Array.isArray(post?.savedBy) ? post.savedBy.length : 0,
       comments: Array.isArray(post?.comments) ? post.comments.length : 0,
       shares: Number(post?.shareCount || 0),
       impressions: Number(post?.impressions || 0),
@@ -205,13 +883,148 @@ function mapPost(post, viewerId, followSet, followerMap) {
     },
     viewerState: {
       liked: likedByViewer,
+      saved: savedByViewer,
       canLike: authorId !== String(viewerId || ""),
       canComment: true,
+      canReport: authorId !== String(viewerId || ""),
     },
     comments: (post?.comments || [])
       .slice(-4)
       .map((comment) => mapComment(comment, viewerId)),
+    moderation: {
+      status: post?.moderationStatus || "visible",
+      reports: Array.isArray(post?.reports) ? post.reports.length : 0,
+    },
   };
+}
+
+function mapStory(story, viewerId, followSet) {
+  const authorId = String(story?.authorUser || "");
+  const seenByViewer = (story?.seenBy || []).some(
+    (item) => String(item) === String(viewerId || "")
+  );
+  const musicPayload = normalizeStoryMusicPayload(story?.music || {});
+
+  return {
+    id: String(story?._id || ""),
+    caption: story?.caption || "",
+    createdAt: story?.createdAt || null,
+    expiresAt: story?.expiresAt || null,
+    media: {
+      url: story?.mediaUrl || "",
+      publicId: story?.mediaPublicId || "",
+      resourceType: story?.mediaResourceType || "",
+      mimeType: story?.mimeType || "",
+    },
+    author: {
+      id: authorId,
+      role: story?.authorRole || "student",
+      badge: capitalize(story?.authorRole || "student"),
+      name: story?.authorName || "User",
+      headline: story?.authorHeadline || "",
+      avatarUrl: story?.authorAvatarUrl || "",
+      isSelf: authorId === String(viewerId || ""),
+      isFollowed: followSet.has(authorId),
+    },
+    music: musicPayload,
+    viewerState: {
+      seen: seenByViewer || authorId === String(viewerId || ""),
+    },
+  };
+}
+
+function buildStoryGroups(stories = [], viewerId, followSet) {
+  const grouped = new Map();
+
+  stories.forEach((story) => {
+    const mappedStory = mapStory(story, viewerId, followSet);
+    const authorId = mappedStory.author.id;
+    if (!authorId) return;
+
+    if (!grouped.has(authorId)) {
+      grouped.set(authorId, {
+        id: authorId,
+        author: mappedStory.author,
+        items: [],
+        latestCreatedAt: mappedStory.createdAt,
+      });
+    }
+
+    const group = grouped.get(authorId);
+    group.items.push(mappedStory);
+
+    if (
+      !group.latestCreatedAt ||
+      new Date(mappedStory.createdAt || 0).getTime() >
+        new Date(group.latestCreatedAt || 0).getTime()
+    ) {
+      group.latestCreatedAt = mappedStory.createdAt;
+    }
+  });
+
+  return [...grouped.values()]
+    .map((group) => {
+      const items = [...group.items].sort(
+        (a, b) =>
+          new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+      );
+      const latestItem = items[items.length - 1] || null;
+      const hasUnseen = items.some((item) => !item.viewerState?.seen);
+      return {
+        ...group,
+        items,
+        preview: latestItem?.media || null,
+        metrics: {
+          count: items.length,
+        },
+        viewerState: {
+          hasUnseen,
+          seen: !hasUnseen,
+        },
+      };
+    })
+    .sort((a, b) => {
+      if (a.author?.isSelf !== b.author?.isSelf) {
+        return a.author?.isSelf ? -1 : 1;
+      }
+      if (a.viewerState?.hasUnseen !== b.viewerState?.hasUnseen) {
+        return a.viewerState?.hasUnseen ? -1 : 1;
+      }
+      return (
+        new Date(b.latestCreatedAt || 0).getTime() -
+        new Date(a.latestCreatedAt || 0).getTime()
+      );
+    });
+}
+
+async function canViewerAccessPost(post, viewer) {
+  if (!post || !viewer?._id) return false;
+  if (["hidden", "deleted"].includes(String(post?.moderationStatus || ""))) return false;
+
+  const visibility = String(post?.visibility || "everyone");
+  if (visibility === "everyone") return true;
+  if (String(post?.authorUser || "") === String(viewer._id || "")) return true;
+
+  const follow = await SocialFollow.exists({
+    follower: viewer._id,
+    following: post.authorUser,
+  });
+
+  return Boolean(follow);
+}
+
+async function canViewerAccessStory(story, viewer) {
+  if (!story || !viewer?._id) return false;
+  if (new Date(story?.expiresAt || 0).getTime() <= Date.now()) return false;
+  if (String(story?.moderationStatus || "visible") !== "visible") return false;
+  if (String(story?.authorUser || "") === String(viewer._id || "")) return true;
+
+  const follow = await SocialFollow.exists({
+    follower: viewer._id,
+    following: story.authorUser,
+  });
+
+  return Boolean(follow);
 }
 
 async function getCompanyMap(userIds = []) {
@@ -329,14 +1142,142 @@ function buildTrendingTags(posts = []) {
     { tag: "#CampusWins", count: 0 },
     { tag: "#HiringNow", count: 0 },
     { tag: "#PortfolioDrop", count: 0 },
-    { tag: "#CareerPulse", count: 0 },
+    { tag: "#Explore", count: 0 },
   ];
 }
 
-export async function getCareerPulseFeed(req, res, next) {
+export async function searchCareerPulseMusic(req, res, next) {
+  try {
+    const q = safeStr(req.query?.q);
+    const section = safeStr(req.query?.section).toLowerCase() || "for-you";
+    const source = safeStr(req.query?.source).toLowerCase() || "auto";
+    const limit = Math.max(8, Math.min(40, Number(req.query?.limit || 24)));
+    const offset = Math.max(0, Number(req.query?.offset || 0));
+
+    const attemptedProviders = [];
+    const providerErrors = [];
+    let spotifyResult = null;
+    let itunesResult = null;
+    let jamendoResult = null;
+
+    const shouldTrySpotify = source === "spotify" || source === "auto";
+    const shouldTryITunes = source === "itunes" || source === "auto" || source === "spotify";
+    const shouldTryJamendo = source === "jamendo" || source === "auto";
+
+    if (shouldTrySpotify) {
+      attemptedProviders.push("spotify");
+      try {
+        spotifyResult = await fetchSpotifyTracks({ q, section, limit, offset });
+      } catch (error) {
+        providerErrors.push(`spotify: ${error?.message || "failed"}`);
+      }
+    }
+
+    if (shouldTryJamendo && (!spotifyResult || spotifyResult.tracks.length < Math.min(6, limit))) {
+      attemptedProviders.push("jamendo");
+      try {
+        jamendoResult = await fetchJamendoTracks({ q, section, limit, offset });
+      } catch (error) {
+        providerErrors.push(`jamendo: ${error?.message || "failed"}`);
+      }
+    }
+
+    if (shouldTryITunes && (!spotifyResult || spotifyResult.tracks.length < Math.min(6, limit))) {
+      attemptedProviders.push("itunes");
+      try {
+        itunesResult = await fetchITunesTracks({ q, section, limit, offset });
+      } catch (error) {
+        providerErrors.push(`itunes: ${error?.message || "failed"}`);
+      }
+    }
+
+    let mergedTracks = uniqTrackResults([
+      ...(spotifyResult?.tracks || []),
+      ...(itunesResult?.tracks || []),
+      ...(jamendoResult?.tracks || []),
+    ]).slice(0, limit);
+
+    if (!mergedTracks.length && source === "auto" && q) {
+      if (shouldTrySpotify) {
+        try {
+          spotifyResult = await fetchSpotifyTracks({ q: "", section, limit, offset: 0 });
+        } catch (error) {
+          providerErrors.push(`spotify-fallback: ${error?.message || "failed"}`);
+        }
+      }
+
+      if (shouldTryJamendo) {
+        try {
+          jamendoResult = await fetchJamendoTracks({ q: "", section, limit, offset: 0 });
+        } catch (error) {
+          providerErrors.push(`jamendo-fallback: ${error?.message || "failed"}`);
+        }
+      }
+
+      if (shouldTryITunes) {
+        try {
+          itunesResult = await fetchITunesTracks({ q: "", section, limit, offset: 0 });
+        } catch (error) {
+          providerErrors.push(`itunes-fallback: ${error?.message || "failed"}`);
+        }
+      }
+
+      mergedTracks = uniqTrackResults([
+        ...(spotifyResult?.tracks || []),
+        ...(itunesResult?.tracks || []),
+        ...(jamendoResult?.tracks || []),
+      ]).slice(0, limit);
+    }
+
+    if (!mergedTracks.length) {
+      return res.status(200).json({
+        source: attemptedProviders.join("+") || "none",
+        tracks: [],
+        hasMore: false,
+        nextOffset: offset,
+        message:
+          "No songs found for this search with playable preview audio. Try another keyword.",
+        providerErrors,
+      });
+    }
+
+    return res.json({
+      source:
+        spotifyResult?.tracks?.length && itunesResult?.tracks?.length && jamendoResult?.tracks?.length
+          ? "spotify+itunes+jamendo"
+          : spotifyResult?.tracks?.length && itunesResult?.tracks?.length
+            ? "spotify+itunes"
+            : spotifyResult?.tracks?.length && jamendoResult?.tracks?.length
+              ? "spotify+jamendo"
+              : itunesResult?.tracks?.length && jamendoResult?.tracks?.length
+                ? "itunes+jamendo"
+                : spotifyResult?.tracks?.length
+                  ? "spotify"
+                  : itunesResult?.tracks?.length
+                    ? "itunes"
+                    : "jamendo",
+      tracks: mergedTracks,
+      hasMore: Boolean(
+        (spotifyResult && spotifyResult.hasMore) ||
+          (itunesResult && itunesResult.hasMore) ||
+          (jamendoResult && jamendoResult.hasMore),
+      ),
+      nextOffset: Math.max(
+        Number(spotifyResult?.nextOffset || offset),
+        Number(itunesResult?.nextOffset || offset),
+        Number(jamendoResult?.nextOffset || offset),
+      ),
+      providerErrors,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getCareerPulseStories(req, res, next) {
   try {
     const viewer = req.user;
-    const limit = Math.max(6, Math.min(24, Number(req.query?.limit || 12)));
+    const now = new Date();
 
     const followedRows = await SocialFollow.find({ follower: viewer._id })
       .select("following")
@@ -348,29 +1289,221 @@ export async function getCareerPulseFeed(req, res, next) {
       ...[...followedIds].map((id) => new mongoose.Types.ObjectId(id)),
     ];
 
-    const [viewerProfile, posts, suggestions, viewerFollowerCount, viewerFollowingCount, viewerPostCount] =
+    const stories = await SocialStory.find({
+      authorUser: { $in: visibleAuthorIds },
+      expiresAt: { $gt: now },
+      moderationStatus: { $in: ["visible", null] },
+    })
+      .sort({ createdAt: -1 })
+      .limit(120)
+      .lean();
+
+    return res.json({
+      groups: buildStoryGroups(stories, viewer._id, followedIds),
+      ttlHours: 24,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function createCareerPulseStory(req, res, next) {
+  try {
+    const viewer = req.user;
+    const mediaUrl = safeStr(req.body?.mediaUrl);
+    const mimeType = safeStr(req.body?.mimeType).toLowerCase();
+    const resourceType = safeStr(req.body?.mediaResourceType).toLowerCase();
+    const caption = safeStr(req.body?.caption);
+    const rawMusic = req.body?.music && typeof req.body.music === "object" ? req.body.music : null;
+    const textModeration = scanUnsafeText([caption]);
+    const mediaModerationCheck = validateMediaModeration(req.body?.mediaModeration, {
+      required: true,
+      label: "story",
+    });
+
+    if (!mediaUrl) {
+      return res.status(400).json({ message: "Upload an image or video before publishing a story." });
+    }
+    if (mediaModerationCheck.error) {
+      await createExploreNotification({
+        userId: viewer._id,
+        kind: "moderation_warning",
+        title: "Story not shared",
+        message: mediaModerationCheck.error,
+        severity: "warning",
+      });
+      return res.status(400).json({
+        message: mediaModerationCheck.error,
+        reasons: mediaModerationCheck.reasons || [],
+      });
+    }
+    if (textModeration.blocked) {
+      await createExploreNotification({
+        userId: viewer._id,
+        kind: "moderation_warning",
+        title: "Story blocked",
+        message: "Your story caption contains abusive, sexual, illegal, or unsafe language. Edit it before posting.",
+        severity: "warning",
+      });
+      return res.status(400).json({
+        message: "Your story caption contains abusive, unsafe, or policy-violating language. Please edit it and try again.",
+        reasons: textModeration.reasons,
+      });
+    }
+
+    const isAllowedMedia =
+      mimeType.startsWith("image/") ||
+      mimeType.startsWith("video/") ||
+      resourceType === "image" ||
+      resourceType === "video";
+
+    if (!isAllowedMedia) {
+      return res.status(400).json({ message: "Stories currently support only image and video uploads." });
+    }
+
+    const isImageStory = mimeType.startsWith("image/") || resourceType === "image";
+    const normalizedMusic = rawMusic ? normalizeStoryMusicPayload(rawMusic) : null;
+    if (rawMusic && !normalizedMusic) {
+      return res.status(400).json({ message: "Selected story music is invalid. Please pick a valid song." });
+    }
+    if (normalizedMusic && !isImageStory) {
+      return res.status(400).json({ message: "Music tracks can be attached only to image stories." });
+    }
+
+    const expiry = resolveStoryExpiry(req.body?.expiresAt);
+    if (expiry.error) {
+      return res.status(400).json({ message: expiry.error });
+    }
+
+    const actor = await resolveViewerContext(viewer);
+    const story = await SocialStory.create({
+      authorUser: viewer._id,
+      authorRole: viewer.role,
+      authorName: actor.name,
+      authorHeadline: actor.headline,
+      authorAvatarUrl: actor.avatarUrl,
+      caption,
+      mediaUrl,
+      mediaPublicId: safeStr(req.body?.mediaPublicId),
+      mediaResourceType: safeStr(req.body?.mediaResourceType),
+      mimeType: safeStr(req.body?.mimeType),
+      music: normalizedMusic || undefined,
+      moderationStatus: "visible",
+      moderationReasons: [],
+      expiresAt: expiry.expiresAt,
+    });
+
+    return res.status(201).json({
+      message: "Story shared to Explore.",
+      story: mapStory(story.toObject(), viewer._id, new Set()),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function markCareerPulseStorySeen(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { storyId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(storyId)) {
+      return res.status(400).json({ message: "Invalid story id." });
+    }
+
+    const story = await SocialStory.findById(storyId);
+    if (!story || !(await canViewerAccessStory(story, viewer))) {
+      return res.status(404).json({ message: "Story not found." });
+    }
+
+    if (String(story.authorUser || "") !== String(viewer._id || "")) {
+      const alreadySeen = (story.seenBy || []).some(
+        (item) => String(item) === String(viewer._id)
+      );
+      if (!alreadySeen) {
+        story.seenBy.push(viewer._id);
+        await story.save();
+      }
+    }
+
+    return res.json({
+      storyId: String(story._id),
+      seen: true,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getCareerPulseFeed(req, res, next) {
+  try {
+    const viewer = req.user;
+    const limit = Math.max(4, Math.min(24, Number(req.query?.limit || 8)));
+    const offset = Math.max(0, Number(req.query?.offset || 0));
+    const mediaOnly = String(req.query?.mediaOnly || "").toLowerCase() === "true";
+    const savedOnly = String(req.query?.savedOnly || "").toLowerCase() === "true";
+    const focusPostId = safeStr(req.query?.focusPostId);
+
+    const followedRows = await SocialFollow.find({ follower: viewer._id })
+      .select("following")
+      .lean();
+    const followedIds = new Set(followedRows.map((row) => String(row.following)));
+
+    const visibleAuthorIds = [
+      new mongoose.Types.ObjectId(viewer._id),
+      ...[...followedIds].map((id) => new mongoose.Types.ObjectId(id)),
+    ];
+
+    const visibilityQuery = {
+      $or: [
+        { visibility: "everyone" },
+        { authorUser: viewer._id },
+        { visibility: "followers", authorUser: { $in: visibleAuthorIds } },
+      ],
+    };
+
+    const postQuery = {
+      moderationStatus: { $in: ["visible", null] },
+      hiddenForUsers: { $ne: viewer._id },
+      ...visibilityQuery,
+      ...(mediaOnly ? { type: { $in: ["image", "banner", "video", "reel"] } } : {}),
+      ...(savedOnly ? { savedBy: viewer._id } : {}),
+    };
+
+    const [viewerProfile, posts, suggestions, viewerFollowerCount, viewerFollowingCount, viewerPostCount, focusPost, unreadNotifications] =
       await Promise.all([
         resolveViewerContext(viewer),
-        SocialPost.find({
-          $or: [
-            { visibility: "everyone" },
-            { authorUser: viewer._id },
-            { visibility: "followers", authorUser: { $in: visibleAuthorIds } },
-          ],
-        })
+        SocialPost.find(postQuery)
           .sort({ createdAt: -1 })
-          .limit(limit)
+          .skip(offset)
+          .limit(limit + 1)
           .lean(),
         buildSuggestionCards(viewer, followedIds),
         SocialFollow.countDocuments({ following: viewer._id }),
         SocialFollow.countDocuments({ follower: viewer._id }),
         SocialPost.countDocuments({ authorUser: viewer._id }),
+        focusPostId && mongoose.Types.ObjectId.isValid(focusPostId)
+          ? SocialPost.findOne({
+              ...postQuery,
+              _id: new mongoose.Types.ObjectId(focusPostId),
+            }).lean()
+          : null,
+        SocialNotification.countDocuments({ user: viewer._id, readAt: null }),
       ]);
 
-    const postAuthorIds = uniqueStrings(posts.map((post) => String(post.authorUser)));
+    const hasMore = posts.length > limit;
+    const initialVisiblePosts = hasMore ? posts.slice(0, limit) : posts;
+    const shouldInjectFocusPost =
+      Boolean(focusPost?._id) &&
+      !initialVisiblePosts.some((post) => String(post?._id) === String(focusPost?._id));
+    const visiblePosts = shouldInjectFocusPost
+      ? [focusPost, ...initialVisiblePosts].slice(0, limit)
+      : initialVisiblePosts;
+
+    const postAuthorIds = uniqueStrings(visiblePosts.map((post) => String(post.authorUser)));
     const followerMap = await getFollowerMap(postAuthorIds);
 
-    const mappedPosts = posts.map((post) =>
+    const mappedPosts = visiblePosts.map((post) =>
       mapPost(
         {
           ...post,
@@ -388,15 +1521,59 @@ export async function getCareerPulseFeed(req, res, next) {
         followers: viewerFollowerCount,
         following: viewerFollowingCount,
         posts: viewerPostCount,
+        notificationsUnread: unreadNotifications,
       },
       insights: {
-        title: "Career Pulse",
+        title: savedOnly ? "Saved" : "Explore",
         subtitle:
-          "A professional social space for student creators and hiring teams to post, follow, interact, and connect.",
+          savedOnly
+            ? "Everything you bookmarked in Explore, ready to reopen whenever you want."
+            : "A professional social space for student creators and hiring teams to post, follow, interact, and connect.",
       },
       suggestions,
       trending: buildTrendingTags(posts),
       posts: mappedPosts,
+      hasMore,
+      nextOffset: hasMore ? offset + mappedPosts.length - (shouldInjectFocusPost ? 1 : 0) : null,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getCareerPulseComments(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { postId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(postId)) {
+      return res.status(400).json({ message: "Invalid post id." });
+    }
+
+    const post = await SocialPost.findById(postId)
+      .select("authorUser visibility comments")
+      .lean();
+
+    if (!post || !(await canViewerAccessPost(post, viewer))) {
+      return res.status(404).json({ message: "Post not found." });
+    }
+
+    const limit = Math.max(10, Math.min(100, Number(req.query?.limit || 40)));
+    const offset = Math.max(0, Number(req.query?.offset || 0));
+    const allComments = Array.isArray(post?.comments) ? post.comments : [];
+    const total = allComments.length;
+    const end = Math.max(0, total - offset);
+    const start = Math.max(0, end - limit);
+    const comments = allComments
+      .slice(start, end)
+      .map((comment) => mapComment(comment, viewer._id));
+
+    return res.json({
+      postId: String(post._id || postId),
+      comments,
+      total,
+      hasMore: start > 0,
+      nextOffset: start > 0 ? offset + comments.length : null,
     });
   } catch (error) {
     next(error);
@@ -410,9 +1587,43 @@ export async function createCareerPulsePost(req, res, next) {
     const headline = safeStr(req.body?.headline);
     const content = safeStr(req.body?.content);
     const mediaUrl = safeStr(req.body?.mediaUrl);
+    const textModeration = scanUnsafeText([headline, content, ...toTextArray(req.body?.tags)]);
+    const requiresMediaSafety = Boolean(
+      mediaUrl || ["image", "banner", "video", "reel"].includes(type)
+    );
+    const mediaModerationCheck = validateMediaModeration(req.body?.mediaModeration, {
+      required: requiresMediaSafety,
+      label: "post",
+    });
 
     if (!content && !mediaUrl) {
       return res.status(400).json({ message: "Write something or attach media before posting." });
+    }
+    if (mediaModerationCheck.error) {
+      await createExploreNotification({
+        userId: viewer._id,
+        kind: "moderation_warning",
+        title: "Post not published",
+        message: mediaModerationCheck.error,
+        severity: "warning",
+      });
+      return res.status(400).json({
+        message: mediaModerationCheck.error,
+        reasons: mediaModerationCheck.reasons || [],
+      });
+    }
+    if (textModeration.blocked) {
+      await createExploreNotification({
+        userId: viewer._id,
+        kind: "moderation_warning",
+        title: "Post blocked",
+        message: "Your post contains abusive, sexual, illegal, or unsafe language. Edit it before publishing.",
+        severity: "warning",
+      });
+      return res.status(400).json({
+        message: "Your post contains abusive, unsafe, or policy-violating language. Please edit it and try again.",
+        reasons: textModeration.reasons,
+      });
     }
 
     const allowedTypes = new Set(["text", "image", "banner", "video", "reel", "document"]);
@@ -440,12 +1651,15 @@ export async function createCareerPulsePost(req, res, next) {
       mimeType: safeStr(req.body?.mimeType),
       visibility: safeStr(req.body?.visibility || "everyone") === "followers" ? "followers" : "everyone",
       tags: extractTags(content, req.body?.tags),
+      moderationStatus: "visible",
+      moderationReasons: [],
+      mediaModeration: mediaModerationCheck.moderation || undefined,
     });
 
     const followerMap = await getFollowerMap([String(viewer._id)]);
 
     return res.status(201).json({
-      message: "Post published to Career Pulse.",
+      message: "Post published to Explore.",
       post: mapPost(
         { ...post.toObject(), viewerRole: viewer.role },
         viewer._id,
@@ -487,6 +1701,41 @@ export async function toggleCareerPulseLike(req, res, next) {
     return res.json({
       liked,
       likes: post.likedBy.length,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function toggleCareerPulseSave(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { postId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(postId)) {
+      return res.status(400).json({ message: "Invalid post id." });
+    }
+
+    const post = await SocialPost.findById(postId);
+    if (!post) return res.status(404).json({ message: "Post not found." });
+
+    const index = (post.savedBy || []).findIndex(
+      (item) => String(item) === String(viewer._id)
+    );
+
+    let saved = false;
+    if (index >= 0) {
+      post.savedBy.splice(index, 1);
+    } else {
+      post.savedBy.push(viewer._id);
+      saved = true;
+    }
+
+    await post.save();
+
+    return res.json({
+      saved,
+      saves: post.savedBy.length,
     });
   } catch (error) {
     next(error);
@@ -606,7 +1855,121 @@ export async function shareCareerPulsePost(req, res, next) {
   }
 }
 
-export async function startCareerPulseMessage(req, res, next) {
+export async function reportCareerPulsePost(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { postId } = req.params;
+    const reason = safeStr(req.body?.reason);
+    const details = safeStr(req.body?.details);
+
+    if (!mongoose.Types.ObjectId.isValid(postId)) {
+      return res.status(400).json({ message: "Invalid post id." });
+    }
+    if (!SOCIAL_REPORT_REASONS.has(reason)) {
+      return res.status(400).json({ message: "Invalid report reason." });
+    }
+    if (reason === "Other" && !details) {
+      return res.status(400).json({ message: "Please add a short note for the Other reason." });
+    }
+
+    const post = await SocialPost.findById(postId);
+    if (!post || !(await canViewerAccessPost(post, viewer))) {
+      return res.status(404).json({ message: "Post not found." });
+    }
+    if (String(post.authorUser || "") === String(viewer._id || "")) {
+      return res.status(400).json({ message: "You cannot report your own post." });
+    }
+
+    const alreadyReported = (post.reports || []).some(
+      (report) => String(report?.reporterUser || "") === String(viewer._id || "")
+    );
+    if (alreadyReported) {
+      return res.status(400).json({ message: "You already reported this reel." });
+    }
+
+    const alreadyHiddenForViewer = (post.hiddenForUsers || []).some(
+      (item) => String(item || "") === String(viewer._id || "")
+    );
+    if (!alreadyHiddenForViewer) {
+      post.hiddenForUsers.push(viewer._id);
+    }
+
+    post.reports.push({
+      reporterUser: viewer._id,
+      reporterRole: viewer.role,
+      reason,
+      details,
+      createdAt: new Date(),
+    });
+
+    let autoDeleted = false;
+    if (shouldDeletePostForReport(post, reason) && ["", "visible", "hidden"].includes(String(post.moderationStatus || ""))) {
+      post.moderationStatus = "deleted";
+      post.moderationBlockedAt = new Date();
+      post.moderationBlockedBy = "verified_report_match";
+      post.moderationReasons = uniqueStrings([
+        ...(post.moderationReasons || []),
+        "Auto-deleted after report matched moderation verification",
+        reason,
+      ]);
+      autoDeleted = true;
+    }
+
+    await post.save();
+
+    if (autoDeleted) {
+      await createExploreNotification({
+        userId: post.authorUser,
+        actorUser: viewer._id,
+        actorName: safeStr(viewer?.name || viewer?.fullName || "Explore"),
+        actorAvatarUrl: "",
+        kind: "report_update",
+        title: "Your reel was removed",
+        message: `Your reel was removed from Explore after a report for "${reason}" matched our safety checks.`,
+        severity: "danger",
+        relatedPost: post._id,
+      });
+    }
+
+    return res.status(201).json({
+      message: autoDeleted
+        ? "Report accepted. The reel matched the safety check and was deleted."
+        : "Report accepted. This reel is now hidden for you while we verify it.",
+      autoDeleted,
+      hiddenForReporter: true,
+      reportCount: Array.isArray(post.reports) ? post.reports.length : 0,
+      moderationStatus: post.moderationStatus || "visible",
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function listCareerPulseMessageThreads(req, res, next) {
+  try {
+    const viewer = req.user;
+
+    const threads = await MessageThread.find({
+      source: "social",
+      $or: [{ student: viewer._id }, { company: viewer._id }],
+    })
+      .populate("student")
+      .populate("company")
+      .sort({ updatedAt: -1, lastMessageAt: -1 })
+      .lean();
+
+    const items = await mapSocialThreadsForViewer(threads, viewer);
+
+    return res.json({
+      threads: items,
+      requests: items.filter((item) => item.type === "request_received").length,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function openCareerPulseMessageThread(req, res, next) {
   try {
     const viewer = req.user;
     const recipientId = req.body?.recipientId;
@@ -614,69 +1977,341 @@ export async function startCareerPulseMessage(req, res, next) {
     if (!mongoose.Types.ObjectId.isValid(recipientId)) {
       return res.status(400).json({ message: "Invalid recipient id." });
     }
-    if (String(recipientId) === String(viewer._id)) {
+    if (String(recipientId) === String(viewer._id || "")) {
       return res.status(400).json({ message: "You cannot message your own profile." });
     }
 
-    const recipient = await User.findById(recipientId).lean();
-    if (!recipient || !recipient.isActive) {
+    const recipient = await resolveSocialRecipient(recipientId);
+    if (!recipient) {
       return res.status(404).json({ message: "Recipient not found." });
     }
-
-    const viewerRole = String(viewer.role || "");
-    const recipientRole = String(recipient.role || "");
-
-    if (!["student", "company"].includes(viewerRole) || !["student", "company"].includes(recipientRole)) {
-      return res.status(403).json({ message: "Messaging is only available for student and company accounts." });
+    if (String(recipient._id || "") === String(viewer._id || "")) {
+      return res.status(400).json({ message: "You cannot message your own profile." });
     }
 
-    if (viewerRole === recipientRole) {
+    const participants = buildSocialThreadParticipants(viewer, recipient);
+    if (!participants) {
       return res.status(400).json({
-        message: "Direct messaging is available between students and companies in this release.",
+        message: "Explore messaging is available between student and company accounts only.",
       });
     }
 
-    const studentId = viewerRole === "student" ? viewer._id : recipient._id;
-    const companyId = viewerRole === "company" ? viewer._id : recipient._id;
+    const existing = await findExistingSocialThreadBetweenUsers(viewer._id, recipient._id);
 
-    let thread = await MessageThread.findOne({
-      student: studentId,
-      company: companyId,
-    }).sort({ updatedAt: -1 });
-
-    let created = false;
-    if (!thread) {
-      thread = await MessageThread.create({
-        student: studentId,
-        company: companyId,
-        source: "social",
-        subject: "Career Pulse connection",
-        status: "Connected",
-        lastMessageText: "Conversation started from Career Pulse.",
-        lastMessageAt: new Date(),
-        studentUnread: 0,
-        companyUnread: 0,
+    if (existing) {
+      const [mappedThread] = await mapSocialThreadsForViewer([existing], viewer);
+      return res.json({
+        thread: mappedThread,
+        created: false,
       });
+    }
 
+    const followExists = await SocialFollow.exists({
+      $or: [
+        { follower: viewer._id, following: recipient._id },
+        { follower: recipient._id, following: viewer._id },
+      ],
+    });
+
+    let thread;
+    let created = false;
+    try {
+      const result = await MessageThread.collection.findOneAndUpdate(
+        {
+          student: participants.student,
+          company: participants.company,
+          source: "social",
+        },
+        {
+          $setOnInsert: {
+            student: participants.student,
+            company: participants.company,
+            source: "social",
+            subject: "Explore connection",
+            status: "Connected",
+            socialState: followExists ? "accepted" : "pending",
+            socialRequestedBy: followExists ? null : viewer._id,
+            socialAcceptedAt: followExists ? new Date() : null,
+            lastMessageText: followExists ? "Conversation started from Explore." : "Message request sent from Explore.",
+            lastMessageAt: new Date(),
+            studentUnread: 0,
+            companyUnread: 0,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        },
+        {
+          upsert: true,
+          returnDocument: "after",
+        }
+      );
+
+      thread = result?.value ? { _id: result.value._id } : null;
+      created = !result?.lastErrorObject?.updatedExisting;
+    } catch (error) {
+      if (error?.code !== 11000) throw error;
+
+      const duplicate = await findExistingSocialThreadBetweenUsers(viewer._id, recipient._id);
+
+      if (!duplicate) throw error;
+
+      const [mappedThread] = await mapSocialThreadsForViewer([duplicate], viewer);
+      return res.json({
+        thread: mappedThread,
+        created: false,
+      });
+    }
+
+    if (!thread?._id) {
+      const fallback = await findExistingSocialThreadBetweenUsers(viewer._id, recipient._id);
+      if (!fallback) {
+        return res.status(500).json({ message: "Could not create the Explore conversation." });
+      }
+      const [mappedThread] = await mapSocialThreadsForViewer([fallback], viewer);
+      return res.json({
+        thread: mappedThread,
+        created: false,
+      });
+    }
+
+    if (created) {
       await Message.create({
         thread: thread._id,
         senderRole: "system",
         type: "system",
-        text: "Career Pulse connection started.",
+        text: followExists ? "Conversation started from Explore." : "Message request sent from Explore.",
       });
 
-      created = true;
+      if (!followExists) {
+        await createExploreNotification({
+          userId: recipient._id,
+          actorUser: viewer._id,
+          actorName: safeStr(viewer?.name || "Explore member"),
+          kind: "social",
+          title: "New message request",
+          message: `${safeStr(viewer?.name || "Someone")} wants to message you on Explore.`,
+          severity: "info",
+        });
+      }
     }
 
-    return res.json({
+    const hydrated = await MessageThread.findById(thread._id)
+      .populate("student")
+      .populate("company")
+      .lean();
+    const [mappedThread] = await mapSocialThreadsForViewer([hydrated], viewer);
+
+    return res.status(created ? 201 : 200).json({
+      thread: mappedThread,
       created,
-      threadId: String(thread._id),
-      route:
-        viewerRole === "student"
-          ? `/student/messages?thread=${thread._id}`
-          : `/company/messages?thread=${thread._id}`,
     });
   } catch (error) {
     next(error);
   }
+}
+
+export async function getCareerPulseMessageThread(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { threadId } = req.params;
+
+    const thread = await getSocialMessageThreadForViewer(threadId, viewer);
+    if (!thread) {
+      return res.status(404).json({ message: "Conversation not found." });
+    }
+
+    const [mappedThread, messages] = await Promise.all([
+      mapSocialThreadsForViewer([thread], viewer),
+      Message.find({ thread: thread._id }).sort({ createdAt: 1 }).lean(),
+    ]);
+
+    const unreadField =
+      String(thread?.student?._id || thread?.student || "") === String(viewer._id || "")
+        ? "studentUnread"
+        : "companyUnread";
+    await MessageThread.updateOne({ _id: thread._id }, { $set: { [unreadField]: 0 } });
+
+    return res.json({
+      thread: mappedThread[0],
+      messages: messages.map((message) => mapSocialMessage(message, viewer)),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function sendCareerPulseMessage(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { threadId } = req.params;
+    const text = safeStr(req.body?.text);
+
+    if (!text) {
+      return res.status(400).json({ message: "Message text is required." });
+    }
+
+    const thread = await getSocialMessageThreadForViewer(threadId, viewer);
+    if (!thread) {
+      return res.status(404).json({ message: "Conversation not found." });
+    }
+    if (safeStr(thread?.socialState || "accepted") !== "accepted") {
+      return res.status(400).json({ message: "This message request has not been accepted yet." });
+    }
+
+    const message = await Message.create({
+      thread: thread._id,
+      senderRole: viewer.role,
+      type: "text",
+      text,
+    });
+
+    const viewerIsStudent = String(thread?.student?._id || thread?.student || "") === String(viewer._id || "");
+    await MessageThread.updateOne(
+      { _id: thread._id },
+      {
+        $set: {
+          lastMessageText: text,
+          lastMessageAt: new Date(),
+        },
+        $inc: viewerIsStudent ? { companyUnread: 1 } : { studentUnread: 1 },
+      }
+    );
+
+    return res.status(201).json({
+      message: mapSocialMessage(message.toObject(), viewer),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function acceptCareerPulseMessageRequest(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { threadId } = req.params;
+
+    const thread = await getSocialMessageThreadForViewer(threadId, viewer);
+    if (!thread) {
+      return res.status(404).json({ message: "Conversation not found." });
+    }
+    if (safeStr(thread?.socialState || "accepted") !== "pending") {
+      return res.status(400).json({ message: "This message request is already active." });
+    }
+    if (String(thread?.socialRequestedBy || "") === String(viewer._id || "")) {
+      return res.status(400).json({ message: "You cannot accept your own message request." });
+    }
+
+    await MessageThread.updateOne(
+      { _id: thread._id },
+      {
+        $set: {
+          socialState: "accepted",
+          socialAcceptedAt: new Date(),
+          lastMessageText: "Message request accepted.",
+          lastMessageAt: new Date(),
+        },
+      }
+    );
+
+    await Message.create({
+      thread: thread._id,
+      senderRole: "system",
+      type: "system",
+      text: "Message request accepted.",
+    });
+
+    await createExploreNotification({
+      userId: thread.socialRequestedBy,
+      actorUser: viewer._id,
+      actorName: safeStr(viewer?.name || "Explore member"),
+      kind: "social",
+      title: "Request accepted",
+      message: `${safeStr(viewer?.name || "Someone")} accepted your Explore message request.`,
+      severity: "info",
+    });
+
+    const updated = await getSocialMessageThreadForViewer(thread._id, viewer);
+    const [mappedThread] = await mapSocialThreadsForViewer([updated], viewer);
+
+    return res.json({
+      thread: mappedThread,
+      accepted: true,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function markCareerPulseMessageThreadRead(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { threadId } = req.params;
+
+    const thread = await getSocialMessageThreadForViewer(threadId, viewer);
+    if (!thread) {
+      return res.status(404).json({ message: "Conversation not found." });
+    }
+
+    const unreadField =
+      String(thread?.student?._id || thread?.student || "") === String(viewer._id || "")
+        ? "studentUnread"
+        : "companyUnread";
+    await MessageThread.updateOne({ _id: thread._id }, { $set: { [unreadField]: 0 } });
+
+    return res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getCareerPulseNotifications(req, res, next) {
+  try {
+    const viewer = req.user;
+    const limit = Math.max(10, Math.min(60, Number(req.query?.limit || 30)));
+
+    const [rows, unreadCount] = await Promise.all([
+      SocialNotification.find({ user: viewer._id })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean(),
+      SocialNotification.countDocuments({ user: viewer._id, readAt: null }),
+    ]);
+
+    return res.json({
+      notifications: rows.map(mapNotification),
+      unreadCount,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function markCareerPulseNotificationsRead(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { notificationId } = req.params;
+
+    if (notificationId && !mongoose.Types.ObjectId.isValid(notificationId)) {
+      return res.status(400).json({ message: "Invalid notification id." });
+    }
+
+    const query = notificationId
+      ? { _id: new mongoose.Types.ObjectId(notificationId), user: viewer._id }
+      : { user: viewer._id, readAt: null };
+
+    await SocialNotification.updateMany(query, { $set: { readAt: new Date() } });
+
+    const unreadCount = await SocialNotification.countDocuments({ user: viewer._id, readAt: null });
+
+    return res.json({
+      success: true,
+      unreadCount,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function startCareerPulseMessage(req, res, next) {
+  return openCareerPulseMessageThread(req, res, next);
 }

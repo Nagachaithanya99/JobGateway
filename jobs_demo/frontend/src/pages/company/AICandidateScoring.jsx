@@ -592,9 +592,9 @@ export default function AICandidateScoring() {
                         </td>
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap gap-1">
-                            {(row.skills || []).slice(0, 4).map((skill) => (
+                            {(row.skills || []).slice(0, 4).map((skill, index) => (
                               <span
-                                key={`${row.id}_${skill}`}
+                                key={`${row.id}_${skill}_${index}`}
                                 className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700"
                               >
                                 {skill}
@@ -896,9 +896,9 @@ export default function AICandidateScoring() {
             </p>
 
             <div className="mt-3 space-y-2 text-sm text-slate-700">
-              {(activeCandidate?.suggestions || []).map((s) => (
+              {(activeCandidate?.suggestions || []).map((s, index) => (
                 <p
-                  key={`${activeCandidate?.id}_${s}`}
+                  key={`${activeCandidate?.id}_${s}_${index}`}
                   className="rounded-lg bg-slate-50 px-3 py-2"
                 >
                   {s}

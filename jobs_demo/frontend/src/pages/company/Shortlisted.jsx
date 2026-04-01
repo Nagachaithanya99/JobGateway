@@ -425,7 +425,7 @@ export default function Shortlisted() {
                     <td className="py-3"><button onClick={() => setDrawer({ open: true, candidate: c })} className="font-semibold text-[#0F172A] hover:text-[#2563EB]">{c.name}</button></td>
                     <td className="py-3">{c.job}</td>
                     <td className="py-3">{c.exp || "-"}</td>
-                    <td className="py-3"><div className="flex flex-wrap gap-1">{(c.skills || []).map((s) => <span key={`${c.id}_${s}`} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs">{s}</span>)}</div></td>
+                    <td className="py-3"><div className="flex flex-wrap gap-1">{(c.skills || []).map((s, index) => <span key={`${c.id}_${s}_${index}`} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs">{s}</span>)}</div></td>
                     <td className="py-3">{c.shortlistedDate || "-"}</td>
                     <td className="py-3"><select value={c.stage} onChange={(e) => updateStage(c.id, e.target.value)} className="h-8 rounded-lg border border-slate-200 px-2 text-xs">{STAGES.map((s) => <option key={s}>{s}</option>)}</select></td>
                     <td className="py-3"><span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${STATUS[c.status] || "border-slate-200 bg-slate-100 text-slate-600"}`}>{c.status}</span></td>

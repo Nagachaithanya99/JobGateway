@@ -91,6 +91,7 @@ export default function Jobs() {
 
   const [q, setQ] = useState(initialQ);
   const [location, setLocation] = useState("");
+  const [locationOther, setLocationOther] = useState("");
   const [pill, setPill] = useState("All Jobs");
   const [taxonomy, setTaxonomy] = useState(INITIAL_TAXONOMY);
   const [selectedMainStream, setSelectedMainStream] = useState(DEFAULT_HIERARCHY.stream);
@@ -164,6 +165,7 @@ export default function Jobs() {
     const mainStream = resolveHierarchyValue(overrides.mainStream ?? selectedMainStream, mainStreamOther);
     const category = resolveHierarchyValue(overrides.category ?? selectedCategory, categoryOther);
     const subCategory = resolveHierarchyValue(overrides.subCategory ?? selectedSubCategory, subCategoryOther);
+    const resolvedLocation = resolveHierarchyValue(location, locationOther);
     const hasHierarchyOverride =
       Object.prototype.hasOwnProperty.call(overrides, "mainStream") ||
       Object.prototype.hasOwnProperty.call(overrides, "category") ||
@@ -179,7 +181,7 @@ export default function Jobs() {
 
     const params = {
       q: q || undefined,
-      location: location || undefined,
+      location: resolvedLocation || undefined,
       page,
       limit: meta.limit,
     };
@@ -246,6 +248,7 @@ export default function Jobs() {
 
   const clearFilters = () => {
     setLocation("");
+    setLocationOther("");
     setPill("All Jobs");
     setSelectedMainStream(DEFAULT_HIERARCHY.stream);
     setSelectedCategory(DEFAULT_HIERARCHY.category);
@@ -438,7 +441,11 @@ export default function Jobs() {
               <FiMapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
               <select
                 value={location}
-                onChange={(e) => setLocation(e.target.value)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setLocation(value);
+                  if (value !== OTHER_OPTION) setLocationOther("");
+                }}
                 className="h-[46px] w-full appearance-none rounded-[16px] border border-slate-200 bg-white pl-11 pr-10 text-[14px] font-medium outline-none focus:border-orange-300 focus:ring-4 focus:ring-orange-100"
               >
                 <option value="">Location</option>
@@ -447,6 +454,7 @@ export default function Jobs() {
                     {loc}
                   </option>
                 ))}
+                <option value={OTHER_OPTION}>Other</option>
               </select>
               <FiChevronDown className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400" />
             </div>
@@ -459,6 +467,17 @@ export default function Jobs() {
               Search Jobs
             </button>
           </div>
+
+          {location === OTHER_OPTION ? (
+            <div className="mt-3">
+              <input
+                value={locationOther}
+                onChange={(e) => setLocationOther(e.target.value)}
+                placeholder="Enter custom location"
+                className="h-[46px] w-full rounded-[16px] border border-slate-200 bg-white px-4 text-[14px] font-medium outline-none focus:border-orange-300 focus:ring-4 focus:ring-orange-100"
+              />
+            </div>
+          ) : null}
         </div>
 
         <div className="mt-6 flex flex-wrap gap-3">

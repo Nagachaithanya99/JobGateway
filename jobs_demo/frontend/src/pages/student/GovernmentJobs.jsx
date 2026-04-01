@@ -3,6 +3,7 @@ import { Link, useLocation } from "react-router-dom";
 import { FiExternalLink, FiFilter, FiSearch, FiChevronDown } from "react-icons/fi";
 import StatusPopup from "../../components/common/StatusPopup.jsx";
 import { studentListGovernmentJobs } from "../../services/studentService.js";
+import { OTHER_OPTION, resolveHierarchyValue } from "../../data/jobTaxonomy.js";
 
 const ILL_TOP = "/images/student-government/gov-illustration-top.png";
 const ILL_BOTTOM = "/images/student-government/gov-illustration-bottom.png";
@@ -35,10 +36,15 @@ export default function GovernmentJobs() {
   const [filters, setFilters] = useState({
     search: "",
     department: "",
+    departmentOther: "",
     examType: "",
+    examTypeOther: "",
     state: "",
+    stateOther: "",
     jobType: "",
+    jobTypeOther: "",
     qualification: "",
+    qualificationOther: "",
     sort: "Most Recent",
   });
   const [draft, setDraft] = useState({ ...filters });
@@ -102,11 +108,12 @@ export default function GovernmentJobs() {
 
       const params = {
         search: nextFilters.search || undefined,
-        department: nextFilters.department || undefined,
-        examType: nextFilters.examType || undefined,
-        state: nextFilters.state || undefined,
-        jobType: nextFilters.jobType || undefined,
-        qualification: nextFilters.qualification || undefined,
+        department: resolveHierarchyValue(nextFilters.department, nextFilters.departmentOther) || undefined,
+        examType: resolveHierarchyValue(nextFilters.examType, nextFilters.examTypeOther) || undefined,
+        state: resolveHierarchyValue(nextFilters.state, nextFilters.stateOther) || undefined,
+        jobType: resolveHierarchyValue(nextFilters.jobType, nextFilters.jobTypeOther) || undefined,
+        qualification:
+          resolveHierarchyValue(nextFilters.qualification, nextFilters.qualificationOther) || undefined,
         page: nextPage,
         limit: meta.limit,
       };
@@ -180,10 +187,15 @@ export default function GovernmentJobs() {
     const reset = {
       search: "",
       department: "",
+      departmentOther: "",
       examType: "",
+      examTypeOther: "",
       state: "",
+      stateOther: "",
       jobType: "",
+      jobTypeOther: "",
       qualification: "",
+      qualificationOther: "",
       sort: "Most Recent",
     };
     setDraft(reset);
@@ -234,7 +246,13 @@ export default function GovernmentJobs() {
             <div className="relative">
               <select
                 value={draft.state}
-                onChange={(e) => setDraft((p) => ({ ...p, state: e.target.value }))}
+                onChange={(e) =>
+                  setDraft((p) => ({
+                    ...p,
+                    state: e.target.value,
+                    stateOther: e.target.value === OTHER_OPTION ? p.stateOther : "",
+                  }))
+                }
                 className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-orange-300"
               >
                 <option value="">{loadingOptions ? "Loading states..." : "Location / State"}</option>
@@ -243,6 +261,7 @@ export default function GovernmentJobs() {
                     {v}
                   </option>
                 ))}
+                <option value={OTHER_OPTION}>Other</option>
               </select>
               <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
             </div>
@@ -255,6 +274,17 @@ export default function GovernmentJobs() {
               Search Updates
             </button>
           </div>
+
+          {draft.state === OTHER_OPTION ? (
+            <div className="mt-3">
+              <input
+                value={draft.stateOther}
+                onChange={(e) => setDraft((p) => ({ ...p, stateOther: e.target.value }))}
+                placeholder="Enter custom state"
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-orange-300"
+              />
+            </div>
+          ) : null}
         </section>
 
         <section className="mt-4 flex flex-wrap gap-2">
@@ -297,7 +327,13 @@ export default function GovernmentJobs() {
             <div className="space-y-3">
               <select
                 value={draft.department}
-                onChange={(e) => setDraft((p) => ({ ...p, department: e.target.value }))}
+                onChange={(e) =>
+                  setDraft((p) => ({
+                    ...p,
+                    department: e.target.value,
+                    departmentOther: e.target.value === OTHER_OPTION ? p.departmentOther : "",
+                  }))
+                }
                 className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-orange-300"
               >
                 <option value="">{loadingOptions ? "Loading departments..." : "Department"}</option>
@@ -306,11 +342,26 @@ export default function GovernmentJobs() {
                     {v}
                   </option>
                 ))}
+                <option value={OTHER_OPTION}>Other</option>
               </select>
+              {draft.department === OTHER_OPTION ? (
+                <input
+                  value={draft.departmentOther}
+                  onChange={(e) => setDraft((p) => ({ ...p, departmentOther: e.target.value }))}
+                  placeholder="Enter custom department"
+                  className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-orange-300"
+                />
+              ) : null}
 
               <select
                 value={draft.examType}
-                onChange={(e) => setDraft((p) => ({ ...p, examType: e.target.value }))}
+                onChange={(e) =>
+                  setDraft((p) => ({
+                    ...p,
+                    examType: e.target.value,
+                    examTypeOther: e.target.value === OTHER_OPTION ? p.examTypeOther : "",
+                  }))
+                }
                 className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-orange-300"
               >
                 <option value="">{loadingOptions ? "Loading exam types..." : "Exam Type"}</option>
@@ -319,11 +370,26 @@ export default function GovernmentJobs() {
                     {v}
                   </option>
                 ))}
+                <option value={OTHER_OPTION}>Other</option>
               </select>
+              {draft.examType === OTHER_OPTION ? (
+                <input
+                  value={draft.examTypeOther}
+                  onChange={(e) => setDraft((p) => ({ ...p, examTypeOther: e.target.value }))}
+                  placeholder="Enter custom exam type"
+                  className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-orange-300"
+                />
+              ) : null}
 
               <select
                 value={draft.jobType}
-                onChange={(e) => setDraft((p) => ({ ...p, jobType: e.target.value }))}
+                onChange={(e) =>
+                  setDraft((p) => ({
+                    ...p,
+                    jobType: e.target.value,
+                    jobTypeOther: e.target.value === OTHER_OPTION ? p.jobTypeOther : "",
+                  }))
+                }
                 className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-orange-300"
               >
                 <option value="">{loadingOptions ? "Loading job types..." : "Job Type"}</option>
@@ -332,11 +398,26 @@ export default function GovernmentJobs() {
                     {v}
                   </option>
                 ))}
+                <option value={OTHER_OPTION}>Other</option>
               </select>
+              {draft.jobType === OTHER_OPTION ? (
+                <input
+                  value={draft.jobTypeOther}
+                  onChange={(e) => setDraft((p) => ({ ...p, jobTypeOther: e.target.value }))}
+                  placeholder="Enter custom job type"
+                  className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-orange-300"
+                />
+              ) : null}
 
               <select
                 value={draft.qualification}
-                onChange={(e) => setDraft((p) => ({ ...p, qualification: e.target.value }))}
+                onChange={(e) =>
+                  setDraft((p) => ({
+                    ...p,
+                    qualification: e.target.value,
+                    qualificationOther: e.target.value === OTHER_OPTION ? p.qualificationOther : "",
+                  }))
+                }
                 className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-orange-300"
               >
                 <option value="">
@@ -347,7 +428,16 @@ export default function GovernmentJobs() {
                     {v}
                   </option>
                 ))}
+                <option value={OTHER_OPTION}>Other</option>
               </select>
+              {draft.qualification === OTHER_OPTION ? (
+                <input
+                  value={draft.qualificationOther}
+                  onChange={(e) => setDraft((p) => ({ ...p, qualificationOther: e.target.value }))}
+                  placeholder="Enter custom qualification"
+                  className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-orange-300"
+                />
+              ) : null}
 
               <div className="relative">
                 <select

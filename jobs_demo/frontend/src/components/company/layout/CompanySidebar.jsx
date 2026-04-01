@@ -18,7 +18,7 @@ import {
 
 const nav = [
   { to: "/company/dashboard", label: "Dashboard", icon: <FiGrid /> },
-  { to: "/company/career-pulse", label: "Career Pulse", icon: <FiCompass /> },
+  { to: "/company/explore", label: "Explore", icon: <FiCompass /> },
   { to: "/company/post-job", label: "Post Job", icon: <FiPlusSquare /> },
   { to: "/company/my-jobs", label: "Posted Jobs", icon: <FiBriefcase /> },
   { to: "/company/candidates", label: "Applications", icon: <FiUsers /> },

@@ -6,7 +6,7 @@ export default function Toast({
   message = "",
   onClose,
   duration = 1400,
-  tone = "dark", // "dark" | "success" | "error"
+  tone = "dark", // "dark" | "success" | "error" | "warning"
 }) {
   useEffect(() => {
     if (!show) return;
@@ -20,6 +20,7 @@ export default function Toast({
     dark: "bg-[#0F172A] text-white",
     success: "bg-green-600 text-white",
     error: "bg-red-600 text-white",
+    warning: "bg-amber-500 text-white",
   };
 
   return (

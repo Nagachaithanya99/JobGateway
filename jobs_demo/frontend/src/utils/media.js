@@ -1,17 +1,14 @@
+import { getApiOrigin } from "./apiBaseUrl.js";
+
 export function toAbsoluteMediaUrl(url) {
   const value = String(url || "").trim();
   if (!value) return "";
   if (/^https?:\/\//i.test(value) || value.startsWith("data:")) return value;
 
-  const apiBase = String(
-    import.meta.env.VITE_API_BASE_URL ||
-    import.meta.env.VITE_API_URL ||
-    "http://localhost:5000/api",
-  );
-  const origin = apiBase.endsWith("/api") ? apiBase.slice(0, -4) : apiBase;
+  const origin = getApiOrigin();
 
   if (value.startsWith("/")) return `${origin}${value}`;
-  return `${origin}/${value}`;
+  return `${origin}/${value.replace(/^\/+/, "")}`;
 }
 
 export const SPEECH_AUDIO_CONSTRAINTS = {

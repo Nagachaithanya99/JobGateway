@@ -18,6 +18,7 @@ import {
   studentMyApplications,
   studentToggleSaveJob,
 } from "../../services/studentService.js";
+import { OTHER_OPTION, resolveHierarchyValue } from "../../data/jobTaxonomy.js";
 
 import illTop from "../../assets/images/student-internship/internship-illustration-top.png";
 import illBottom from "../../assets/images/student-internship/internship-illustration-bottom.png";
@@ -141,6 +142,9 @@ export default function Internship() {
   const [selectedMainStream, setSelectedMainStream] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedSubCategory, setSelectedSubCategory] = useState("");
+  const [mainStreamOther, setMainStreamOther] = useState("");
+  const [categoryOther, setCategoryOther] = useState("");
+  const [subCategoryOther, setSubCategoryOther] = useState("");
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -166,11 +170,12 @@ export default function Internship() {
 
   const mainStreamOptions = useMemo(() => Object.keys(internshipTaxonomy), []);
   const categoryOptions = useMemo(() => {
-    if (!selectedMainStream) return [];
+    if (!selectedMainStream || selectedMainStream === OTHER_OPTION) return [];
     return Object.keys(internshipTaxonomy[selectedMainStream] || {});
   }, [selectedMainStream]);
   const subCategoryOptions = useMemo(() => {
     if (!selectedMainStream || !selectedCategory) return [];
+    if (selectedMainStream === OTHER_OPTION || selectedCategory === OTHER_OPTION) return [];
     return internshipTaxonomy[selectedMainStream]?.[selectedCategory] || [];
   }, [selectedMainStream, selectedCategory]);
 
@@ -181,9 +186,9 @@ export default function Internship() {
     try {
       setErr("");
       setLoading(true);
-      const mainStream = overrides.mainStream ?? selectedMainStream;
-      const category = overrides.category ?? selectedCategory;
-      const subCategory = overrides.subCategory ?? selectedSubCategory;
+      const mainStream = resolveHierarchyValue(overrides.mainStream ?? selectedMainStream, mainStreamOther);
+      const category = resolveHierarchyValue(overrides.category ?? selectedCategory, categoryOther);
+      const subCategory = resolveHierarchyValue(overrides.subCategory ?? selectedSubCategory, subCategoryOther);
       const streamParam = mainStream || (activeTab !== "All Internships" ? activeTab : undefined);
 
       const params = {
@@ -494,6 +499,9 @@ export default function Internship() {
                     setSelectedMainStream("");
                     setSelectedCategory("");
                     setSelectedSubCategory("");
+                    setMainStreamOther("");
+                    setCategoryOther("");
+                    setSubCategoryOther("");
                     fetchList(1, { mainStream: "", category: "", subCategory: "" });
                   }}
                   className="text-xs font-extrabold text-[#F97316] hover:text-orange-600"
@@ -510,9 +518,18 @@ export default function Internship() {
                     onChange={(e) => {
                       const value = e.target.value;
                       setSelectedMainStream(value);
+                      if (value !== OTHER_OPTION) setMainStreamOther("");
                       setSelectedCategory("");
+                      setCategoryOther("");
                       setSelectedSubCategory("");
-                      fetchList(1, { mainStream: value, category: "", subCategory: "" });
+                      setSubCategoryOther("");
+                      if (!value) {
+                        fetchList(1, { mainStream: "", category: "", subCategory: "" });
+                        return;
+                      }
+                      if (value !== OTHER_OPTION) {
+                        fetchList(1, { mainStream: value, category: "", subCategory: "" });
+                      }
                     }}
                     className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-9 text-sm font-semibold text-slate-700 outline-none focus:border-orange-300"
                   >
@@ -522,9 +539,18 @@ export default function Internship() {
                         {v}
                       </option>
                     ))}
+                    <option value={OTHER_OPTION}>Other</option>
                   </select>
                   <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
+                {selectedMainStream === OTHER_OPTION ? (
+                  <input
+                    value={mainStreamOther}
+                    onChange={(e) => setMainStreamOther(e.target.value)}
+                    placeholder="Enter custom main stream"
+                    className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-orange-300"
+                  />
+                ) : null}
               </div>
 
               <div className="mt-4">
@@ -536,12 +562,24 @@ export default function Internship() {
                     onChange={(e) => {
                       const value = e.target.value;
                       setSelectedCategory(value);
+                      if (value !== OTHER_OPTION) setCategoryOther("");
                       setSelectedSubCategory("");
-                      fetchList(1, {
-                        mainStream: selectedMainStream,
-                        category: value,
-                        subCategory: "",
-                      });
+                      setSubCategoryOther("");
+                      if (!value) {
+                        fetchList(1, {
+                          mainStream: selectedMainStream,
+                          category: "",
+                          subCategory: "",
+                        });
+                        return;
+                      }
+                      if (value !== OTHER_OPTION) {
+                        fetchList(1, {
+                          mainStream: selectedMainStream,
+                          category: value,
+                          subCategory: "",
+                        });
+                      }
                     }}
                     className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-9 text-sm font-semibold text-slate-700 outline-none focus:border-orange-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
                   >
@@ -551,9 +589,18 @@ export default function Internship() {
                         {v}
                       </option>
                     ))}
+                    {selectedMainStream ? <option value={OTHER_OPTION}>Other</option> : null}
                   </select>
                   <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
+                {selectedCategory === OTHER_OPTION ? (
+                  <input
+                    value={categoryOther}
+                    onChange={(e) => setCategoryOther(e.target.value)}
+                    placeholder="Enter custom category"
+                    className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-orange-300"
+                  />
+                ) : null}
               </div>
 
               <div className="mt-4">
@@ -565,11 +612,22 @@ export default function Internship() {
                     onChange={(e) => {
                       const value = e.target.value;
                       setSelectedSubCategory(value);
-                      fetchList(1, {
-                        mainStream: selectedMainStream,
-                        category: selectedCategory,
-                        subCategory: value,
-                      });
+                      if (value !== OTHER_OPTION) setSubCategoryOther("");
+                      if (!value) {
+                        fetchList(1, {
+                          mainStream: selectedMainStream,
+                          category: selectedCategory,
+                          subCategory: "",
+                        });
+                        return;
+                      }
+                      if (value !== OTHER_OPTION) {
+                        fetchList(1, {
+                          mainStream: selectedMainStream,
+                          category: selectedCategory,
+                          subCategory: value,
+                        });
+                      }
                     }}
                     className="h-10 w-full appearance-none rounded-xl border border-slate-200 bg-white px-3 pr-9 text-sm font-semibold text-slate-700 outline-none focus:border-orange-300 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400"
                   >
@@ -579,9 +637,18 @@ export default function Internship() {
                         {v}
                       </option>
                     ))}
+                    {selectedCategory ? <option value={OTHER_OPTION}>Other</option> : null}
                   </select>
                   <FiChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 </div>
+                {selectedSubCategory === OTHER_OPTION ? (
+                  <input
+                    value={subCategoryOther}
+                    onChange={(e) => setSubCategoryOther(e.target.value)}
+                    placeholder="Enter custom sub category"
+                    className="mt-2 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none focus:border-orange-300"
+                  />
+                ) : null}
               </div>
 
               <button

@@ -28,7 +28,7 @@ import {
 
 const navItems = [
   { to: "/student", key: "nav.home" },
-  { to: "/student/career-pulse", key: "nav.home", label: "Pulse" },
+  { to: "/student/explore", key: "nav.home", label: "Explore" },
   { to: "/student/jobs", key: "nav.jobs" },
   { to: "/student/internship", key: "nav.internships" },
   { to: "/student/government", key: "nav.governmentJobs" },

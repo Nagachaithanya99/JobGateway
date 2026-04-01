@@ -41,7 +41,8 @@ export default function CompanyRoutes() {
       >
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
-        <Route path="career-pulse" element={<CareerPulsePage />} />
+        <Route path="explore" element={<CareerPulsePage />} />
+        <Route path="career-pulse" element={<Navigate to="/company/explore" replace />} />
         <Route path="pricing" element={<PricingPlans />} />
         <Route path="billing" element={<CompanyBilling />} />
         <Route path="post-job" element={<PostJob />} />

@@ -97,6 +97,16 @@ function isImageMessage(message) {
   return /\.(png|jpe?g|gif|webp|bmp|svg)$/.test(name);
 }
 
+function getMessageRenderKey(message, index) {
+  return [
+    message?.id || "message",
+    message?.at || "no-time",
+    message?.sender || "unknown",
+    message?.type || "text",
+    index,
+  ].join("_");
+}
+
 export default function Messages() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -517,11 +527,12 @@ export default function Messages() {
 
               <div className="h-[500px] overflow-y-auto bg-slate-50/60 p-4">
                 <div className="space-y-3">
-                  {active.messages.map((m) => {
+                  {active.messages.map((m, index) => {
+                    const messageKey = getMessageRenderKey(m, index);
                     const meetUrl = extractMeetLink(m?.text || "");
                     if (m.type === "system") {
                       return (
-                        <div key={m.id} className="mx-auto w-fit rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-xs text-slate-600">
+                        <div key={messageKey} className="mx-auto w-fit rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-xs text-slate-600">
                           {renderTextWithLinks(m.text)}
                           {meetUrl ? (
                             <div className="mt-2 text-center">
@@ -541,7 +552,7 @@ export default function Messages() {
                     }
                     const company = m.sender === "company";
                     return (
-                      <div key={m.id} className={`flex ${company ? "justify-end" : "justify-start"}`}>
+                      <div key={messageKey} className={`flex ${company ? "justify-end" : "justify-start"}`}>
                         <div className="max-w-[78%]">
                           {m.type === "file" ? (
                             <div className={`rounded-2xl border px-3 py-2 ${company ? "border-blue-600 bg-[#2563EB] text-white" : "border-slate-200 bg-white text-slate-700"}`}>
