@@ -37,7 +37,7 @@ async function ensureThreadForApplication(appId) {
     .lean();
 
   if (!app) return null;
-  let thread = await MessageThread.findOne({ application: app._id }).lean();
+  let thread = await MessageThread.findOne({ application: app._id, source: "application" }).lean();
   if (thread) return thread;
 
   try {
@@ -49,6 +49,7 @@ async function ensureThreadForApplication(appId) {
           company: app.company,
           job: app.job?._id,
           application: app._id,
+          source: "application",
           status: app.status || "Applied",
           lastMessageText: "Application received.",
           lastMessageAt: new Date(),
@@ -75,7 +76,7 @@ async function ensureThreadForApplication(appId) {
   } catch (err) {
     // Concurrent upsert can still race on unique index; fetch existing thread and continue.
     if (err?.code === 11000) {
-      thread = await MessageThread.findOne({ application: app._id }).lean();
+      thread = await MessageThread.findOne({ application: app._id, source: "application" }).lean();
       return thread || null;
     }
     throw err;
@@ -94,7 +95,7 @@ export const listStudentConversations = async (req, res, next) => {
     const apps = await Application.find({ student: studentId }).select("_id").lean();
     await Promise.all(apps.map((a) => ensureThreadForApplication(a._id)));
 
-    const threads = await MessageThread.find({ student: studentId })
+    const threads = await MessageThread.find({ student: studentId, source: "application" })
       .populate("company", "name email phone website location")
       .populate("job", "title")
       .sort({ updatedAt: -1 })
@@ -135,7 +136,7 @@ export const listStudentMessages = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid conversation id" });
     }
 
-    const thread = await MessageThread.findOne({ _id: id, student: studentId })
+    const thread = await MessageThread.findOne({ _id: id, student: studentId, source: "application" })
       .populate("company", "name email phone website location")
       .populate("job", "title")
       .lean();
@@ -192,7 +193,7 @@ export const sendStudentMessage = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid conversation id" });
     }
 
-    const thread = await MessageThread.findOne({ _id: id, student: studentId }).lean();
+    const thread = await MessageThread.findOne({ _id: id, student: studentId, source: "application" }).lean();
     if (!thread) return res.status(404).json({ message: "Conversation not found" });
 
     const {
@@ -276,7 +277,7 @@ export const reportStudentConversationSpam = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid reason" });
     }
 
-    const thread = await MessageThread.findOne({ _id: id, student: studentId })
+    const thread = await MessageThread.findOne({ _id: id, student: studentId, source: "application" })
       .populate("company", "name")
       .populate("job", "title")
       .lean();

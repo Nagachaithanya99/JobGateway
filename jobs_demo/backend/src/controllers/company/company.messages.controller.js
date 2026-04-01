@@ -51,7 +51,7 @@ export async function listCompanyThreads(req, res) {
 
   const { q = "", filter = "All", page = 1, limit = 50 } = req.query;
 
-  const query = { company: companyId };
+  const query = { company: companyId, source: "application" };
 
   if (filter === "Unread") query.companyUnread = { $gt: 0 };
   if (filter === "Shortlisted") query.status = "Shortlisted";
@@ -93,7 +93,7 @@ export async function getCompanyThread(req, res) {
     return res.status(400).json({ message: "Invalid thread id" });
   }
 
-  const thread = await MessageThread.findOne({ _id: id, company: companyId })
+  const thread = await MessageThread.findOne({ _id: id, company: companyId, source: "application" })
     .populate("student", "name email")
     .populate("job", "title");
 
@@ -127,7 +127,7 @@ export async function createCompanyThread(req, res) {
   if (!app) return res.status(404).json({ message: "Application not found" });
 
   // find existing
-  let thread = await MessageThread.findOne({ application: app._id })
+  let thread = await MessageThread.findOne({ application: app._id, source: "application" })
     .populate("student", "name email")
     .populate("job", "title");
 
@@ -137,6 +137,7 @@ export async function createCompanyThread(req, res) {
       student: app.student._id,
       job: app.job._id,
       application: app._id,
+      source: "application",
       status: app.status || "Applied",
       lastMessageText: "Conversation started",
       lastMessageAt: new Date(),
@@ -181,7 +182,7 @@ export async function sendCompanyMessage(req, res) {
     return res.status(400).json({ message: "Invalid thread id" });
   }
 
-  const thread = await MessageThread.findOne({ _id: id, company: companyId });
+  const thread = await MessageThread.findOne({ _id: id, company: companyId, source: "application" });
   if (!thread) return res.status(404).json({ message: "Thread not found" });
 
   if (type === "text" && !text.trim()) {
@@ -200,7 +201,7 @@ export async function sendCompanyMessage(req, res) {
   });
 
   // update thread meta
-  const preview =
+    const preview =
     type === "file"
       ? `${fileName || "File"} shared`
       : type === "system"
@@ -242,7 +243,7 @@ export async function markCompanyThreadRead(req, res) {
   }
 
   const thread = await MessageThread.findOneAndUpdate(
-    { _id: id, company: companyId },
+    { _id: id, company: companyId, source: "application" },
     { $set: { companyUnread: 0 } },
     { returnDocument: "after" }
   );
@@ -265,7 +266,7 @@ export async function updateCompanyThreadMeta(req, res) {
     return res.status(400).json({ message: "Invalid thread id" });
   }
 
-  const thread = await MessageThread.findOne({ _id: id, company: companyId });
+  const thread = await MessageThread.findOne({ _id: id, company: companyId, source: "application" });
   if (!thread) return res.status(404).json({ message: "Thread not found" });
 
   if (status) {
@@ -346,7 +347,7 @@ export async function reportCompanyThreadSpam(req, res) {
     return res.status(400).json({ message: "Invalid reason" });
   }
 
-  const thread = await MessageThread.findOne({ _id: id, company: companyId })
+  const thread = await MessageThread.findOne({ _id: id, company: companyId, source: "application" })
     .populate("student", "name")
     .populate("job", "title")
     .lean();
