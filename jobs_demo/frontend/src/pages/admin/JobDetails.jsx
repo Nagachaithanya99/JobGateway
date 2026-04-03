@@ -13,6 +13,7 @@ import {
 } from "react-icons/fi";
 
 import { adminDeleteJob, adminGetJobDetails, adminToggleJobStatus } from "../../services/adminService";
+import { showSweetConfirm } from "../../utils/sweetAlert.js";
 
 function badgeClass(v = "") {
   const s = String(v).toLowerCase();
@@ -110,7 +111,12 @@ export default function JobDetails() {
     if (!job) return;
     // simple confirm (no extra component needed)
     // eslint-disable-next-line no-alert
-    const ok = window.confirm("Delete this job? This cannot be undone.");
+    const ok = await showSweetConfirm({
+      title: "Delete Job?",
+      text: "Delete this job? This cannot be undone.",
+      confirmButtonText: "Delete",
+      tone: "warning",
+    });
     if (!ok) return;
 
     setBusy(true);

@@ -16,6 +16,7 @@ import {
 
 import { studentMe, studentUpdateProfile } from "../../services/studentService.js";
 import uploadService from "../../services/uploadService.js";
+import { showSweetToast } from "../../utils/sweetAlert.js";
 
 const EMPTY = {
   personal: {
@@ -244,7 +245,6 @@ export default function Profile() {
   const [saving, setSaving] = useState(false);
   const [uploadingResume, setUploadingResume] = useState(false);
   const [dirty, setDirty] = useState(false);
-  const [toast, setToast] = useState("");
 
   const openResumePicker = () => resumeInputRef.current?.click();
 
@@ -268,10 +268,9 @@ export default function Profile() {
         setInitialForm(next);
         setDirty(false);
       } catch (e) {
-        setToast("Failed to load profile");
+        void showSweetToast("Failed to load profile", "error", { timer: 1800 });
       } finally {
         if (mounted) setLoading(false);
-        setTimeout(() => setToast(""), 1800);
       }
     })();
     return () => {
@@ -314,13 +313,12 @@ export default function Profile() {
       }));
 
       setDirty(true);
-      setToast("Resume uploaded & saved successfully");
+      void showSweetToast("Resume uploaded & saved successfully", "success", { timer: 1800 });
     } catch (err) {
-      setToast(err?.response?.data?.message || "Resume upload failed");
+      void showSweetToast(err?.response?.data?.message || "Resume upload failed", "error", { timer: 1800 });
     } finally {
       setUploadingResume(false);
       e.target.value = "";
-      setTimeout(() => setToast(""), 1800);
     }
   };
 
@@ -365,12 +363,11 @@ export default function Profile() {
       setForm(next);
       setInitialForm(next);
       setDirty(false);
-      setToast("Profile saved successfully");
+      void showSweetToast("Profile saved successfully", "success", { timer: 1800 });
     } catch (e) {
-      setToast(e?.response?.data?.message || "Save failed");
+      void showSweetToast(e?.response?.data?.message || "Save failed", "error", { timer: 1800 });
     } finally {
       setSaving(false);
-      setTimeout(() => setToast(""), 1800);
     }
   };
 
@@ -904,11 +901,6 @@ export default function Profile() {
         </div>
       </div>
 
-      {toast ? (
-        <div className="fixed bottom-20 right-4 z-50 rounded-lg bg-[#0F172A] px-4 py-2 text-sm font-semibold text-white shadow-lg">
-          {toast}
-        </div>
-      ) : null}
 
       {dirty ? (
         <div className="fixed bottom-20 left-4 z-50 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-semibold text-[#9A3412] shadow-sm">

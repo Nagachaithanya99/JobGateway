@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { FiAlertCircle, FiCheck, FiCopy, FiInfo, FiPlus, FiRefreshCw } from "react-icons/fi";
 import Modal from "../../components/common/Modal";
+import { showSweetToast } from "../../utils/sweetAlert.js";
 
 const score = 78;
 const keywords = ["React", "Node.js", "REST APIs", "MongoDB", "AWS", "Docker"];
@@ -9,15 +10,13 @@ const keywords = ["React", "Node.js", "REST APIs", "MongoDB", "AWS", "Docker"];
 export function AiMatch() {
   const [whyOpen, setWhyOpen] = useState(false);
   const [added, setAdded] = useState({});
-  const [toast, setToast] = useState("");
 
   const level = score >= 75 ? "Strong Match" : score >= 55 ? "Moderate Match" : "Low Match";
   const levelCls = score >= 75 ? "bg-green-50 text-green-700 border-green-200" : score >= 55 ? "bg-orange-50 text-[#F97316] border-orange-200" : "bg-red-50 text-red-600 border-red-200";
 
   const addKeyword = (k) => {
     setAdded((p) => ({ ...p, [k]: true }));
-    setToast("Keyword added to resume");
-    setTimeout(() => setToast(""), 1200);
+    void showSweetToast("Keyword added to resume", "success", { timer: 1200 });
   };
 
   return (
@@ -177,12 +176,6 @@ export function AiMatch() {
           Score combines skill overlap, keyword relevance, experience alignment, and resume readability checks.
         </p>
       </Modal>
-
-      {toast ? (
-        <div className="fixed bottom-5 right-5 rounded-lg bg-[#0F172A] px-3 py-2 text-xs font-semibold text-white shadow-lg">
-          {toast}
-        </div>
-      ) : null}
     </div>
   );
 }

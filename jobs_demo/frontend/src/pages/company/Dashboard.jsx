@@ -16,6 +16,7 @@ import {
   scheduleInterview,
   updateApplicationStatus,
 } from "../../services/companyService";
+import { showSweetToast } from "../../utils/sweetAlert.js";
 
 function Card({ title, right, children, className = "" }) {
   return (
@@ -82,7 +83,6 @@ function UsageBar({ label, used, limit, color = "blue" }) {
 export default function Dashboard() {
   const navigate = useNavigate();
   const [aiEnabled, setAiEnabled] = useState(true);
-  const [toast, setToast] = useState("");
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [scheduleTargetId, setScheduleTargetId] = useState("");
   const [scheduleForm, setScheduleForm] = useState({ date: "", time: "", mode: "Online", message: "" });
@@ -91,8 +91,7 @@ export default function Dashboard() {
   const [dashboard, setDashboard] = useState(null);
 
   const notify = (msg) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 1300);
+    void showSweetToast(msg, "info", { timer: 1300 });
   };
 
   const fetchDashboard = useCallback(async () => {
@@ -305,7 +304,7 @@ export default function Dashboard() {
               <div key={s?.id || `shortlisted_${index}`} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-2">
                 <div>
                   <p className="text-sm font-semibold text-[#0F172A]">{s?.name || s?.candidateName || "Candidate"}</p>
-                  <p className="text-xs text-slate-500">{s?.role || s?.jobTitle || "-"} • {s?.exp || s?.experience || "-"}</p>
+                  <p className="text-xs text-slate-500">{s?.role || s?.jobTitle || "-"} â€¢ {s?.exp || s?.experience || "-"}</p>
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-600">{s?.skill || s?.topSkill || "-"}</span>
@@ -325,7 +324,7 @@ export default function Dashboard() {
               <div key={j?.id || `job_${index}`} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
                 <div>
                   <p className="text-sm font-semibold text-[#0F172A]">{j?.title || j?.jobTitle || "Untitled"}</p>
-                  <p className="text-xs text-slate-500">{j?.location || "-"} • {j?.mode || "-"} • {j?.applications || j?.applicationCount || 0} applications</p>
+                  <p className="text-xs text-slate-500">{j?.location || "-"} â€¢ {j?.mode || "-"} â€¢ {j?.applications || j?.applicationCount || 0} applications</p>
                 </div>
                 <div className="flex items-center gap-1">
                   <StatusBadge status={j?.status || "Active"} />
@@ -443,7 +442,6 @@ export default function Dashboard() {
         <button onClick={() => navigate("/company/post-job")} className="w-full rounded-xl bg-[#2563EB] px-4 py-2.5 text-sm font-semibold text-white">Post New Job</button>
       </div>
 
-      {toast ? <div className="fixed bottom-5 right-5 z-[70] rounded-lg bg-[#0F172A] px-3 py-2 text-xs font-semibold text-white shadow-lg">{toast}</div> : null}
     </div>
   );
 }

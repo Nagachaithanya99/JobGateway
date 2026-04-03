@@ -1,5 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { FiChevronLeft, FiChevronRight, FiClock, FiMusic, FiPlus, FiVolume2, FiVolumeX, FiX } from "react-icons/fi";
+import {
+  FiChevronLeft,
+  FiChevronRight,
+  FiClock,
+  FiTrash2,
+  FiFlag,
+  FiHeart,
+  FiMessageCircle,
+  FiMoreHorizontal,
+  FiMusic,
+  FiPlus,
+  FiSend,
+  FiVolume2,
+  FiVolumeX,
+  FiX,
+} from "react-icons/fi";
 import { Avatar } from "./ExploreReelUi.jsx";
 import { toAbsoluteMediaUrl } from "../../utils/media.js";
 
@@ -39,6 +54,15 @@ export default function ExploreStoryViewer({
   onClose,
   onNavigate,
   onCreateStory,
+  onMessage,
+  onLike,
+  onReport,
+  onShare,
+  onDelete,
+  liked = false,
+  messageBusy = false,
+  likeBusy = false,
+  deleteBusy = false,
   timeAgo,
 }) {
   const activeGroup = groups[groupIndex] || null;
@@ -48,8 +72,10 @@ export default function ExploreStoryViewer({
   const storyMusicUrl = useMemo(() => toAbsoluteMediaUrl(storyMusic?.audioUrl), [storyMusic?.audioUrl]);
   const videoRef = useRef(null);
   const imageMusicRef = useRef(null);
+  const menuRef = useRef(null);
   const [progress, setProgress] = useState(0);
   const [storyMuted, setStoryMuted] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const isVideo = isVideoStory(activeStory);
   const hasImageMusic = Boolean(!isVideo && storyMusicUrl);
@@ -75,6 +101,23 @@ export default function ExploreStoryViewer({
     if (!open) return;
     setStoryMuted(false);
   }, [open]);
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [activeStory?.id]);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+
+    const handlePointerDown = (event) => {
+      if (!menuRef.current?.contains(event.target)) {
+        setMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [menuOpen]);
 
   const navigateRelative = (direction) => {
     if (!activeGroup) return;
@@ -245,8 +288,62 @@ export default function ExploreStoryViewer({
               })}
             </div>
 
-            <div className="mt-4 flex items-center justify-between gap-3">
+            <div className="mt-4 flex items-start justify-between gap-3">
               <div className="flex min-w-0 items-center gap-3">
+                <div ref={menuRef} className="relative shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setMenuOpen((prev) => !prev)}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/35 text-white transition hover:bg-white/15"
+                    aria-label="Open story actions"
+                  >
+                    <FiMoreHorizontal />
+                  </button>
+
+                  {menuOpen ? (
+                    <div className="absolute left-0 top-12 min-w-[190px] overflow-hidden rounded-[22px] border border-white/10 bg-[#0b0f15]/96 p-2.5 text-sm shadow-[0_24px_60px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+                      {activeGroup.author?.isSelf ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            onDelete?.(activeStory);
+                          }}
+                          disabled={deleteBusy}
+                          className="flex w-full items-center gap-3 rounded-[18px] px-3.5 py-3 text-left font-semibold text-white/92 transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          <FiTrash2 className="text-base text-rose-300" />
+                          <span>{deleteBusy ? "Deleting..." : "Delete"}</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            onReport?.(activeStory);
+                          }}
+                          className="flex w-full items-center gap-3 rounded-[18px] px-3.5 py-3 text-left font-semibold text-white/92 transition hover:bg-white/10"
+                        >
+                          <FiFlag className="text-base text-rose-300" />
+                          <span>Report</span>
+                        </button>
+                      )}
+                      {hasAudio ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMenuOpen(false);
+                            setStoryMuted((prev) => !prev);
+                          }}
+                          className="mt-1 flex w-full items-center gap-3 rounded-[18px] px-3.5 py-3 text-left font-semibold text-white/92 transition hover:bg-white/10"
+                        >
+                          {storyMuted ? <FiVolumeX className="text-base" /> : <FiVolume2 className="text-base" />}
+                          <span>{storyMuted ? "Turn Sound On" : "Mute Audio"}</span>
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
                 <Avatar name={activeGroup.author?.name} avatarUrl={activeGroup.author?.avatarUrl} />
                 <div className="min-w-0">
                   <p className="truncate text-sm font-black">{activeGroup.author?.name}</p>
@@ -259,23 +356,12 @@ export default function ExploreStoryViewer({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                {hasAudio ? (
-                  <button
-                    type="button"
-                    onClick={() => setStoryMuted((prev) => !prev)}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white"
-                    aria-label={storyMuted ? "Unmute story" : "Mute story"}
-                    title={storyMuted ? "Turn sound on" : "Mute story"}
-                  >
-                    {storyMuted ? <FiVolumeX /> : <FiVolume2 />}
-                  </button>
-                ) : null}
+              <div className="flex shrink-0 items-center gap-2">
                 {activeGroup.author?.isSelf ? (
                   <button
                     type="button"
                     onClick={onCreateStory}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/35 text-white"
                   >
                     <FiPlus />
                   </button>
@@ -283,7 +369,7 @@ export default function ExploreStoryViewer({
                 <button
                   type="button"
                   onClick={onClose}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/10 text-white"
+                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/35 text-white"
                 >
                   <FiX />
                 </button>
@@ -374,6 +460,52 @@ export default function ExploreStoryViewer({
               <p className="rounded-[24px] border border-white/10 bg-black/35 px-4 py-3 text-sm leading-7 text-white/90 backdrop-blur">
                 {activeStory.caption}
               </p>
+            ) : null}
+
+            {!activeGroup.author?.isSelf ? (
+              <div className="mt-4 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => onMessage?.(activeGroup.author, activeStory)}
+                  disabled={messageBusy}
+                  className="flex h-14 min-w-0 flex-1 items-center rounded-full border border-white/25 bg-[#090c11]/88 px-5 text-left text-[1.05rem] font-medium text-white/90 backdrop-blur transition hover:bg-[#11151d] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="truncate">{messageBusy ? "Opening chat..." : "Send message"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onLike?.(activeStory)}
+                  disabled={likeBusy}
+                  className={`inline-flex h-12 w-12 items-center justify-center text-[2rem] transition disabled:cursor-not-allowed disabled:opacity-70 ${
+                    liked
+                      ? "text-[#ff3040] [&>svg]:fill-current"
+                      : "text-white hover:text-white/80"
+                  }`}
+                  aria-label={liked ? "Unlike story" : "Like story"}
+                >
+                  <FiHeart />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onMessage?.(activeGroup.author, activeStory)}
+                  disabled={messageBusy}
+                  className="inline-flex h-12 w-12 items-center justify-center text-[2rem] text-white transition hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-label="Reply to story"
+                >
+                  <FiMessageCircle />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => onShare?.(activeStory)}
+                  className="inline-flex h-12 w-12 items-center justify-center text-[2rem] text-white transition hover:text-white/80"
+                  aria-label="Share story"
+                >
+                  <FiSend />
+                </button>
+              </div>
             ) : null}
           </div>
         </div>

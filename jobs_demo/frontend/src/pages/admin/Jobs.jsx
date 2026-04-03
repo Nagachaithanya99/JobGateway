@@ -6,6 +6,7 @@ import Modal from "../../components/common/Modal";
 import JobFilters from "../../components/admin/jobs/JobFilters";
 import { getJobTaxonomy } from "../../data/jobTaxonomy";
 import JobsTable from "../../components/admin/jobs/JobsTable";
+import { showSweetConfirm } from "../../utils/sweetAlert.js";
 import {
   adminCreateJob,
   adminDeleteJob,
@@ -261,7 +262,12 @@ export default function Jobs() {
   };
 
   const handleDelete = async (job) => {
-    const ok = window.confirm(`Delete "${job.title}"? This cannot be undone.`);
+    const ok = await showSweetConfirm({
+      title: "Delete Job?",
+      text: `Delete "${job.title}"? This cannot be undone.`,
+      confirmButtonText: "Delete",
+      tone: "warning",
+    });
     if (!ok) return;
 
     try {

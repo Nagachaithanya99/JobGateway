@@ -90,7 +90,7 @@ export function I18nProvider({ children }) {
         } catch {
           // keep optimistic local language for better responsiveness
         }
-      }, 200);
+      }, 75);
 
       return next;
     },

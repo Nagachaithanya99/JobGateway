@@ -409,7 +409,12 @@ export function HomeFeedPostCard({
       <div className="px-4 pb-4 pt-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4 text-[24px] text-slate-900">
-            <button type="button" disabled={busy[`like-${post.id}`] || safetyHidden} onClick={onLike} className={post.viewerState?.liked ? "text-[#ef4444]" : ""}>
+            <button
+              type="button"
+              disabled={busy[`like-${post.id}`] || safetyHidden}
+              onClick={onLike}
+              className={post.viewerState?.liked ? "text-[#ef4444] [&>svg]:fill-current" : ""}
+            >
               <FiHeart />
             </button>
             <button type="button" onClick={onComment} disabled={safetyHidden}>

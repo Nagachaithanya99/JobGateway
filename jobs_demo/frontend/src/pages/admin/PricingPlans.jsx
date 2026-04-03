@@ -24,6 +24,7 @@ import {
 } from "recharts";
 
 import Modal from "../../components/common/Modal";
+import { showSweetConfirm } from "../../utils/sweetAlert.js";
 import {
   adminDeletePlan,
   adminListPlans,
@@ -390,7 +391,12 @@ export default function PricingPlans() {
   };
 
   const onDeletePlan = async (plan) => {
-    const ok = window.confirm(`Delete "${plan.name}" plan?`);
+    const ok = await showSweetConfirm({
+      title: "Delete Plan?",
+      text: `Delete "${plan.name}" plan?`,
+      confirmButtonText: "Delete",
+      tone: "warning",
+    });
     if (!ok) return;
     try {
       setError("");

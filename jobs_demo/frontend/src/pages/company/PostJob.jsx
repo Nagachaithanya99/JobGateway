@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { FiPlus, FiTrash2 } from "react-icons/fi";
 import Modal from "../../components/common/Modal.jsx";
 import { createCompanyJob } from "../../services/companyService";
+import { showSweetToast } from "../../utils/sweetAlert.js";
 import {
   getDefaultHierarchy,
   getJobTaxonomy,
@@ -154,7 +155,6 @@ export default function PostJob() {
     },
   ]);
   const [publishOpen, setPublishOpen] = useState(false);
-  const [toast, setToast] = useState("");
   const [saving, setSaving] = useState(false);
 
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
@@ -246,8 +246,7 @@ export default function PostJob() {
   }, [form.aiExperienceBand, form.isFresher, form.experienceMinYears, form.experienceMaxYears]);
 
   const actionToast = (msg) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 1300);
+    void showSweetToast(msg, "info", { timer: 1300 });
   };
 
   const saveJob = async (status) => {
@@ -632,11 +631,6 @@ export default function PostJob() {
         </p>
       </Modal>
 
-      {toast ? (
-        <div className="fixed bottom-5 right-5 rounded-lg bg-[#0F172A] px-3 py-2 text-xs font-semibold text-white shadow-lg">
-          {toast}
-        </div>
-      ) : null}
     </div>
   );
 }

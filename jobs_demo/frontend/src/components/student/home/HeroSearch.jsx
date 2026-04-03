@@ -1,4 +1,5 @@
 import { FiBriefcase, FiMapPin, FiSearch } from "react-icons/fi";
+import { showSweetAlert } from "../../../utils/sweetAlert.js";
 
 const cats = [
   { label: "IT & Software", icon: "💻" },
@@ -65,7 +66,7 @@ export default function HeroSearch() {
                   </div>
 
                   <button
-                    onClick={() => alert("Search (API will be connected in next step)")}
+                    onClick={() => void showSweetAlert("Search (API will be connected in next step)")}
                     className="h-[48px] px-6 rounded-xl bg-orange-600 text-white font-bold flex items-center justify-center gap-2 hover:bg-orange-700 transition"
                   >
                     <FiSearch />
@@ -87,14 +88,14 @@ export default function HeroSearch() {
               {/* CTA row */}
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
-                  onClick={() => alert("Apply Job Now (next step)")}
+                  onClick={() => void showSweetAlert("Apply Job Now (next step)")}
                   className="w-full sm:w-auto px-8 py-3 rounded-xl bg-orange-600 text-white font-extrabold hover:bg-orange-700 transition shadow"
                 >
                   Apply Job Now
                 </button>
 
                 <button
-                  onClick={() => alert("Hire Now (next step)")}
+                  onClick={() => void showSweetAlert("Hire Now (next step)")}
                   className="w-full sm:w-auto px-8 py-3 rounded-xl bg-white border border-orange-200 text-orange-700 font-extrabold hover:bg-orange-50 transition"
                 >
                   Hire Now
@@ -125,7 +126,7 @@ export default function HeroSearch() {
               Popular Categories
             </h3>
             <button
-              onClick={() => alert("View all categories (next step)")}
+              onClick={() => void showSweetAlert("View all categories (next step)")}
               className="text-sm font-semibold text-orange-700 hover:text-orange-800"
             >
               View all →
@@ -136,7 +137,7 @@ export default function HeroSearch() {
             {cats.map((c) => (
               <button
                 key={c.label}
-                onClick={() => alert(`Category: ${c.label} (next step)`)}
+                onClick={() => void showSweetAlert(`Category: ${c.label} (next step)`)}
                 className="p-4 rounded-2xl bg-white border border-slate-200 hover:border-orange-200 hover:shadow-sm transition text-left flex items-center gap-3"
               >
                 <div className="h-10 w-10 rounded-xl bg-orange-50 border border-orange-100 grid place-items-center text-lg">

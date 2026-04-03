@@ -11,6 +11,7 @@ import {
   FiXCircle,
 } from "react-icons/fi";
 import Modal from "../../components/common/Modal.jsx";
+import { showSweetConfirm, showSweetPrompt } from "../../utils/sweetAlert.js";
 
 import {
   adminDeleteAdPlan,
@@ -173,7 +174,12 @@ export default function AdsUsers() {
   };
 
   const removePlan = async (plan) => {
-    const ok = window.confirm(`Delete "${plan.name}" ad plan?`);
+    const ok = await showSweetConfirm({
+      title: "Delete Ad Plan?",
+      text: `Delete "${plan.name}" ad plan?`,
+      confirmButtonText: "Delete",
+      tone: "warning",
+    });
     if (!ok) return;
     try {
       await adminDeleteAdPlan(plan.id);
@@ -198,7 +204,18 @@ export default function AdsUsers() {
 
   const onAdStatus = async (row, status) => {
     const rejectedReason =
-      status === "rejected" ? window.prompt("Reason for rejection", row.rejectedReason || "") || "" : "";
+      status === "rejected"
+        ? String(
+            (
+              await showSweetPrompt({
+                title: "Reason for Rejection",
+                inputValue: row.rejectedReason || "",
+                inputPlaceholder: "Enter rejection reason",
+                confirmButtonText: "Save",
+              })
+            ).value || "",
+          )
+        : "";
     try {
       setBusyId(row.id);
       const res = await adminUpdateAdStatus(row.id, { status, rejectedReason });

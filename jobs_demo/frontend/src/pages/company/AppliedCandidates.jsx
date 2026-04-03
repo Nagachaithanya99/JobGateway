@@ -16,6 +16,7 @@ import {
   FiX,
 } from "react-icons/fi";
 import Modal from "../../components/common/Modal.jsx";
+import { showSweetConfirm, showSweetToast } from "../../utils/sweetAlert.js";
 import {
   bulkUpdateApplicationStatus,
   deleteCompanyApplication,
@@ -90,7 +91,6 @@ export default function AppliedCandidates() {
   const [view, setView] = useState("table");
   const [selectedIds, setSelectedIds] = useState([]);
   const [chip, setChip] = useState("");
-  const [toast, setToast] = useState("");
   const [openMenuId, setOpenMenuId] = useState(null);
   const [profileDrawer, setProfileDrawer] = useState({ open: false, app: null });
   const [scheduleModal, setScheduleModal] = useState({ open: false, app: null });
@@ -127,8 +127,7 @@ export default function AppliedCandidates() {
   });
 
   const actionToast = (message) => {
-    setToast(message);
-    setTimeout(() => setToast(""), 1400);
+    void showSweetToast(message, "info", { timer: 1400 });
   };
 
   const fetchApps = async (f = filters) => {
@@ -287,7 +286,12 @@ export default function AppliedCandidates() {
 
   const deleteApplication = async (app) => {
     if (!app?.id) return;
-    const ok = window.confirm(`Delete application for "${app.name}"?`);
+    const ok = await showSweetConfirm({
+      title: "Delete Application?",
+      text: `Delete application for "${app.name}"?`,
+      confirmButtonText: "Delete",
+      tone: "warning",
+    });
     if (!ok) return;
 
     try {
@@ -613,7 +617,6 @@ export default function AppliedCandidates() {
         </div>
       </Modal>
 
-      {toast ? <div className="fixed bottom-5 right-5 rounded-lg bg-[#0F172A] px-3 py-2 text-xs font-semibold text-white shadow-lg">{toast}</div> : null}
     </div>
   );
 }

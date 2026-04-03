@@ -15,11 +15,15 @@ import {
   getCareerPulseStories,
   openCareerPulseMessageThread,
   markCareerPulseStorySeen,
+  deleteCareerPulseStory,
+  toggleCareerPulseStoryLike,
+  reportCareerPulseStory,
   reportCareerPulsePost,
   sendCareerPulseMessage,
   acceptCareerPulseMessageRequest,
   shareCareerPulsePost,
   startCareerPulseMessage,
+  toggleCareerPulseStoryAuthorMute,
   toggleCareerPulseFollow,
   toggleCareerPulseLike,
   toggleCareerPulseSave,
@@ -33,6 +37,10 @@ router.get("/music/tracks", searchCareerPulseMusic);
 router.get("/stories", getCareerPulseStories);
 router.post("/stories", createCareerPulseStory);
 router.post("/stories/:storyId/view", markCareerPulseStorySeen);
+router.delete("/stories/:storyId", deleteCareerPulseStory);
+router.post("/stories/:storyId/like", toggleCareerPulseStoryLike);
+router.post("/stories/:storyId/report", reportCareerPulseStory);
+router.post("/stories/authors/:authorId/mute", toggleCareerPulseStoryAuthorMute);
 router.get("/feed", getCareerPulseFeed);
 router.get("/messages/threads", listCareerPulseMessageThreads);
 router.post("/messages/open", openCareerPulseMessageThread);

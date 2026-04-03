@@ -1,3 +1,5 @@
+import { showSweetAlert } from "../../../utils/sweetAlert.js";
+
 const CATS = [
   { name: "IT & Software", emoji: "💻" },
   { name: "Marketing", emoji: "📣" },
@@ -13,7 +15,7 @@ export default function PopularCategories() {
         <h2 className="text-lg font-extrabold text-slate-900">Popular Categories</h2>
         <button
           className="text-sm font-semibold text-orange-700 hover:text-orange-800"
-          onClick={() => alert("View all categories (next step)")}
+          onClick={() => void showSweetAlert("View all categories (next step)")}
         >
           View all →
         </button>
@@ -23,7 +25,7 @@ export default function PopularCategories() {
         {CATS.map((c) => (
           <button
             key={c.name}
-            onClick={() => alert(`Open category: ${c.name} (next step)`)}
+            onClick={() => void showSweetAlert(`Open category: ${c.name} (next step)`)}
             className="text-left p-4 rounded-2xl bg-white border border-slate-200 hover:border-orange-200 hover:shadow-sm transition"
           >
             <div className="text-2xl">{c.emoji}</div>

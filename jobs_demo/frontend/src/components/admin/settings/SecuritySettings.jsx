@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { FiKey, FiLock, FiShield, FiCheckCircle } from "react-icons/fi";
+import { showSweetToast } from "../../../utils/sweetAlert.js";
 
 function Toggle({ checked, onChange }) {
   return (
@@ -40,7 +41,7 @@ export default function SecuritySettings({ security, onChange }) {
   const submit = (e) => {
     e.preventDefault();
     // UI only
-    alert("Password updated (UI only)");
+    void showSweetToast("Password updated (UI only)", "success");
     setPw({ current: "", next: "", confirm: "" });
   };
 

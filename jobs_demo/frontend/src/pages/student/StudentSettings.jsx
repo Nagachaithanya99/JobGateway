@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Modal from "../../components/common/Modal";
+import { showSweetToast } from "../../utils/sweetAlert.js";
 import {
   studentGetSettings,
   studentSaveSettings,
@@ -97,7 +98,6 @@ export default function StudentSettings() {
   const [meData, setMeData] = useState(null);
 
   const [dirty, setDirty] = useState(false);
-  const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -137,8 +137,7 @@ export default function StudentSettings() {
         if (!alive) return;
         setState(emptyState);
         setInitial(emptyState);
-        setToast(e?.response?.data?.message || "Failed to load settings");
-        setTimeout(() => setToast(""), 1500);
+        void showSweetToast(e?.response?.data?.message || "Failed to load settings", "error", { timer: 1500 });
       } finally {
         if (alive) setLoading(false);
       }
@@ -161,11 +160,9 @@ export default function StudentSettings() {
       setState(res.data);
       setInitial(res.data);
       setDirty(false);
-      setToast("Saved successfully");
-      setTimeout(() => setToast(""), 1300);
+      void showSweetToast("Saved successfully", "success", { timer: 1300 });
     } catch (e) {
-      setToast(e?.response?.data?.message || "Save failed");
-      setTimeout(() => setToast(""), 1500);
+      void showSweetToast(e?.response?.data?.message || "Save failed", "error", { timer: 1500 });
     } finally {
       setSaving(false);
     }
@@ -210,8 +207,7 @@ export default function StudentSettings() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (e) {
-      setToast(e?.response?.data?.message || "Failed to export data");
-      setTimeout(() => setToast(""), 1500);
+      void showSweetToast(e?.response?.data?.message || "Failed to export data", "error", { timer: 1500 });
     }
   };
 
@@ -219,11 +215,9 @@ export default function StudentSettings() {
     try {
       await studentDeleteAccount();
       setDeleteOpen(false);
-      setToast("Account deleted (soft delete). Please logout.");
-      setTimeout(() => setToast(""), 1800);
+      void showSweetToast("Account deleted (soft delete). Please logout.", "success", { timer: 1800 });
     } catch (e) {
-      setToast(e?.response?.data?.message || "Delete failed");
-      setTimeout(() => setToast(""), 1500);
+      void showSweetToast(e?.response?.data?.message || "Delete failed", "error", { timer: 1500 });
     }
   };
 
@@ -733,11 +727,6 @@ export default function StudentSettings() {
         />
       </Modal>
 
-      {toast ? (
-        <div className="fixed bottom-5 right-5 rounded-lg bg-[#0F172A] px-3 py-2 text-xs font-semibold text-white shadow-lg">
-          {toast}
-        </div>
-      ) : null}
     </div>
   );
 }

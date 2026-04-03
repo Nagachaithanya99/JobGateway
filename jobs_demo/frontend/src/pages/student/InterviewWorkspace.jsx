@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { FiCode, FiMaximize, FiMic, FiMicOff, FiMonitor, FiPhoneOff, FiSend, FiVideo, FiWifi } from "react-icons/fi";
+import { showSweetToast } from "../../utils/sweetAlert.js";
 import {
   getStudentInterviewWorkspace,
   studentInterviewChat,
@@ -80,6 +81,11 @@ export default function StudentInterviewWorkspace() {
   const [activeTool, setActiveTool] = useState("chat");
   const [chatText, setChatText] = useState("");
   const [questionText, setQuestionText] = useState("");
+
+  useEffect(() => {
+    if (!msg) return;
+    void showSweetToast(msg, "info", { timer: 1800 });
+  }, [msg]);
   const [codeInput, setCodeInput] = useState("");
   const [codeNote, setCodeNote] = useState("");
   const [codeDirty, setCodeDirty] = useState(false);
@@ -1006,7 +1012,6 @@ export default function StudentInterviewWorkspace() {
           </div>
         </aside>
       </section>
-      {msg ? <div className="fixed bottom-5 right-5 rounded-lg bg-[#0F172A] px-3 py-2 text-xs font-semibold text-white">{msg}</div> : null}
     </div>
   );
 }

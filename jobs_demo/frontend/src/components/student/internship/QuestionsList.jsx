@@ -1,5 +1,6 @@
 import Card from "../../common/Card.jsx";
 import { FiHelpCircle } from "react-icons/fi";
+import { showSweetAlert } from "../../../utils/sweetAlert.js";
 
 const TOPICS = [
   { id: "q1", title: "JavaScript Fundamentals", count: 50 },
@@ -42,7 +43,7 @@ export default function QuestionsList() {
             <button
               className="mt-4 w-full h-9 rounded-lg bg-orange-600 text-white font-extrabold text-sm hover:bg-orange-700 transition"
               onClick={() =>
-                alert(`Start Practice: ${t.title}\n(Practice UI will be added in next step)`)
+                void showSweetAlert(`Start Practice: ${t.title} (Practice UI will be added in next step)`)
               }
             >
               Start Practice

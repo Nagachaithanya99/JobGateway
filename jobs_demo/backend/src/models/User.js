@@ -161,6 +161,13 @@ const adAccessSchema = new Schema(
   { _id: false }
 );
 
+const socialPreferencesSchema = new Schema(
+  {
+    storyMutedAuthors: [{ type: Schema.Types.ObjectId, ref: "User" }],
+  },
+  { _id: false }
+);
+
 /* -----------------------------
    Main User schema
 ------------------------------*/
@@ -236,6 +243,7 @@ const userSchema = new Schema(
     // Student settings
     studentSettings: { type: studentSettingsSchema, default: () => ({}) },
     adAccess: { type: adAccessSchema, default: () => ({}) },
+    socialPreferences: { type: socialPreferencesSchema, default: () => ({}) },
 
     // Admin profile
     adminProfile: {

@@ -11,6 +11,7 @@ import {
   FiX,
 } from "react-icons/fi";
 import Modal from "../../components/common/Modal.jsx";
+import { showSweetToast } from "../../utils/sweetAlert.js";
 import {
   getCompanyShortlisted,
   listCompanyJobs,
@@ -78,7 +79,6 @@ export default function Shortlisted() {
   const [loading, setLoading] = useState(true);
   const [loadErr, setLoadErr] = useState("");
   const [selected, setSelected] = useState([]);
-  const [toast, setToast] = useState("");
   const [chip, setChip] = useState("");
   const [msgBusyId, setMsgBusyId] = useState("");
 
@@ -113,8 +113,7 @@ export default function Shortlisted() {
   };
 
   const notify = (m) => {
-    setToast(m);
-    setTimeout(() => setToast(""), 1300);
+    void showSweetToast(m, "info", { timer: 1300 });
   };
 
   const fetchShortlisted = async (params = {}) => {
@@ -524,7 +523,6 @@ export default function Shortlisted() {
         </div>
       </Modal>
 
-      {toast ? <div className="fixed bottom-5 right-5 rounded-lg bg-[#0F172A] px-3 py-2 text-xs font-semibold text-white shadow-lg">{toast}</div> : null}
     </div>
   );
 }

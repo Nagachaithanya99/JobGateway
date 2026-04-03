@@ -16,6 +16,7 @@ import {
 } from "react-icons/fi";
 import Modal from "../../components/common/Modal";
 import useAuth from "../../hooks/useAuth.js";
+import { showSweetToast } from "../../utils/sweetAlert.js";
 import {
   studentGetResume,
   studentMe,
@@ -122,9 +123,6 @@ export default function ResumeBuilder() {
   const [open, setOpen] = useState("personal");
 
   const [templateModal, setTemplateModal] = useState(false);
-  const [savedToast, setSavedToast] = useState(false);
-  const [infoToast, setInfoToast] = useState("");
-
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [downloading, setDownloading] = useState(false);
@@ -249,8 +247,7 @@ export default function ResumeBuilder() {
       setSaving(true);
       setErr("");
       await studentSaveResume(data);
-      setSavedToast(true);
-      setTimeout(() => setSavedToast(false), 1400);
+        void showSweetToast("Draft saved", "success", { timer: 1400 });
     } catch (e) {
       setErr(e?.response?.data?.message || e?.message || "Failed to save resume");
     } finally {
@@ -374,8 +371,7 @@ export default function ResumeBuilder() {
                               .trim()
                               .replace(/^\w/, (c) => c.toUpperCase());
                             setData((p) => ({ ...p, summary: next }));
-                            setInfoToast("Summary refined");
-                            setTimeout(() => setInfoToast(""), 1400);
+                            void showSweetToast("Summary refined", "success", { timer: 1400 });
                           }}
                           className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-semibold text-[#2563EB] hover:bg-blue-50"
                         >
@@ -806,8 +802,7 @@ export default function ResumeBuilder() {
                   if (!safeArray(data.experience).length && !safeArray(data.projects).length) {
                     issues.push("Add experience or projects to show impact.");
                   }
-                  setInfoToast(issues.length ? `ATS issues: ${issues.length}` : "ATS check passed");
-                  setTimeout(() => setInfoToast(""), 1800);
+                  void showSweetToast(issues.length ? `ATS issues: ${issues.length}` : "ATS check passed", issues.length ? "warning" : "success", { timer: 1800 });
                 }}
                 className="mt-3 rounded-lg bg-[#2563EB] px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
               >
@@ -844,16 +839,6 @@ export default function ResumeBuilder() {
         </div>
       </Modal>
 
-      {savedToast ? (
-        <div className="fixed bottom-5 right-5 rounded-lg bg-[#0F172A] px-3 py-2 text-xs font-semibold text-white shadow-lg">
-          Draft saved
-        </div>
-      ) : null}
-      {infoToast ? (
-        <div className="fixed bottom-16 right-5 rounded-lg bg-[#2563EB] px-3 py-2 text-xs font-semibold text-white shadow-lg">
-          {infoToast}
-        </div>
-      ) : null}
     </div>
   );
 }

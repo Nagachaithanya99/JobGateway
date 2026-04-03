@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { FiDownload, FiPlus, FiTrash2 } from "react-icons/fi";
 import Modal from "../../components/common/Modal.jsx";
+import { showSweetPrompt, showSweetToast } from "../../utils/sweetAlert.js";
 import {
   getCompanySettingsMe,
   updateCompanyProfile,
@@ -89,7 +90,6 @@ function Badge({ tone = "slate", children }) {
 
 export default function Settings() {
   const [activeTab, setActiveTab] = useState("Profile");
-  const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -172,8 +172,7 @@ export default function Settings() {
   const [otpVerifying, setOtpVerifying] = useState(false);
 
   const notify = (message) => {
-    setToast(message);
-    setTimeout(() => setToast(""), 1400);
+    void showSweetToast(message, "info", { timer: 1400 });
   };
 
   // --- Load from backend ---
@@ -667,8 +666,15 @@ export default function Settings() {
             action={
               <button
                 onClick={async () => {
-                  const last4 = window.prompt("Enter last 4 digits of card", "");
-                  if (!last4) return;
+                  const { isConfirmed, value } = await showSweetPrompt({
+                    title: "Update Payment Method",
+                    text: "Enter last 4 digits of card",
+                    inputValue: "",
+                    inputPlaceholder: "1234",
+                    confirmButtonText: "Update",
+                  });
+                  const last4 = String(value || "").trim();
+                  if (!isConfirmed || !last4) return;
                   try {
                     setSaving(true);
                     await updateCompanyBilling({ cardLast4: String(last4).slice(-4) });
@@ -897,11 +903,6 @@ export default function Settings() {
         </div>
       </Modal>
 
-      {toast ? (
-        <div className="fixed bottom-5 right-5 z-[70] rounded-lg bg-[#0F172A] px-3 py-2 text-xs font-semibold text-white shadow-lg">
-          {toast}
-        </div>
-      ) : null}
     </div>
   );
 }

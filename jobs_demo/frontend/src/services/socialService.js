@@ -68,6 +68,26 @@ export async function markCareerPulseStoryViewed(storyId) {
   return data;
 }
 
+export async function deleteCareerPulseStory(storyId) {
+  const { data } = await api.delete(`/social/stories/${storyId}`);
+  return data;
+}
+
+export async function toggleCareerPulseStoryLike(storyId) {
+  const { data } = await api.post(`/social/stories/${storyId}/like`);
+  return data;
+}
+
+export async function reportCareerPulseStory(storyId, payload = {}) {
+  const { data } = await api.post(`/social/stories/${storyId}/report`, payload);
+  return data;
+}
+
+export async function toggleCareerPulseStoryAuthorMute(authorId) {
+  const { data } = await api.post(`/social/stories/authors/${authorId}/mute`);
+  return data;
+}
+
 export async function createCareerPulsePost(payload = {}) {
   const { data } = await api.post("/social/posts", payload);
   return data;

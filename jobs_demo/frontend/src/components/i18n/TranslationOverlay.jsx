@@ -1,16 +1,49 @@
-import Loader from "../common/Loader.jsx";
+import { useEffect, useRef } from "react";
+import Swal from "sweetalert2";
 import { useI18n } from "../../context/I18nContext.jsx";
+
+const TRANSLATION_LOADER_CLASS = "translation-loader-popup";
 
 export default function TranslationOverlay() {
   const { translating } = useI18n();
+  const openedRef = useRef(false);
 
-  if (!translating) return null;
+  useEffect(() => {
+    if (translating) {
+      openedRef.current = true;
+      void Swal.fire({
+        title: "Updating language...",
+        text: "Please wait a moment.",
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        showConfirmButton: false,
+        customClass: {
+          popup: TRANSLATION_LOADER_CLASS,
+        },
+        didOpen: () => {
+          Swal.showLoading();
+        },
+      });
+      return undefined;
+    }
 
-  return (
-    <div className="fixed inset-0 z-[140] flex items-center justify-center bg-white/96 backdrop-blur-sm" data-no-translate="true">
-      <div className="w-[min(92vw,360px)] rounded-2xl border border-slate-200 bg-white px-5 py-5 shadow-2xl">
-        <Loader label="Updating language..." />
-      </div>
-    </div>
+    const popup = Swal.getPopup();
+    if (openedRef.current && popup?.classList.contains(TRANSLATION_LOADER_CLASS)) {
+      Swal.close();
+    }
+    openedRef.current = false;
+    return undefined;
+  }, [translating]);
+
+  useEffect(
+    () => () => {
+      const popup = Swal.getPopup();
+      if (openedRef.current && popup?.classList.contains(TRANSLATION_LOADER_CLASS)) {
+        Swal.close();
+      }
+    },
+    [],
   );
+
+  return null;
 }

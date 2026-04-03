@@ -10,6 +10,7 @@ import {
   FiUser,
 } from "react-icons/fi";
 import { getPublicContent } from "../../services/contentService.js";
+import { showSweetToast } from "../../utils/sweetAlert.js";
 
 export default function ContactPage({ embedded = false }) {
   const wrapCls = embedded
@@ -55,7 +56,7 @@ export default function ContactPage({ embedded = false }) {
 
   const submit = (e) => {
     e.preventDefault();
-    alert("Message submitted (connect backend in next step).");
+    void showSweetToast("Message submitted (connect backend in next step).", "success");
     setForm({ name: "", email: "", message: "" });
   };
 

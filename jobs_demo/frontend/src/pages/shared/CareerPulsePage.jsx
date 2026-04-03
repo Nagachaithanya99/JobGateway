@@ -6,13 +6,16 @@ import {
   FiBookmark,
   FiBell,
   FiChevronDown,
+  FiChevronRight,
   FiChevronUp,
   FiClock,
+  FiCopy,
   FiFlag,
   FiFileText,
   FiImage,
   FiHome,
   FiLoader,
+  FiMail,
   FiMessageSquare,
   FiMusic,
   FiPause,
@@ -26,6 +29,7 @@ import {
   FiVideo,
   FiX,
 } from "react-icons/fi";
+import { FaFacebookF, FaWhatsapp } from "react-icons/fa";
 import Modal from "../../components/common/Modal.jsx";
 import CareerPulseCommentsModal from "../../components/social/CareerPulseCommentsModal.jsx";
 import ExploreStoryViewer from "../../components/social/ExploreStoryViewer.jsx";
@@ -45,7 +49,6 @@ import {
   StoryStrip,
   SuggestedList,
 } from "../../components/social/ExploreHomeUi.jsx";
-import Toast from "../../components/common/Toast.jsx";
 import { analyzeMediaFileSafety } from "../../utils/mediaModeration.js";
 import { scanUnsafeText } from "../../utils/textModeration.js";
 import {
@@ -53,6 +56,7 @@ import {
   addCareerPulseComment,
   createCareerPulsePost,
   createCareerPulseStory,
+  deleteCareerPulseStory,
   getCareerPulseMessageThread,
   getCareerPulseMessageThreads,
   getCareerPulseComments,
@@ -62,8 +66,10 @@ import {
   getCareerPulseStories,
   markCareerPulseMessageThreadRead,
   markCareerPulseNotificationsRead,
+  toggleCareerPulseStoryLike,
   markCareerPulseStoryViewed,
   openCareerPulseMessageThread,
+  reportCareerPulseStory,
   reportCareerPulsePost,
   sendCareerPulseMessage,
   shareCareerPulsePost,
@@ -118,6 +124,10 @@ function defaultStoryComposer() {
 
 function defaultStoryViewer() {
   return { open: false, groupIndex: 0, storyIndex: 0 };
+}
+
+function defaultShareSheet() {
+  return { open: false, kind: "", story: null, post: null };
 }
 
 function defaultFeed() {
@@ -284,6 +294,22 @@ function markStorySeenGroups(groups = [], storyId) {
   });
 }
 
+function patchStoryGroups(groups = [], storyId, updater) {
+  return groups.map((group) => ({
+    ...group,
+    items: (group.items || []).map((item) => (item.id === storyId ? updater(item, group) : item)),
+  }));
+}
+
+function removeStoryFromGroups(groups = [], storyId) {
+  return groups
+    .map((group) => ({
+      ...group,
+      items: (group.items || []).filter((item) => item.id !== storyId),
+    }))
+    .filter((group) => (group.items || []).length > 0);
+}
+
 export default function CareerPulsePage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -330,7 +356,10 @@ export default function CareerPulsePage() {
       return [];
     }
   });
+  const [mutedStoryAuthors, setMutedStoryAuthors] = useState({});
+  const [hiddenStoryIds, setHiddenStoryIds] = useState({});
   const [storyViewer, setStoryViewer] = useState(defaultStoryViewer());
+  const [shareSheet, setShareSheet] = useState(defaultShareSheet());
   const [composerOpen, setComposerOpen] = useState(false);
   const [composer, setComposer] = useState(defaultComposer());
   const [composerPreview, setComposerPreview] = useState("");
@@ -342,8 +371,6 @@ export default function CareerPulsePage() {
   const [busy, setBusy] = useState({});
   const [mutedPosts, setMutedPosts] = useState({});
   const [expandedCaptions, setExpandedCaptions] = useState({});
-  const [toast, setToast] = useState({ show: false, message: "", tone: "dark" });
-
   const reelViewportRef = useRef(null);
   const reelRefs = useRef([]);
   const reelInteractionLockRef = useRef(false);
@@ -429,7 +456,20 @@ export default function CareerPulsePage() {
       null,
     [feed.posts, savedFeed.posts, reportDialog.postId],
   );
-  const storyGroups = useMemo(() => (Array.isArray(stories.groups) ? stories.groups : []), [stories.groups]);
+  const storyGroups = useMemo(
+    () =>
+      (Array.isArray(stories.groups) ? stories.groups : [])
+        .map((group) => ({
+          ...group,
+          items: (group.items || []).filter((item) => !hiddenStoryIds[item.id]),
+        }))
+        .filter(
+          (group) =>
+            (group.author?.isSelf || !mutedStoryAuthors[group.author?.id]) &&
+            (group.items || []).length > 0,
+        ),
+    [stories.groups, hiddenStoryIds, mutedStoryAuthors],
+  );
   const activeStoryGroup = useMemo(
     () => storyGroups[storyViewer.groupIndex] || null,
     [storyGroups, storyViewer.groupIndex],
@@ -438,7 +478,35 @@ export default function CareerPulsePage() {
     () => activeStoryGroup?.items?.[storyViewer.storyIndex] || null,
     [activeStoryGroup, storyViewer.storyIndex],
   );
+  const activeStoryLiked = Boolean(activeStory?.viewerState?.liked);
+  const hasExploreRightSidebar = viewMode === "reels" || homeMode === "home";
+  const activeShareUrl = shareSheet.story?.id
+    ? `${window.location.origin}${location.pathname}#story-${shareSheet.story.id}`
+    : shareSheet.post?.id
+      ? `${window.location.origin}${location.pathname}#post-${shareSheet.post.id}`
+      : "";
   const storyExpiryInputMin = toDatetimeLocalInputValue(Date.now() + 60 * 1000);
+  const setToast = ({ show = true, tone = "info", message = "" } = {}) => {
+    if (!show || !String(message || "").trim()) return;
+
+    const iconMap = {
+      success: "success",
+      error: "error",
+      warning: "warning",
+      dark: "info",
+      info: "info",
+    };
+
+    void Swal.fire({
+      toast: true,
+      position: "top-end",
+      icon: iconMap[tone] || "info",
+      title: String(message || "").trim(),
+      showConfirmButton: false,
+      timer: tone === "error" ? 3200 : 2400,
+      timerProgressBar: true,
+    });
+  };
   const canAttachStoryMusic = Boolean(storyComposer.file && String(storyComposer.file?.type || "").startsWith("image/"));
   const selectedStoryMusic = storyComposer.music && storyComposer.music.audioUrl ? storyComposer.music : null;
   const selectedStoryMusicDuration = Math.max(3, Math.floor(Number(selectedStoryMusic?.durationSeconds || 0) || 15));
@@ -776,10 +844,16 @@ export default function CareerPulsePage() {
   const loadStories = async ({ silent = false } = {}) => {
     try {
       const data = await getCareerPulseStories();
+      const mutedAuthorMap = Object.fromEntries(
+        (Array.isArray(data?.viewerPreferences?.mutedAuthorIds) ? data.viewerPreferences.mutedAuthorIds : [])
+          .filter(Boolean)
+          .map((id) => [String(id), true]),
+      );
       setStories({
         groups: Array.isArray(data?.groups) ? data.groups : [],
         ttlHours: Number(data?.ttlHours || 24),
       });
+      setMutedStoryAuthors(mutedAuthorMap);
       return data;
     } catch (error) {
       if (!silent) {
@@ -1306,6 +1380,205 @@ export default function CareerPulsePage() {
 
   const navigateStoryViewer = (groupIndex, storyIndex) => {
     setStoryViewer({ open: true, groupIndex, storyIndex });
+  };
+
+  const handleStoryMessage = async (author) => {
+    const targetId = String(author?.id || "");
+    if (!targetId) return;
+    await handleMessage(targetId);
+    closeStoryViewer();
+  };
+
+  const handleStoryLike = async (story) => {
+    const storyId = String(story?.id || "");
+    if (!storyId || story?.author?.isSelf) return;
+
+    try {
+      setBusyFlag(`story-like-${storyId}`, true);
+      const result = await toggleCareerPulseStoryLike(storyId);
+      setStories((prev) => ({
+        ...prev,
+        groups: patchStoryGroups(prev.groups, storyId, (item) => ({
+          ...item,
+          metrics: { ...item.metrics, likes: Number(result?.likes || 0) },
+          viewerState: { ...item.viewerState, liked: Boolean(result?.liked) },
+        })),
+      }));
+    } catch (error) {
+      setToast({
+        show: true,
+        tone: "error",
+        message: error?.response?.data?.message || "Could not update story like right now.",
+      });
+    } finally {
+      setBusyFlag(`story-like-${storyId}`, false);
+    }
+  };
+
+  const handleStoryShare = async (story) => {
+    const storyId = String(story?.id || "");
+    if (!storyId) return;
+    setShareSheet({ open: true, kind: "story", story, post: null });
+  };
+
+  const closeShareSheet = () => setShareSheet(defaultShareSheet());
+
+  const handleShareOption = async (channel) => {
+    const story = shareSheet.story;
+    const post = shareSheet.post;
+    const shareUrl = story?.id
+      ? `${window.location.origin}${location.pathname}#story-${story.id}`
+      : post?.id
+        ? `${window.location.origin}${location.pathname}#post-${post.id}`
+        : "";
+    if (!shareUrl) return;
+
+    const shareText = story
+      ? `${story?.author?.name || "Explore user"} shared a story on Explore`
+      : `${post?.author?.name || "Explore user"} shared a post on Explore`;
+    const encodedUrl = encodeURIComponent(shareUrl);
+    const encodedText = encodeURIComponent(shareText);
+
+    if (channel === "copy") {
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        setToast({ show: true, tone: "success", message: "Story link copied." });
+      } catch {
+        setToast({ show: true, tone: "error", message: "Unable to copy the story link right now." });
+      }
+      return;
+    }
+
+    if (channel === "post") {
+      closeShareSheet();
+      setComposer((prev) => ({
+        ...prev,
+        type: "text",
+        content: `${shareText}\n${shareUrl}`,
+      }));
+      setComposerOpen(true);
+      return;
+    }
+
+    const targets = {
+      whatsapp: `https://wa.me/?text=${encodedText}%20${encodedUrl}`,
+      facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`,
+      x: `https://twitter.com/intent/tweet?text=${encodedText}&url=${encodedUrl}`,
+      email: `mailto:?subject=${encodeURIComponent("Explore story")}&body=${encodedText}%0A%0A${encodedUrl}`,
+      embed: shareUrl,
+      more: shareUrl,
+    };
+
+    if ((channel === "more" || channel === "embed") && navigator.share) {
+      try {
+        await navigator.share({ title: "Explore story", text: shareText, url: shareUrl });
+        return;
+      } catch {
+        // Fall back to copy below.
+      }
+    }
+
+    if (channel === "embed") {
+      try {
+        await navigator.clipboard.writeText(`<a href="${shareUrl}">View Explore story</a>`);
+        setToast({ show: true, tone: "success", message: "Embed code copied." });
+      } catch {
+        setToast({ show: true, tone: "error", message: "Unable to copy embed code right now." });
+      }
+      return;
+    }
+
+    if (targets[channel]) {
+      window.open(targets[channel], "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const handleStoryReport = async (story) => {
+    const storyId = String(story?.id || "");
+    if (!storyId) return;
+
+    if (story?.author?.isSelf) {
+      void Swal.fire({
+        icon: "info",
+        title: "You can't report this story",
+        text: "Your own story cannot be reported from this account.",
+        confirmButtonColor: "#111111",
+      });
+      return;
+    }
+
+    const { isConfirmed } = await Swal.fire({
+      icon: "warning",
+      title: "Report this story?",
+      text: "This story will be hidden from your Explore stories right away.",
+      showCancelButton: true,
+      confirmButtonText: "Report story",
+      confirmButtonColor: "#111111",
+      cancelButtonColor: "#cbd5e1",
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      setBusyFlag(`story-report-${storyId}`, true);
+      const result = await reportCareerPulseStory(storyId, { reason: "Spam or Misleading" });
+      setHiddenStoryIds((prev) => ({ ...prev, [storyId]: true }));
+      closeStoryViewer();
+      void loadStories({ silent: true });
+      setToast({
+        show: true,
+        tone: "success",
+        message: result?.message || "Story reported and hidden from your view.",
+      });
+    } catch (error) {
+      setToast({
+        show: true,
+        tone: "error",
+        message: error?.response?.data?.message || "Could not report this story right now.",
+      });
+    } finally {
+      setBusyFlag(`story-report-${storyId}`, false);
+    }
+  };
+
+  const handleStoryDelete = async (story) => {
+    const storyId = String(story?.id || "");
+    if (!storyId) return;
+
+    const { isConfirmed } = await Swal.fire({
+      icon: "warning",
+      title: "Delete this story?",
+      text: "This story will be removed immediately.",
+      showCancelButton: true,
+      confirmButtonText: "Delete story",
+      confirmButtonColor: "#111111",
+      cancelButtonColor: "#cbd5e1",
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      setBusyFlag(`story-delete-${storyId}`, true);
+      const result = await deleteCareerPulseStory(storyId);
+      setStories((prev) => ({
+        ...prev,
+        groups: removeStoryFromGroups(prev.groups, storyId),
+      }));
+      closeStoryViewer();
+      setToast({
+        show: true,
+        tone: "success",
+        message: result?.message || "Story deleted.",
+      });
+    } catch (error) {
+      setToast({
+        show: true,
+        tone: "error",
+        message: error?.response?.data?.message || "Could not delete this story right now.",
+      });
+    } finally {
+      setBusyFlag(`story-delete-${storyId}`, false);
+    }
   };
 
   const enterReels = (postId = "", { source = "" } = {}) => {
@@ -1865,17 +2138,19 @@ export default function CareerPulsePage() {
     try {
       setBusyFlag(`share-${postId}`, true);
       const result = await shareCareerPulsePost(postId);
-      const shareUrl = `${window.location.origin}${location.pathname}#post-${postId}`;
-      try {
-        await navigator.clipboard.writeText(shareUrl);
-      } catch {
-        // Clipboard is best effort.
-      }
+      const sourcePost =
+        feed.posts.find((post) => post.id === postId) ||
+        savedFeed.posts.find((post) => post.id === postId) ||
+        null;
       patchPostAcrossCollections(postId, (post) => ({
         ...post,
         metrics: { ...post.metrics, shares: Number(result?.shares || 0) },
       }));
-      setToast({ show: true, tone: "success", message: "Post link copied. Share it anywhere." });
+      if (sourcePost) {
+        setShareSheet({ open: true, kind: "post", story: null, post: sourcePost });
+      } else {
+        setToast({ show: true, tone: "success", message: "Share options are ready." });
+      }
     } catch (error) {
       setToast({ show: true, tone: "error", message: error?.response?.data?.message || "Unable to share this post right now." });
     } finally {
@@ -2354,14 +2629,24 @@ export default function CareerPulsePage() {
           )}
         </div>
 
-        <div className="grid gap-0 overflow-hidden xl:grid-cols-[244px_minmax(0,1fr)_360px] xl:rounded-[36px] xl:border xl:border-black/10 xl:bg-white xl:shadow-[0_30px_90px_rgba(15,23,42,0.08)]">
+        <div
+          className={`grid gap-0 overflow-hidden xl:rounded-[36px] xl:border xl:border-black/10 xl:bg-white xl:shadow-[0_30px_90px_rgba(15,23,42,0.08)] ${
+            hasExploreRightSidebar
+              ? "xl:grid-cols-[244px_minmax(0,1fr)_360px]"
+              : "xl:grid-cols-[244px_minmax(0,1fr)]"
+          }`}
+        >
           <aside className="hidden xl:block">
             <ExploreHomeRail activeKey={activeNavKey} onAction={handleRailAction} viewer={viewer} />
           </aside>
 
           <main className="min-w-0 bg-[#fafafa]">
             {viewMode === "home" ? (
-              <div className="mx-auto flex max-w-[760px] flex-col gap-5 pb-10">
+              <div
+                className={`flex flex-col gap-5 pb-10 ${
+                  homeMode === "home" ? "mx-auto max-w-[760px]" : "w-full max-w-none"
+                }`}
+              >
                 <div className="sticky top-0 z-10 border-b border-black/5 bg-[#fafafa]/95 px-4 pb-4 pt-5 backdrop-blur sm:px-6">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
@@ -2557,7 +2842,7 @@ export default function CareerPulsePage() {
             ) : null}
           </main>
 
-          <aside className="hidden xl:block bg-white">
+          <aside className={`${hasExploreRightSidebar ? "hidden xl:block" : "hidden"} bg-white`}>
             <div className="sticky top-0 space-y-5 px-5 py-6">
               {viewMode === "home" ? (
                 homeMode === "home" ? (
@@ -2613,38 +2898,7 @@ export default function CareerPulsePage() {
                       </button>
                     </SidePanelCard>
                   </>
-                ) : (
-                  <>
-                    <SidePanelCard>
-                      <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">Saved Collection</p>
-                      <h3 className="mt-2 text-lg font-black text-slate-900">Your bookmarked posts</h3>
-                      <p className="mt-3 text-sm leading-7 text-slate-600">
-                        Reels, videos, images, and other posts you save show up here in one grid. Open any media to start playback from your saved sequence.
-                      </p>
-                      <div className="mt-5 grid grid-cols-2 gap-3">
-                        <MetricBlock label="Saved Posts" value={savedFeed.posts.length} />
-                        <MetricBlock label="Saved Reels" value={savedReelPosts.length} />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => enterReels("", { source: "saved-first" })}
-                        className="mt-5 inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-4 py-2.5 text-sm font-extrabold text-slate-700"
-                      >
-                        <FiPlayCircle />
-                        Play Saved Reels
-                      </button>
-                    </SidePanelCard>
-
-                    <SidePanelCard>
-                      <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">Playback Flow</p>
-                      <div className="mt-4 space-y-3 text-sm text-slate-600">
-                        <p>1. Saved reels play first in the order they appear in your saved grid.</p>
-                        <p>2. Keep scrolling and playback automatically continues with the regular reel feed.</p>
-                        <p>3. No redirect or hard break between saved and regular reels.</p>
-                      </div>
-                    </SidePanelCard>
-                  </>
-                )
+                ) : null
               ) : (
                 <>
                   <SidePanelCard>
@@ -2749,8 +3003,84 @@ export default function CareerPulsePage() {
         onClose={closeStoryViewer}
         onNavigate={navigateStoryViewer}
         onCreateStory={openStoryComposer}
+        onMessage={handleStoryMessage}
+        onLike={handleStoryLike}
+        onReport={handleStoryReport}
+        onShare={handleStoryShare}
+        onDelete={handleStoryDelete}
+        liked={activeStoryLiked}
+        messageBusy={Boolean(busy[`message-${activeStoryGroup?.author?.id}`])}
+        likeBusy={Boolean(busy[`story-like-${activeStory?.id}`])}
+        deleteBusy={Boolean(busy[`story-delete-${activeStory?.id}`])}
         timeAgo={timeAgo}
       />
+
+      <Modal
+        open={shareSheet.open}
+        onClose={closeShareSheet}
+        title="Share in a post"
+        widthClass="max-w-[620px]"
+        zIndexClass="z-[140]"
+      >
+        <div className="space-y-6">
+          <div className="flex flex-col items-center justify-center gap-3 text-center">
+            <button
+              type="button"
+              onClick={() => void handleShareOption("post")}
+              className="rounded-full bg-slate-950 px-7 py-3 text-base font-black text-white transition hover:bg-slate-800"
+            >
+              Create post
+            </button>
+            <p className="text-sm text-slate-500">
+              {shareSheet.kind === "story"
+                ? "Share this story to your Explore feed or send it outside the app."
+                : "Share this post to your Explore feed or send it outside the app."}
+            </p>
+          </div>
+
+          <div className="border-t border-slate-200 pt-5">
+            <p className="mb-5 text-[1.65rem] font-black text-slate-900">Share</p>
+            <div className="flex flex-wrap gap-5">
+              {[
+                { key: "embed", label: "Embed", icon: <span className="text-xl font-black">&lt;/&gt;</span>, className: "bg-slate-100 text-slate-700" },
+                { key: "whatsapp", label: "WhatsApp", icon: <FaWhatsapp className="text-[1.7rem]" />, className: "bg-[#25D366] text-white" },
+                { key: "facebook", label: "Facebook", icon: <FaFacebookF className="text-[1.55rem]" />, className: "bg-[#4267B2] text-white" },
+                { key: "x", label: "X", icon: <span className="text-[1.6rem] font-black">X</span>, className: "bg-black text-white" },
+                { key: "email", label: "Email", icon: <FiMail className="text-[1.55rem]" />, className: "bg-slate-400 text-white" },
+                { key: "more", label: "More", icon: <FiChevronRight className="text-[1.7rem]" />, className: "bg-orange-500 text-white" },
+              ].map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  onClick={() => void handleShareOption(option.key)}
+                  className="flex w-[88px] flex-col items-center gap-3 text-center"
+                >
+                  <span className={`flex h-16 w-16 items-center justify-center rounded-full ${option.className}`}>
+                    {option.icon}
+                  </span>
+                  <span className="text-sm font-medium text-slate-700">{option.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-[22px] border border-slate-200 bg-slate-50 p-3">
+            <div className="flex items-center gap-3">
+              <div className="min-w-0 flex-1 rounded-[18px] bg-white px-4 py-3 text-sm text-slate-700 shadow-inner">
+                <p className="truncate">{activeShareUrl}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void handleShareOption("copy")}
+                className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-5 py-3 text-sm font-black text-white transition hover:bg-blue-700"
+              >
+                <FiCopy />
+                <span>Copy</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </Modal>
 
       <Modal
         open={storyComposerOpen}
@@ -3428,7 +3758,6 @@ export default function CareerPulsePage() {
         AvatarComponent={Avatar}
       />
 
-      <Toast show={toast.show} tone={toast.tone} message={toast.message} onClose={() => setToast((prev) => ({ ...prev, show: false }))} />
     </div>
   );
 }

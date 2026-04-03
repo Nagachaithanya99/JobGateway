@@ -11,6 +11,7 @@ import {
   updateCompanyProfile,
   deleteCompanyAccount,
 } from "../../services/companyService.js";
+import { showSweetPrompt, showSweetToast } from "../../utils/sweetAlert.js";
 
 function Section({ title, children, action }) {
   return (
@@ -53,7 +54,6 @@ export default function Profile() {
   const [editMode, setEditMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [toast, setToast] = useState("");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteText, setDeleteText] = useState("");
 
@@ -74,8 +74,7 @@ export default function Profile() {
   const set = (k, v) => setForm((s) => ({ ...s, [k]: v }));
 
   const notify = (msg) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 1500);
+    void showSweetToast(msg, "info", { timer: 1500 });
   };
 
   /* =========================================
@@ -199,10 +198,15 @@ export default function Profile() {
             {editMode && (
               <button
                 type="button"
-                onClick={() => {
-                  const next = window.prompt("Enter company logo URL", form.logoUrl || "");
-                  if (next == null) return;
-                  set("logoUrl", next.trim());
+                onClick={async () => {
+                  const { isConfirmed, value } = await showSweetPrompt({
+                    title: "Company Logo URL",
+                    inputValue: form.logoUrl || "",
+                    inputPlaceholder: "https://example.com/logo.png",
+                    confirmButtonText: "Save",
+                  });
+                  if (!isConfirmed) return;
+                  set("logoUrl", String(value || "").trim());
                 }}
                 className="absolute -right-1 -top-1 inline-flex h-7 w-7 items-center justify-center rounded-full border border-blue-200 bg-white text-[#2563EB] hover:bg-blue-50"
               >
@@ -380,11 +384,6 @@ export default function Profile() {
         </div>
       </Modal>
 
-      {toast && (
-        <div className="fixed bottom-5 right-5 z-[70] rounded-lg bg-[#0F172A] px-3 py-2 text-xs font-semibold text-white shadow-lg">
-          {toast}
-        </div>
-      )}
     </div>
   );
 }

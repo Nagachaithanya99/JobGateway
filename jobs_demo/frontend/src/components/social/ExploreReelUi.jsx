@@ -346,12 +346,12 @@ function ReelActionButton({ icon, label, onClick, busy = false, active = false, 
 
   const activeButtonClass =
     tone === "like"
-      ? "border-[#ec4899] bg-[#ec4899] text-white shadow-[0_18px_44px_rgba(236,72,153,0.36)]"
+      ? "border-[#ef4444] bg-[#ef4444] text-white [&>svg]:fill-current shadow-[0_18px_44px_rgba(239,68,68,0.36)]"
       : tone === "audio"
         ? "border-[#111111] bg-[#111111] text-white"
         : "border-[#111111] bg-[#111111] text-white";
 
-  const labelClass = tone === "like" && active ? "text-[#ec4899]" : "text-slate-600";
+  const labelClass = tone === "like" && active ? "text-[#ef4444]" : "text-slate-600";
 
   return (
     <div className="flex flex-col items-center gap-1.5">

@@ -1,5 +1,6 @@
 import Card from "../../common/Card.jsx";
 import { FiClock, FiPlayCircle, FiTarget } from "react-icons/fi";
+import { showSweetAlert } from "../../../utils/sweetAlert.js";
 
 const MOCKS = [
   { id: "m1", title: "JavaScript Mock Test", mins: 60, questions: 50 },
@@ -78,7 +79,7 @@ export default function MockTests() {
               <button
                 className="mt-4 w-full h-9 rounded-lg bg-orange-600 text-white font-extrabold text-sm hover:bg-orange-700 transition inline-flex items-center justify-center gap-2"
                 onClick={() =>
-                  alert(`Start Test: ${m.title}\n(Test engine will be added in next step)`)
+                  void showSweetAlert(`Start Test: ${m.title} (Test engine will be added in next step)`)
                 }
               >
                 <FiPlayCircle /> Start Test
@@ -119,7 +120,7 @@ export default function MockTests() {
               <button
                 className="mt-4 w-full h-10 rounded-lg bg-orange-600 text-white font-extrabold text-sm hover:bg-orange-700 transition"
                 onClick={() =>
-                  alert(`${t.btn}: ${t.title}\n(Feature will be added in next step)`)
+                  void showSweetAlert(`${t.btn}: ${t.title} (Feature will be added in next step)`)
                 }
               >
                 {t.btn}

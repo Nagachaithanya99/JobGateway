@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import useAuth from "../../hooks/useAuth";
+import { showSweetAlert } from "../../utils/sweetAlert.js";
 
 // role: "admin" | "company" | "student"
 // redirectTo: "/admin" | "/company" | "/student"
@@ -22,9 +23,9 @@ export default function RoleLoginGuard({ role, redirectTo, children }) {
     }
 
     // ✅ logged in but different role -> block + go to their dashboard
-    alert(
-      `You already logged in as "${myRole}". Please logout to login as "${role}".`
-    );
+    void showSweetAlert(`You already logged in as "${myRole}". Please logout to login as "${role}".`, "warning", {
+      title: "Already Logged In",
+    });
     navigate(`/${myRole}`, { replace: true, state: { from: loc.pathname } });
   }, [loading, isAuthed, user, role, redirectTo, navigate, loc.pathname]);
 

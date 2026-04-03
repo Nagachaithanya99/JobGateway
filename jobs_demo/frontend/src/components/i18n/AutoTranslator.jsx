@@ -306,7 +306,6 @@ export default function AutoTranslator() {
 
       if (shouldLockUi) {
         setTranslating(true);
-        root.style.visibility = "hidden";
       }
 
       try {
@@ -326,9 +325,6 @@ export default function AutoTranslator() {
         prevPathnameRef.current = location.pathname;
       } finally {
         busyRef.current = false;
-        if (shouldLockUi) {
-          root.style.visibility = "";
-        }
         if (!cancelled && currentToken === runTokenRef.current && shouldLockUi) {
           setTranslating(false);
         }
@@ -338,7 +334,7 @@ export default function AutoTranslator() {
     const observer = new MutationObserver(() => {
       if (busyRef.current) return;
       if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(run, 50);
+      timerRef.current = setTimeout(run, 15);
     });
 
     run();
@@ -351,7 +347,6 @@ export default function AutoTranslator() {
     return () => {
       cancelled = true;
       runTokenRef.current += 1;
-      root.style.visibility = "";
       setTranslating(false);
       if (timerRef.current) clearTimeout(timerRef.current);
       observer.disconnect();

@@ -927,9 +927,38 @@ function mapStory(story, viewerId, followSet) {
       isFollowed: followSet.has(authorId),
     },
     music: musicPayload,
+    metrics: {
+      likes: Array.isArray(story?.likedBy) ? story.likedBy.length : 0,
+    },
     viewerState: {
       seen: seenByViewer || authorId === String(viewerId || ""),
+      canReport: authorId !== String(viewerId || ""),
+      liked: Array.isArray(story?.likedBy)
+        ? story.likedBy.some((item) => String(item) === String(viewerId || ""))
+        : false,
     },
+  };
+}
+
+async function getStoryViewerPreferences(viewerId) {
+  if (!viewerId) {
+    return {
+      mutedAuthorIds: [],
+      mutedAuthorSet: new Set(),
+    };
+  }
+
+  const viewer = await User.findById(viewerId)
+    .select("socialPreferences.storyMutedAuthors")
+    .lean();
+
+  const mutedAuthorIds = uniqueStrings(
+    (viewer?.socialPreferences?.storyMutedAuthors || []).map((item) => String(item || ""))
+  ).filter((id) => id !== String(viewerId || ""));
+
+  return {
+    mutedAuthorIds,
+    mutedAuthorSet: new Set(mutedAuthorIds),
   };
 }
 
@@ -1278,21 +1307,26 @@ export async function getCareerPulseStories(req, res, next) {
   try {
     const viewer = req.user;
     const now = new Date();
+    const { mutedAuthorIds, mutedAuthorSet } = await getStoryViewerPreferences(viewer._id);
 
     const followedRows = await SocialFollow.find({ follower: viewer._id })
       .select("following")
       .lean();
     const followedIds = new Set(followedRows.map((row) => String(row.following)));
+    const visibleFollowedIds = [...followedIds].filter(
+      (id) => !mutedAuthorSet.has(String(id || ""))
+    );
 
     const visibleAuthorIds = [
       new mongoose.Types.ObjectId(viewer._id),
-      ...[...followedIds].map((id) => new mongoose.Types.ObjectId(id)),
+      ...visibleFollowedIds.map((id) => new mongoose.Types.ObjectId(id)),
     ];
 
     const stories = await SocialStory.find({
       authorUser: { $in: visibleAuthorIds },
       expiresAt: { $gt: now },
       moderationStatus: { $in: ["visible", null] },
+      hiddenForUsers: { $ne: viewer._id },
     })
       .sort({ createdAt: -1 })
       .limit(120)
@@ -1301,6 +1335,9 @@ export async function getCareerPulseStories(req, res, next) {
     return res.json({
       groups: buildStoryGroups(stories, viewer._id, followedIds),
       ttlHours: 24,
+      viewerPreferences: {
+        mutedAuthorIds,
+      },
     });
   } catch (error) {
     next(error);
@@ -1429,6 +1466,207 @@ export async function markCareerPulseStorySeen(req, res, next) {
     return res.json({
       storyId: String(story._id),
       seen: true,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteCareerPulseStory(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { storyId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(storyId)) {
+      return res.status(400).json({ message: "Invalid story id." });
+    }
+
+    const story = await SocialStory.findById(storyId);
+    if (!story) {
+      return res.status(404).json({ message: "Story not found." });
+    }
+    if (String(story.authorUser || "") !== String(viewer._id || "")) {
+      return res.status(403).json({ message: "You can delete only your own story." });
+    }
+
+    await SocialStory.deleteOne({ _id: story._id });
+
+    return res.json({
+      ok: true,
+      storyId: String(story._id),
+      message: "Story deleted.",
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function toggleCareerPulseStoryLike(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { storyId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(storyId)) {
+      return res.status(400).json({ message: "Invalid story id." });
+    }
+
+    const story = await SocialStory.findById(storyId);
+    if (!story || !(await canViewerAccessStory(story, viewer))) {
+      return res.status(404).json({ message: "Story not found." });
+    }
+    if (String(story.authorUser || "") === String(viewer._id || "")) {
+      return res.status(400).json({ message: "You cannot like your own story." });
+    }
+
+    const likedIndex = (story.likedBy || []).findIndex(
+      (item) => String(item) === String(viewer._id || "")
+    );
+    const liked = likedIndex < 0;
+
+    if (liked) {
+      story.likedBy.push(viewer._id);
+    } else {
+      story.likedBy.splice(likedIndex, 1);
+    }
+
+    await story.save();
+
+    if (liked) {
+      await createExploreNotification({
+        userId: story.authorUser,
+        actorUser: viewer._id,
+        actorName: safeStr(viewer?.name || viewer?.fullName || "Someone"),
+        actorAvatarUrl: "",
+        kind: "social",
+        title: "Your story got a like",
+        message: `${safeStr(viewer?.name || "Someone")} liked your story.`,
+        severity: "info",
+      });
+    }
+
+    return res.json({
+      storyId: String(story._id),
+      liked,
+      likes: Array.isArray(story.likedBy) ? story.likedBy.length : 0,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function reportCareerPulseStory(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { storyId } = req.params;
+    const reason = safeStr(req.body?.reason) || "Spam or Misleading";
+    const details = safeStr(req.body?.details);
+
+    if (!mongoose.Types.ObjectId.isValid(storyId)) {
+      return res.status(400).json({ message: "Invalid story id." });
+    }
+    if (!SOCIAL_REPORT_REASONS.has(reason)) {
+      return res.status(400).json({ message: "Invalid report reason." });
+    }
+
+    const story = await SocialStory.findById(storyId);
+    if (!story || !(await canViewerAccessStory(story, viewer))) {
+      return res.status(404).json({ message: "Story not found." });
+    }
+    if (String(story.authorUser || "") === String(viewer._id || "")) {
+      return res.status(400).json({ message: "You cannot report your own story." });
+    }
+
+    const alreadyReported = (story.reports || []).some(
+      (report) => String(report?.reporterUser || "") === String(viewer._id || "")
+    );
+    if (alreadyReported) {
+      return res.status(400).json({ message: "You already reported this story." });
+    }
+
+    const alreadyHiddenForViewer = (story.hiddenForUsers || []).some(
+      (item) => String(item || "") === String(viewer._id || "")
+    );
+    if (!alreadyHiddenForViewer) {
+      story.hiddenForUsers.push(viewer._id);
+    }
+
+    story.reports.push({
+      reporterUser: viewer._id,
+      reporterRole: viewer.role,
+      reason,
+      details,
+      createdAt: new Date(),
+    });
+
+    await story.save();
+
+    await createExploreNotification({
+      userId: story.authorUser,
+      actorUser: viewer._id,
+      actorName: safeStr(viewer?.name || viewer?.fullName || "Explore"),
+      actorAvatarUrl: "",
+      kind: "report_update",
+      title: "Your story was reported",
+      message: `Your story was reported from Explore for "${reason}".`,
+      severity: "warning",
+    });
+
+    return res.status(201).json({
+      message: "Report accepted. This story is now hidden for you while we review it.",
+      hiddenForReporter: true,
+      reportCount: Array.isArray(story.reports) ? story.reports.length : 0,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function toggleCareerPulseStoryAuthorMute(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { authorId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(authorId)) {
+      return res.status(400).json({ message: "Invalid author id." });
+    }
+    if (String(authorId) === String(viewer._id || "")) {
+      return res.status(400).json({ message: "You cannot mute your own stories." });
+    }
+
+    const author = await User.findById(authorId).select("_id role isActive").lean();
+    if (!author || !author.isActive || !["student", "company"].includes(String(author.role || ""))) {
+      return res.status(404).json({ message: "Story author not found." });
+    }
+
+    const viewerDoc = await User.findById(viewer._id).select("socialPreferences.storyMutedAuthors");
+    if (!viewerDoc) {
+      return res.status(404).json({ message: "Viewer not found." });
+    }
+
+    if (!viewerDoc.socialPreferences || typeof viewerDoc.socialPreferences !== "object") {
+      viewerDoc.socialPreferences = {};
+    }
+
+    const existingIds = uniqueStrings(
+      (viewerDoc.socialPreferences.storyMutedAuthors || []).map((item) => String(item || ""))
+    );
+    const muted = !existingIds.includes(String(authorId));
+
+    viewerDoc.socialPreferences.storyMutedAuthors = muted
+      ? [...existingIds, String(authorId)].map((id) => new mongoose.Types.ObjectId(id))
+      : existingIds
+          .filter((id) => id !== String(authorId))
+          .map((id) => new mongoose.Types.ObjectId(id));
+
+    await viewerDoc.save();
+
+    return res.json({
+      muted,
+      authorId: String(authorId),
+      mutedAuthorIds: uniqueStrings(
+        (viewerDoc.socialPreferences.storyMutedAuthors || []).map((item) => String(item || ""))
+      ),
+      message: muted ? "Story author muted." : "Story author unmuted.",
     });
   } catch (error) {
     next(error);

@@ -17,6 +17,7 @@ import {
 import Pagination from "../../components/common/Pagination.jsx";
 import Modal from "../../components/common/Modal.jsx";
 import { getJobTaxonomy, OTHER_OPTION } from "../../data/jobTaxonomy.js";
+import { showSweetConfirm, showSweetToast } from "../../utils/sweetAlert.js";
 import {
   closeJob,
   deleteCompanyJob,
@@ -96,7 +97,6 @@ export default function MyJobs() {
   const navigate = useNavigate();
 
   const [view, setView] = useState("table");
-  const [toast, setToast] = useState("");
   const [openMenuId, setOpenMenuId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -135,8 +135,7 @@ export default function MyJobs() {
   });
 
   const actionToast = (msg) => {
-    setToast(msg);
-    setTimeout(() => setToast(""), 1200);
+    void showSweetToast(msg, "info", { timer: 1200 });
   };
 
   async function fetchJobs(nextFilters = filters) {
@@ -296,7 +295,12 @@ export default function MyJobs() {
 
   const onDelete = async (job) => {
     if (!job?.id) return;
-    const ok = window.confirm(`Delete \"${job.title}\"?`);
+    const ok = await showSweetConfirm({
+      title: "Delete Job?",
+      text: `Delete "${job.title}"?`,
+      confirmButtonText: "Delete",
+      tone: "warning",
+    });
     if (!ok) return;
     try {
       await deleteCompanyJob(job.id);
@@ -666,7 +670,6 @@ export default function MyJobs() {
         </div>
       </Modal>
 
-      {toast ? <div className="fixed bottom-5 right-5 rounded-lg bg-[#0F172A] px-3 py-2 text-xs font-semibold text-white shadow-lg">{toast}</div> : null}
     </div>
   );
 }

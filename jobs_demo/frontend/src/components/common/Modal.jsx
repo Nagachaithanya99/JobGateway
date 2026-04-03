@@ -10,6 +10,7 @@ export default function Modal({
   footer,
   onClose,
   widthClass = "max-w-md",
+  zIndexClass = "z-[90]",
 }) {
   const [mounted, setMounted] = useState(false);
 
@@ -23,7 +24,7 @@ export default function Modal({
     <AnimatePresence>
       {open ? (
         <motion.div
-          className="fixed inset-0 z-[90] flex items-center justify-center overflow-y-auto px-4 py-6"
+          className={`fixed inset-0 ${zIndexClass} flex items-center justify-center overflow-y-auto px-4 py-6`}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

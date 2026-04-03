@@ -12,6 +12,7 @@ import {
 
 import ApplicantsTable from "../../components/admin/applicants/ApplicantsTable";
 import { getJobTaxonomy } from "../../data/jobTaxonomy";
+import { showSweetConfirm } from "../../utils/sweetAlert.js";
 import {
   adminDeleteApplicant,
   adminGetApplicant,
@@ -214,7 +215,12 @@ export default function Applicants() {
   };
 
   const onDelete = async (row) => {
-    const ok = window.confirm("Delete this application?");
+    const ok = await showSweetConfirm({
+      title: "Delete Application?",
+      text: "Delete this application?",
+      confirmButtonText: "Delete",
+      tone: "warning",
+    });
     if (!ok) return;
 
     try {

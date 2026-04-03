@@ -1,4 +1,5 @@
 import Button from "../../common/Button.jsx";
+import { showSweetAlert } from "../../../utils/sweetAlert.js";
 
 export default function HeroBanner() {
   return (
@@ -20,7 +21,7 @@ export default function HeroBanner() {
 
           <div className="flex flex-wrap gap-3">
             <Button
-              onClick={() => alert("Apply Job Now (link will be connected in next step)")}
+              onClick={() => void showSweetAlert("Apply Job Now (link will be connected in next step)")}
               className="px-6"
             >
               Apply Job Now
@@ -28,7 +29,7 @@ export default function HeroBanner() {
 
             <Button
               variant="outline"
-              onClick={() => alert("Hire Now (company portal will be added in next step)")}
+              onClick={() => void showSweetAlert("Hire Now (company portal will be added in next step)")}
               className="px-6"
             >
               Hire Now

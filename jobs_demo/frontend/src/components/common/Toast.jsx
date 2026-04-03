@@ -1,5 +1,5 @@
-import { useEffect } from "react";
-import { FiX } from "react-icons/fi";
+import { useEffect, useRef } from "react";
+import { showSweetToast } from "../../utils/sweetAlert.js";
 
 export default function Toast({
   show,
@@ -8,33 +8,21 @@ export default function Toast({
   duration = 1400,
   tone = "dark", // "dark" | "success" | "error" | "warning"
 }) {
+  const lastKeyRef = useRef("");
+
   useEffect(() => {
     if (!show) return;
-    const t = setTimeout(() => onClose?.(), duration);
-    return () => clearTimeout(t);
-  }, [show, duration, onClose]);
+    const toneName = tone === "dark" ? "info" : tone;
+    const nextKey = `${show}_${toneName}_${message}`;
+    if (lastKeyRef.current === nextKey) return;
+    lastKeyRef.current = nextKey;
+    void showSweetToast(message, toneName, { timer: duration }).finally(() => onClose?.());
+  }, [show, message, tone, duration, onClose]);
 
-  if (!show) return null;
+  useEffect(() => {
+    if (show) return;
+    lastKeyRef.current = "";
+  }, [show]);
 
-  const tones = {
-    dark: "bg-[#0F172A] text-white",
-    success: "bg-green-600 text-white",
-    error: "bg-red-600 text-white",
-    warning: "bg-amber-500 text-white",
-  };
-
-  return (
-    <div className="fixed bottom-5 right-5 z-[80]">
-      <div className={`flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-semibold shadow-lg ${tones[tone]}`}>
-        <span className="max-w-[280px]">{message}</span>
-        <button
-          type="button"
-          onClick={onClose}
-          className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-white/10 hover:bg-white/20"
-        >
-          <FiX />
-        </button>
-      </div>
-    </div>
-  );
+  return null;
 }

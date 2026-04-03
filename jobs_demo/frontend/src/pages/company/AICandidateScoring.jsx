@@ -12,6 +12,7 @@ import {
 } from "react-icons/fi";
 import Modal from "../../components/common/Modal.jsx";
 import Loader from "../../components/common/Loader.jsx";
+import { showSweetToast } from "../../utils/sweetAlert.js";
 import {
   listCompanyJobs,
   updateJobAIWeights,
@@ -181,7 +182,6 @@ export default function AICandidateScoring() {
   const [expanded, setExpanded] = useState(null);
   const [selected, setSelected] = useState([]);
   const [compareOpen, setCompareOpen] = useState(false);
-  const [toast, setToast] = useState("");
   const [actionBusyId, setActionBusyId] = useState("");
 
   const [weights, setWeights] = useState({
@@ -195,8 +195,7 @@ export default function AICandidateScoring() {
   });
 
   const showToast = (message) => {
-    setToast(message);
-    setTimeout(() => setToast(""), 1400);
+    void showSweetToast(message, "info", { timer: 1400 });
   };
 
   /* ---------------- fetch jobs ---------------- */
@@ -1076,11 +1075,6 @@ export default function AICandidateScoring() {
         </button>
       </div>
 
-      {toast ? (
-        <div className="fixed bottom-5 right-5 z-[70] rounded-lg bg-[#0F172A] px-3 py-2 text-xs font-semibold text-white shadow-lg">
-          {toast}
-        </div>
-      ) : null}
     </div>
   );
 }

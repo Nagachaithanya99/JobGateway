@@ -1,6 +1,7 @@
 import Card from "../../common/Card.jsx";
 import Button from "../../common/Button.jsx";
 import { FiBookOpen } from "react-icons/fi";
+import { showSweetAlert } from "../../../utils/sweetAlert.js";
 
 const TIPS = [
   {
@@ -55,7 +56,7 @@ export default function TipsGrid() {
               <div className="pt-2">
                 <Button
                   className="w-full"
-                  onClick={() => alert(`Read More: ${t.title}\n(Full article page in next step)`)}
+                  onClick={() => void showSweetAlert(`Read More: ${t.title} (Full article page in next step)`)}
                 >
                   Read More
                 </Button>

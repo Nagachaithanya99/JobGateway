@@ -15,6 +15,7 @@ import {
 
 import StudentsTable from "../../components/admin/students/StudentsTable";
 import { getJobTaxonomy } from "../../data/jobTaxonomy";
+import { showSweetConfirm } from "../../utils/sweetAlert.js";
 import {
   adminDeleteStudent,
   adminGetStudent,
@@ -237,7 +238,12 @@ export default function Students() {
   };
 
   const onDelete = async (row) => {
-    const ok = window.confirm(`Delete "${row.name || "student"}"?`);
+    const ok = await showSweetConfirm({
+      title: "Delete Student?",
+      text: `Delete "${row.name || "student"}"?`,
+      confirmButtonText: "Delete",
+      tone: "warning",
+    });
     if (!ok) return;
     try {
       setError("");

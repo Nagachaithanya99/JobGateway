@@ -1,4 +1,5 @@
 import Button from "../../common/Button.jsx";
+import { showSweetAlert } from "../../../utils/sweetAlert.js";
 
 const INTERNS = [
   {
@@ -31,7 +32,7 @@ export default function InternshipOpportunities() {
         <h2 className="text-lg font-extrabold text-slate-900">Internship Opportunities</h2>
         <button
           className="text-sm font-semibold text-orange-700 hover:text-orange-800"
-          onClick={() => alert("View all internships (next step)")}
+          onClick={() => void showSweetAlert("View all internships (next step)")}
         >
           View all →
         </button>
@@ -52,14 +53,14 @@ export default function InternshipOpportunities() {
 
               <div className="pt-2 flex gap-2">
                 <Button
-                  onClick={() => alert(`Apply Internship: ${x.role} (next step)`)}
+                  onClick={() => void showSweetAlert(`Apply Internship: ${x.role} (next step)`)}
                   className="w-full"
                 >
                   Apply
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => alert(`Details: ${x.role} (next step)`)}
+                  onClick={() => void showSweetAlert(`Details: ${x.role} (next step)`)}
                   className="w-full"
                 >
                   Details
