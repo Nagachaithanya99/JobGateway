@@ -2,13 +2,13 @@ services:
   - type: web
     name: jobgateway-api
     runtime: node
-    rootDir: backend
+    rootDir: jobs_demo/backend
     buildCommand: npm ci
     startCommand: npm start
     healthCheckPath: /api/health
     buildFilter:
       paths:
-        - backend/**
+        - jobs_demo/backend/**
     envVars:
       - key: NODE_VERSION
         value: 20
@@ -60,12 +60,12 @@ services:
   - type: web
     name: jobgateway-web
     runtime: static
-    rootDir: frontend
+    rootDir: jobs_demo/frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: ./dist
     buildFilter:
       paths:
-        - frontend/**
+        - jobs_demo/frontend/**
     routes:
       - type: rewrite
         source: /*
