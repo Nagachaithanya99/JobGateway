@@ -2,7 +2,6 @@ services:
   - type: web
     name: jobgateway-api
     runtime: node
-    plan: free
     rootDir: backend
     buildCommand: npm ci
     startCommand: npm start
@@ -61,7 +60,6 @@ services:
   - type: web
     name: jobgateway-web
     runtime: static
-    plan: free
     rootDir: frontend
     buildCommand: npm ci && npm run build
     staticPublishPath: ./dist
