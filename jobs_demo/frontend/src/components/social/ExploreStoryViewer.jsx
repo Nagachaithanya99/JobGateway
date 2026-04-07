@@ -6,9 +6,9 @@ import {
   FiTrash2,
   FiFlag,
   FiHeart,
-  FiMessageCircle,
   FiMoreHorizontal,
   FiMusic,
+  FiEye,
   FiPlus,
   FiSend,
   FiVolume2,
@@ -59,6 +59,16 @@ export default function ExploreStoryViewer({
   onReport,
   onShare,
   onDelete,
+  onMuteAuthor,
+  onHideStory,
+  onSendAccount,
+  storyInsights,
+  onOpenInsights,
+  onCloseInsights,
+  onStoryInsightsTabChange,
+  messageDraft = "",
+  onMessageDraftChange,
+  onMessageSend,
   liked = false,
   messageBusy = false,
   likeBusy = false,
@@ -73,9 +83,17 @@ export default function ExploreStoryViewer({
   const videoRef = useRef(null);
   const imageMusicRef = useRef(null);
   const menuRef = useRef(null);
+  const messageInputRef = useRef(null);
+  const typingTimerRef = useRef(null);
+  const holdRef = useRef(false);
+  const insightsPausedRef = useRef(false);
   const [progress, setProgress] = useState(0);
   const [storyMuted, setStoryMuted] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [typing, setTyping] = useState(false);
+  const [lastTap, setLastTap] = useState(0);
+  const [screenshotNotice, setScreenshotNotice] = useState("");
 
   const isVideo = isVideoStory(activeStory);
   const hasImageMusic = Boolean(!isVideo && storyMusicUrl);
@@ -96,14 +114,39 @@ export default function ExploreStoryViewer({
   const canGoNext =
     groupIndex < groups.length - 1 ||
     storyIndex < Number(activeGroup?.items?.length || 0) - 1;
+  const storyViews = Math.max(0, Number(activeStory?.metrics?.views || 0));
+  const authorPresenceLabel = activeGroup?.author?.isOnline
+    ? "Online"
+    : activeGroup?.author?.lastSeenAt
+      ? `Active ${timeAgo?.(activeGroup.author.lastSeenAt) || "recently"} ago`
+      : `Active ${timeAgo?.(activeStory?.createdAt) || "recently"} ago`;
+  const messageStatusLabel = messageBusy
+    ? "Sending..."
+    : String(messageDraft || "").trim()
+      ? "Delivered"
+        : activeStory?.viewerState?.seen
+          ? "Seen"
+          : "Delivered";
+  const ownerViewingOwnStory = Boolean(activeGroup.author?.isSelf);
+  const insightsMetrics = storyInsights?.storyId === activeStory?.id
+    ? storyInsights.metrics || { views: storyViews, likes: Number(activeStory?.metrics?.likes || 0) }
+    : { views: storyViews, likes: Number(activeStory?.metrics?.likes || 0) };
+  const insightsList = storyInsights?.activeTab === "likes"
+    ? Array.isArray(storyInsights?.likes) ? storyInsights.likes : []
+    : Array.isArray(storyInsights?.viewers) ? storyInsights.viewers : [];
 
   useEffect(() => {
     if (!open) return;
     setStoryMuted(false);
+    setPaused(false);
   }, [open]);
 
   useEffect(() => {
     setMenuOpen(false);
+    setPaused(false);
+    setTyping(false);
+    setScreenshotNotice("");
+    insightsPausedRef.current = false;
   }, [activeStory?.id]);
 
   useEffect(() => {
@@ -118,6 +161,39 @@ export default function ExploreStoryViewer({
     window.addEventListener("pointerdown", handlePointerDown);
     return () => window.removeEventListener("pointerdown", handlePointerDown);
   }, [menuOpen]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handleKey = (event) => {
+      if (event.key === "ArrowRight") navigateRelative(1);
+      if (event.key === "ArrowLeft") navigateRelative(-1);
+      if (event.key === "PrintScreen") {
+        setScreenshotNotice("Screenshot detected. This is a privacy reminder only.");
+        window.setTimeout(() => setScreenshotNotice(""), 1800);
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [open, groupIndex, storyIndex]);
+
+  useEffect(() => {
+    if (!open || activeGroup?.author?.isSelf) return;
+    messageInputRef.current?.focus();
+  }, [open, activeStory?.id, activeGroup?.author?.isSelf]);
+
+  useEffect(() => {
+    const next = groups[groupIndex]?.items?.[storyIndex + 1];
+    const nextUrl = toAbsoluteMediaUrl(next?.media?.url);
+    if (!nextUrl) return;
+    if (isVideoStory(next)) {
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.src = nextUrl;
+      return;
+    }
+    const img = new Image();
+    img.src = nextUrl;
+  }, [groupIndex, storyIndex, groups]);
 
   const navigateRelative = (direction) => {
     if (!activeGroup) return;
@@ -219,6 +295,7 @@ export default function ExploreStoryViewer({
 
       const startedAt = Date.now();
       const timer = window.setInterval(() => {
+        if (paused) return;
         const nextProgress = Math.min(100, ((Date.now() - startedAt) / imageStoryDurationMs) * 100);
         setProgress(nextProgress);
         if (nextProgress >= 100) {
@@ -238,6 +315,7 @@ export default function ExploreStoryViewer({
     const durationMs = imageStoryDurationMs;
     const startedAt = Date.now();
     const timer = window.setInterval(() => {
+      if (paused) return;
       const nextProgress = Math.min(100, ((Date.now() - startedAt) / durationMs) * 100);
       setProgress(nextProgress);
       if (nextProgress >= 100) {
@@ -247,28 +325,101 @@ export default function ExploreStoryViewer({
     }, 100);
 
     return () => window.clearInterval(timer);
-  }, [open, activeStory?.id, groupIndex, storyIndex, isVideo, hasImageMusic, imageMusicStart, imageMusicClipDuration, imageStoryDurationMs, storyMuted]);
+  }, [open, activeStory?.id, groupIndex, storyIndex, isVideo, hasImageMusic, imageMusicStart, imageMusicClipDuration, imageStoryDurationMs, storyMuted, paused]);
 
   useEffect(() => {
     if (!open) return;
 
-    const node = isVideo ? videoRef.current : imageMusicRef.current;
-    if (!node || (!isVideo && !hasImageMusic)) return;
-
-    node.muted = storyMuted;
-    node.volume = storyMuted ? 0 : 1;
-
-    const playPromise = node.play();
-    if (playPromise?.catch) {
-      playPromise.catch(() => {
-        if (!storyMuted) {
-          node.muted = true;
-          node.volume = 0;
-          setStoryMuted(true);
+    if (videoRef.current) {
+      videoRef.current.muted = storyMuted;
+      videoRef.current.volume = storyMuted ? 0 : 1;
+      if (paused) {
+        videoRef.current.pause();
+      } else {
+        const playPromise = videoRef.current.play();
+        if (playPromise?.catch) {
+          playPromise.catch(() => {
+            if (!storyMuted) {
+              videoRef.current.muted = true;
+              videoRef.current.volume = 0;
+              setStoryMuted(true);
+            }
+          });
         }
-      });
+      }
     }
-  }, [open, activeStory?.id, isVideo, hasImageMusic, storyMuted]);
+
+    if (imageMusicRef.current && hasImageMusic) {
+      imageMusicRef.current.muted = storyMuted;
+      imageMusicRef.current.volume = storyMuted ? 0 : 1;
+      if (paused) {
+        imageMusicRef.current.pause();
+      } else {
+        const playPromise = imageMusicRef.current.play();
+        if (playPromise?.catch) {
+          playPromise.catch(() => {
+            if (!storyMuted) {
+              imageMusicRef.current.muted = true;
+              imageMusicRef.current.volume = 0;
+              setStoryMuted(true);
+            }
+          });
+        }
+      }
+    }
+  }, [open, activeStory?.id, hasImageMusic, paused, storyMuted]);
+
+  useEffect(() => () => {
+    if (typingTimerRef.current) {
+      window.clearTimeout(typingTimerRef.current);
+    }
+  }, []);
+
+  const handleMessageKeyDown = (event) => {
+    if (event.key !== "Enter" || event.shiftKey) return;
+    event.preventDefault();
+    onMessageSend?.(activeGroup.author, activeStory);
+  };
+
+  const handleHoldStart = () => {
+    holdRef.current = true;
+    setPaused(true);
+  };
+
+  const handleHoldEnd = () => {
+    holdRef.current = false;
+    setPaused(false);
+  };
+
+  const handleMediaInteraction = () => {
+    const now = Date.now();
+    if (now - lastTap < 300 && !activeGroup.author?.isSelf) {
+      onLike?.(activeStory);
+    }
+    setLastTap(now);
+  };
+
+  const handleMessageChange = (value) => {
+    onMessageDraftChange?.(value);
+    setTyping(true);
+    if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = window.setTimeout(() => setTyping(false), 1000);
+  };
+
+  const handleOpenInsights = () => {
+    if (!ownerViewingOwnStory) return;
+    insightsPausedRef.current = true;
+    setPaused(true);
+    onOpenInsights?.(activeStory);
+  };
+
+  const handleCloseInsights = () => {
+    onCloseInsights?.();
+    if (insightsPausedRef.current && !holdRef.current) {
+      setPaused(false);
+    }
+    insightsPausedRef.current = false;
+  };
 
   if (!open || !activeStory || !activeGroup) return null;
 
@@ -294,6 +445,7 @@ export default function ExploreStoryViewer({
                   <button
                     type="button"
                     onClick={() => setMenuOpen((prev) => !prev)}
+                    onTouchStart={() => setMenuOpen(true)}
                     className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-black/35 text-white transition hover:bg-white/15"
                     aria-label="Open story actions"
                   >
@@ -341,6 +493,43 @@ export default function ExploreStoryViewer({
                           <span>{storyMuted ? "Turn Sound On" : "Mute Audio"}</span>
                         </button>
                       ) : null}
+                      {!activeGroup.author?.isSelf ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMenuOpen(false);
+                              onSendAccount?.(activeGroup.author, activeStory);
+                            }}
+                            className="mt-1 flex w-full items-center gap-3 rounded-[18px] px-3.5 py-3 text-left font-semibold text-white/92 transition hover:bg-white/10"
+                          >
+                            <FiSend className="text-base" />
+                            <span>Send account</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMenuOpen(false);
+                              onMuteAuthor?.(activeGroup.author, activeStory);
+                            }}
+                            className="mt-1 flex w-full items-center gap-3 rounded-[18px] px-3.5 py-3 text-left font-semibold text-white/92 transition hover:bg-white/10"
+                          >
+                            <FiVolumeX className="text-base" />
+                            <span>Mute this author</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMenuOpen(false);
+                              onHideStory?.(activeStory, activeGroup.author);
+                            }}
+                            className="mt-1 flex w-full items-center gap-3 rounded-[18px] px-3.5 py-3 text-left font-semibold text-white/92 transition hover:bg-white/10"
+                          >
+                            <FiX className="text-base" />
+                            <span>Hide this story</span>
+                          </button>
+                        </>
+                      ) : null}
                     </div>
                   ) : null}
                 </div>
@@ -349,7 +538,7 @@ export default function ExploreStoryViewer({
                   <p className="truncate text-sm font-black">{activeGroup.author?.name}</p>
                   <div className="mt-1 flex items-center gap-2 text-xs text-white/65">
                     <FiClock />
-                    <span>{timeAgo?.(activeStory.createdAt) || ""}</span>
+                    <span>{authorPresenceLabel}</span>
                     <span>/</span>
                     <span>{remainingTimeLabel(activeStory.expiresAt)}</span>
                   </div>
@@ -377,7 +566,15 @@ export default function ExploreStoryViewer({
             </div>
           </div>
 
-          <div className="relative flex-1 overflow-hidden bg-[radial-gradient(circle_at_top,#262626_0%,#111111_48%,#050505_100%)]">
+          <div
+            className="relative flex-1 overflow-hidden bg-[radial-gradient(circle_at_top,#262626_0%,#111111_48%,#050505_100%)]"
+            onMouseDown={handleHoldStart}
+            onMouseUp={handleHoldEnd}
+            onMouseLeave={handleHoldEnd}
+            onTouchStart={handleHoldStart}
+            onTouchEnd={handleHoldEnd}
+            onClick={handleMediaInteraction}
+          >
             {mediaUrl ? (
               isVideo ? (
                 <>
@@ -423,6 +620,18 @@ export default function ExploreStoryViewer({
 
             <div className="pointer-events-none absolute inset-x-0 top-0 h-36 bg-gradient-to-b from-black/80 via-black/35 to-transparent" />
             <div className="pointer-events-none absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-black via-black/65 to-transparent" />
+            {paused ? (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div className="rounded-full border border-white/15 bg-black/45 px-4 py-2 text-sm font-bold text-white backdrop-blur">
+                  Paused
+                </div>
+              </div>
+            ) : null}
+            {screenshotNotice ? (
+              <div className="pointer-events-none absolute left-1/2 top-24 -translate-x-1/2 rounded-full border border-white/10 bg-black/45 px-4 py-2 text-xs font-semibold text-white/90 backdrop-blur">
+                {screenshotNotice}
+              </div>
+            ) : null}
 
             <button
               type="button"
@@ -448,8 +657,21 @@ export default function ExploreStoryViewer({
           </div>
 
           <div className="absolute inset-x-0 bottom-0 p-5">
+            {ownerViewingOwnStory ? (
+              <div className="mb-3 flex justify-start">
+                <button
+                  type="button"
+                  onClick={handleOpenInsights}
+                  className="inline-flex items-center gap-2 rounded-[18px] border border-white/15 bg-black/45 px-3.5 py-2.5 text-sm font-semibold text-white/90 backdrop-blur transition hover:bg-black/60"
+                >
+                  <FiEye className="text-base" />
+                  <span>Views</span>
+                  <span>{insightsMetrics.views}</span>
+                </button>
+              </div>
+            ) : null}
             {storyMusic?.title ? (
-              <div className="mb-3 inline-flex max-w-full items-center gap-2 rounded-full border border-white/15 bg-black/45 px-3 py-2 text-xs font-semibold text-white/90 backdrop-blur">
+              <div className="mb-3 inline-flex max-w-full animate-pulse items-center gap-2 rounded-full border border-white/15 bg-black/45 px-3 py-2 text-xs font-semibold text-white/90 backdrop-blur">
                 <FiMusic />
                 <span className="truncate">
                   {storyMusic.title} / {storyMusic.artist || "Unknown artist"} / {durationLabel(imageMusicClipDuration)}
@@ -464,14 +686,28 @@ export default function ExploreStoryViewer({
 
             {!activeGroup.author?.isSelf ? (
               <div className="mt-4 flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => onMessage?.(activeGroup.author, activeStory)}
-                  disabled={messageBusy}
-                  className="flex h-14 min-w-0 flex-1 items-center rounded-full border border-white/25 bg-[#090c11]/88 px-5 text-left text-[1.05rem] font-medium text-white/90 backdrop-blur transition hover:bg-[#11151d] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span className="truncate">{messageBusy ? "Opening chat..." : "Send message"}</span>
-                </button>
+                <div className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/25 bg-[#090c11]/88 px-3 py-2.5 backdrop-blur">
+                  <textarea
+                    ref={messageInputRef}
+                    value={messageDraft}
+                    onChange={(event) => handleMessageChange(event.target.value)}
+                    onKeyDown={handleMessageKeyDown}
+                    rows={1}
+                    placeholder="Send message"
+                    className="max-h-28 min-h-[40px] flex-1 resize-none bg-transparent px-2 py-1 text-sm text-white/90 outline-none placeholder:text-white/45"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onMessageSend?.(activeGroup.author, activeStory)}
+                    disabled={messageBusy || !String(messageDraft || "").trim()}
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-55"
+                    aria-label="Send story message"
+                  >
+                    {messageBusy ? <span className="text-xs font-black">...</span> : <FiSend />}
+                  </button>
+                </div>
+                {typing ? <p className="px-3 text-xs text-white/60">Typing...</p> : null}
+                <p className="px-3 text-[10px] text-white/50">{messageStatusLabel}</p>
 
                 <button
                   type="button"
@@ -489,22 +725,79 @@ export default function ExploreStoryViewer({
 
                 <button
                   type="button"
-                  onClick={() => onMessage?.(activeGroup.author, activeStory)}
-                  disabled={messageBusy}
-                  className="inline-flex h-12 w-12 items-center justify-center text-[2rem] text-white transition hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-60"
-                  aria-label="Reply to story"
-                >
-                  <FiMessageCircle />
-                </button>
-
-                <button
-                  type="button"
                   onClick={() => onShare?.(activeStory)}
                   className="inline-flex h-12 w-12 items-center justify-center text-[2rem] text-white transition hover:text-white/80"
                   aria-label="Share story"
                 >
                   <FiSend />
                 </button>
+              </div>
+            ) : null}
+
+            {ownerViewingOwnStory && storyInsights?.open ? (
+              <div className="mt-4 overflow-hidden rounded-[28px] border border-white/10 bg-[#090c11]/92 backdrop-blur">
+                <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => onStoryInsightsTabChange?.("views")}
+                      className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                        storyInsights?.activeTab === "views" ? "bg-white text-black" : "text-white/70 hover:text-white"
+                      }`}
+                    >
+                      <FiEye />
+                      <span>{insightsMetrics.views}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onStoryInsightsTabChange?.("likes")}
+                      className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold transition ${
+                        storyInsights?.activeTab === "likes" ? "bg-white text-black" : "text-white/70 hover:text-white"
+                      }`}
+                    >
+                      <FiHeart />
+                      <span>{insightsMetrics.likes}</span>
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleCloseInsights}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80 transition hover:bg-white/10"
+                  >
+                    <FiX />
+                  </button>
+                </div>
+
+                <div className="max-h-[280px] overflow-y-auto px-4 py-4">
+                  {storyInsights?.loading ? (
+                    <p className="text-sm text-white/65">Loading story insights...</p>
+                  ) : insightsList.length ? (
+                    <div className="space-y-3">
+                      {insightsList.map((person) => (
+                        <div key={person.id} className="flex items-center justify-between gap-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <Avatar name={person.name} avatarUrl={person.avatarUrl} />
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-white">{person.name}</p>
+                              <p className="truncate text-xs text-white/55">{person.headline || person.role}</p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onSendAccount?.(person, activeStory)}
+                            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white transition hover:bg-white/10"
+                          >
+                            <FiSend />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-white/55">
+                      {storyInsights?.activeTab === "likes" ? "No likes on this story yet." : "No one has viewed this story yet."}
+                    </p>
+                  )}
+                </div>
               </div>
             ) : null}
           </div>

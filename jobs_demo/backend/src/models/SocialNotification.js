@@ -33,6 +33,17 @@ const socialNotificationSchema = new mongoose.Schema(
       ref: "SocialPost",
       default: null,
     },
+    relatedStory: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "SocialStory",
+      default: null,
+    },
+    relatedThread: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "MessageThread",
+      default: null,
+    },
+    eventType: { type: String, default: "social", trim: true, maxlength: 80, index: true },
     readAt: { type: Date, default: null },
   },
   { timestamps: true }

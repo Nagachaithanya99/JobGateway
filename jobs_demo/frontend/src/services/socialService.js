@@ -25,6 +25,26 @@ export async function sendCareerPulseMessage(threadId, payload = {}) {
   return data;
 }
 
+export async function deleteCareerPulseMessages(threadId, payload = {}) {
+  const { data } = await api.post(`/social/messages/threads/${threadId}/delete`, payload);
+  return data;
+}
+
+export async function deleteCareerPulseMessageThread(threadId) {
+  const { data } = await api.delete(`/social/messages/threads/${threadId}`);
+  return data;
+}
+
+export async function reportCareerPulseMessage(threadId, messageId, payload = {}) {
+  const { data } = await api.post(`/social/messages/threads/${threadId}/messages/${messageId}/report`, payload);
+  return data;
+}
+
+export async function toggleCareerPulseMessageReaction(threadId, messageId, payload = {}) {
+  const { data } = await api.post(`/social/messages/threads/${threadId}/messages/${messageId}/react`, payload);
+  return data;
+}
+
 export async function acceptCareerPulseMessageRequest(threadId) {
   const { data } = await api.post(`/social/messages/threads/${threadId}/accept`);
   return data;
@@ -55,6 +75,11 @@ export async function getCareerPulseStories(params = {}) {
 
 export async function createCareerPulseStory(payload = {}) {
   const { data } = await api.post("/social/stories", payload);
+  return data;
+}
+
+export async function getCareerPulseStoryInsights(storyId) {
+  const { data } = await api.get(`/social/stories/${storyId}/insights`);
   return data;
 }
 

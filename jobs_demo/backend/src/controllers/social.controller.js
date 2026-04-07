@@ -253,6 +253,7 @@ function mapNotification(notification) {
   return {
     id: String(notification?._id || ""),
     kind: safeStr(notification?.kind || "social"),
+    eventType: safeStr(notification?.eventType || "social"),
     title: safeStr(notification?.title || ""),
     message: safeStr(notification?.message || ""),
     severity: safeStr(notification?.severity || "info"),
@@ -264,16 +265,30 @@ function mapNotification(notification) {
       avatarUrl: safeStr(notification?.actorAvatarUrl || ""),
     },
     relatedPostId: String(notification?.relatedPost || ""),
+    relatedStoryId: String(notification?.relatedStory || ""),
+    relatedThreadId: String(notification?.relatedThread || ""),
   };
 }
 
 function mapSocialMessage(message, viewer) {
+  const senderUserId = String(message?.senderUser || "");
   const senderRole = safeStr(message?.senderRole);
   const viewerRole = safeStr(viewer?.role);
+  const deleted = Boolean(message?.deletedAt);
+  const reactions = Array.isArray(message?.reactions)
+    ? message.reactions
+        .map((item) => ({
+          emoji: safeStr(item?.emoji),
+          user: String(item?.user || ""),
+        }))
+        .filter((item) => item.emoji)
+    : [];
   const sender =
     senderRole === "system"
       ? "system"
-      : senderRole === viewerRole
+      : senderUserId && senderUserId === String(viewer?._id || "")
+        ? "self"
+        : senderRole === viewerRole
         ? "self"
         : "other";
 
@@ -281,12 +296,41 @@ function mapSocialMessage(message, viewer) {
     id: String(message?._id || ""),
     sender,
     type: safeStr(message?.type || "text"),
-    text: safeStr(message?.text || ""),
+    text: deleted ? "This message was deleted." : safeStr(message?.text || ""),
     fileName: safeStr(message?.fileName || ""),
     fileSize: safeStr(message?.fileSize || ""),
     fileUrl: safeStr(message?.fileUrl || ""),
     mimeType: safeStr(message?.mimeType || ""),
     createdAt: message?.createdAt || null,
+    deleted,
+    reactions: reactions.map((item) => item.emoji),
+    seenByOther:
+      senderUserId === String(viewer?._id || "")
+        ? (Array.isArray(message?.seenBy) ? message.seenBy : []).some(
+            (userId) => String(userId || "") !== String(viewer?._id || "")
+          )
+        : false,
+    canDelete:
+      !deleted &&
+      senderRole !== "system" &&
+      senderUserId === String(viewer?._id || ""),
+    canReport:
+      !deleted &&
+      senderRole !== "system" &&
+      senderUserId !== String(viewer?._id || ""),
+    reportCount: Number(message?.reportCount || 0),
+    replyTo: message?.replyTo
+      ? {
+          id: String(message.replyTo?._id || message.replyTo?.id || ""),
+          text: safeStr(message.replyTo?.deletedAt ? "This message was deleted." : message.replyTo?.text || ""),
+          sender:
+            String(message.replyTo?.senderUser || "") === String(viewer?._id || "")
+              ? "self"
+              : safeStr(message.replyTo?.senderRole) === "system"
+                ? "system"
+                : "other",
+        }
+      : null,
   };
 }
 
@@ -363,6 +407,22 @@ function buildSocialThreadParticipants(viewer, recipient) {
   const viewerRole = String(viewer?.role || "").toLowerCase();
   const recipientRole = String(recipient?.role || "").toLowerCase();
 
+  if (viewerRole === "student" && recipientRole === "student") {
+    const orderedParticipants = [
+      { sortKey: String(viewer?._id || ""), value: viewer?._id },
+      { sortKey: String(recipient?._id || ""), value: recipient?._id },
+    ]
+      .filter((item) => item.sortKey && item.value)
+      .sort((left, right) => left.sortKey.localeCompare(right.sortKey));
+
+    if (orderedParticipants.length !== 2) return null;
+
+    return {
+      student: orderedParticipants[0].value,
+      company: orderedParticipants[1].value,
+    };
+  }
+
   if (viewerRole === "student" && recipientRole === "company") {
     return { student: viewer._id, company: recipient._id };
   }
@@ -372,6 +432,74 @@ function buildSocialThreadParticipants(viewer, recipient) {
   }
 
   return null;
+}
+
+function getSocialThreadRecipientUnreadUpdate(thread, senderId) {
+  const senderIsStudentSlot =
+    String(thread?.student?._id || thread?.student || "") === String(senderId || "");
+
+  return senderIsStudentSlot ? { companyUnread: 1 } : { studentUnread: 1 };
+}
+
+async function appendSocialThreadTextMessage(thread, sender, text) {
+  const cleanText = safeStr(text);
+  if (!thread?._id || !cleanText) {
+    return null;
+  }
+
+  const message = await Message.create({
+    thread: thread._id,
+    senderUser: sender._id,
+    senderRole: sender.role,
+    type: "text",
+    text: cleanText,
+  });
+
+  await MessageThread.updateOne(
+    { _id: thread._id },
+    {
+      $set: {
+        lastMessageText: cleanText,
+        lastMessageAt: new Date(),
+      },
+      $inc: getSocialThreadRecipientUnreadUpdate(thread, sender._id),
+    }
+  );
+
+  return message;
+}
+
+async function refreshSocialThreadLastMessage(threadId) {
+  const latestVisibleMessage = await Message.findOne({
+    thread: threadId,
+    deletedAt: null,
+  })
+    .sort({ createdAt: -1 })
+    .lean();
+
+  await MessageThread.updateOne(
+    { _id: threadId },
+    {
+      $set: {
+        lastMessageText: safeStr(latestVisibleMessage?.text || ""),
+        lastMessageAt:
+          latestVisibleMessage?.createdAt ||
+          new Date(),
+      },
+    }
+  );
+}
+
+function shouldAutoAcceptSocialThread(viewer, recipient, followState = {}) {
+  const viewerRole = safeStr(viewer?.role).toLowerCase();
+  const recipientRole = safeStr(recipient?.role).toLowerCase();
+  const viewerFollowsRecipient = Boolean(followState.viewerFollowsRecipient);
+
+  if (viewerRole === "student" && recipientRole === "student") {
+    return viewerFollowsRecipient;
+  }
+
+  return false;
 }
 
 async function findExistingSocialThreadBetweenUsers(firstUserId, secondUserId) {
@@ -414,10 +542,13 @@ async function createExploreNotification({
   actorName = "",
   actorAvatarUrl = "",
   kind = "social",
+  eventType = "social",
   title = "",
   message = "",
   severity = "info",
   relatedPost = null,
+  relatedStory = null,
+  relatedThread = null,
 } = {}) {
   if (!mongoose.Types.ObjectId.isValid(String(userId || ""))) return null;
 
@@ -427,10 +558,13 @@ async function createExploreNotification({
     actorName: safeStr(actorName),
     actorAvatarUrl: safeStr(actorAvatarUrl),
     kind,
+    eventType: safeStr(eventType || kind || "social"),
     title,
     message,
     severity,
     relatedPost: relatedPost && mongoose.Types.ObjectId.isValid(String(relatedPost)) ? relatedPost : null,
+    relatedStory: relatedStory && mongoose.Types.ObjectId.isValid(String(relatedStory)) ? relatedStory : null,
+    relatedThread: relatedThread && mongoose.Types.ObjectId.isValid(String(relatedThread)) ? relatedThread : null,
   });
 }
 
@@ -876,10 +1010,7 @@ function mapPost(post, viewerId, followSet, followerMap) {
       followers: Number(followerMap.get(authorId) || 0),
       isFollowed: followSet.has(authorId),
       canFollow: authorId && authorId !== String(viewerId || ""),
-      canMessage:
-        authorId &&
-        authorId !== String(viewerId || "") &&
-        String(post?.authorRole || "") !== String(post?.viewerRole || ""),
+      canMessage: authorId && authorId !== String(viewerId || ""),
     },
     viewerState: {
       liked: likedByViewer,
@@ -896,6 +1027,48 @@ function mapPost(post, viewerId, followSet, followerMap) {
       reports: Array.isArray(post?.reports) ? post.reports.length : 0,
     },
   };
+}
+
+async function buildStoryAudienceMembers(userIds = []) {
+  const orderedIds = [...new Set((Array.isArray(userIds) ? userIds : []).map((item) => String(item || "")).filter(Boolean))];
+  if (!orderedIds.length) return [];
+
+  const objectIds = orderedIds
+    .filter((id) => mongoose.Types.ObjectId.isValid(id))
+    .map((id) => new mongoose.Types.ObjectId(id));
+  if (!objectIds.length) return [];
+
+  const users = await User.find({ _id: { $in: objectIds } })
+    .select("name role location portfolio studentProfile")
+    .lean();
+
+  const companyUserIds = users
+    .filter((user) => String(user?.role || "") === "company")
+    .map((user) => user._id);
+
+  const companies = companyUserIds.length
+    ? await Company.find({ userId: { $in: companyUserIds } })
+        .select("userId name industry category location about website logoUrl")
+        .lean()
+    : [];
+
+  const companyMap = new Map(companies.map((company) => [String(company.userId), company]));
+  const userMap = new Map(users.map((user) => [String(user._id), user]));
+
+  return orderedIds
+    .map((id) => {
+      const user = userMap.get(String(id));
+      if (!user) return null;
+      const actor = buildActorProfile(user, companyMap.get(String(user._id)));
+      return {
+        id: actor.id,
+        name: actor.name,
+        headline: actor.headline,
+        avatarUrl: actor.avatarUrl,
+        role: actor.role,
+      };
+    })
+    .filter(Boolean);
 }
 
 function mapStory(story, viewerId, followSet) {
@@ -929,6 +1102,7 @@ function mapStory(story, viewerId, followSet) {
     music: musicPayload,
     metrics: {
       likes: Array.isArray(story?.likedBy) ? story.likedBy.length : 0,
+      views: Array.isArray(story?.seenBy) ? story.seenBy.length : 0,
     },
     viewerState: {
       seen: seenByViewer || authorId === String(viewerId || ""),
@@ -1130,7 +1304,8 @@ async function buildSuggestionCards(viewer, followedSet) {
         followers: Number(followerMap.get(String(user._id)) || 0),
         posts: Number(postCountMap.get(String(user._id)) || 0),
         isFollowing: followedSet.has(String(user._id)),
-        canMessage: actor.role !== String(viewer?.role || ""),
+        isFollowed: followedSet.has(String(user._id)),
+        canMessage: String(user?._id || "") !== String(viewer?._id || ""),
         reason:
           actor.role === "company"
             ? "Sharing hiring updates and opportunities"
@@ -1144,7 +1319,7 @@ async function buildSuggestionCards(viewer, followedSet) {
       if (a.isFollowing !== b.isFollowing) return Number(a.isFollowing) - Number(b.isFollowing);
       return (b.followers || 0) - (a.followers || 0);
     })
-    .slice(0, 5);
+    .slice(0, 12);
 }
 
 function buildTrendingTags(posts = []) {
@@ -1344,6 +1519,41 @@ export async function getCareerPulseStories(req, res, next) {
   }
 }
 
+export async function getCareerPulseStoryInsights(req, res, next) {
+  try {
+    const viewer = req.user;
+    const storyId = String(req.params?.storyId || "");
+    if (!mongoose.Types.ObjectId.isValid(storyId)) {
+      return res.status(400).json({ message: "Invalid story id." });
+    }
+
+    const story = await SocialStory.findById(storyId).lean();
+    if (!story) {
+      return res.status(404).json({ message: "Story not found." });
+    }
+    if (String(story.authorUser || "") !== String(viewer?._id || "")) {
+      return res.status(403).json({ message: "Only the story owner can view insights." });
+    }
+
+    const [viewers, likes] = await Promise.all([
+      buildStoryAudienceMembers(story.seenBy || []),
+      buildStoryAudienceMembers(story.likedBy || []),
+    ]);
+
+    return res.json({
+      storyId: String(story._id),
+      metrics: {
+        views: viewers.length,
+        likes: likes.length,
+      },
+      viewers,
+      likes,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function createCareerPulseStory(req, res, next) {
   try {
     const viewer = req.user;
@@ -1531,18 +1741,20 @@ export async function toggleCareerPulseStoryLike(req, res, next) {
 
     await story.save();
 
-    if (liked) {
-      await createExploreNotification({
-        userId: story.authorUser,
-        actorUser: viewer._id,
-        actorName: safeStr(viewer?.name || viewer?.fullName || "Someone"),
-        actorAvatarUrl: "",
-        kind: "social",
-        title: "Your story got a like",
-        message: `${safeStr(viewer?.name || "Someone")} liked your story.`,
-        severity: "info",
-      });
-    }
+      if (liked) {
+        await createExploreNotification({
+          userId: story.authorUser,
+          actorUser: viewer._id,
+          actorName: safeStr(viewer?.name || viewer?.fullName || "Someone"),
+          actorAvatarUrl: "",
+          kind: "social",
+          eventType: "story_like",
+          title: "Your story got a like",
+          message: `${safeStr(viewer?.name || "Someone")} liked your story.`,
+          severity: "info",
+          relatedStory: story._id,
+        });
+      }
 
     return res.json({
       storyId: String(story._id),
@@ -1606,9 +1818,11 @@ export async function reportCareerPulseStory(req, res, next) {
       actorName: safeStr(viewer?.name || viewer?.fullName || "Explore"),
       actorAvatarUrl: "",
       kind: "report_update",
+      eventType: "story_report",
       title: "Your story was reported",
       message: `Your story was reported from Explore for "${reason}".`,
       severity: "warning",
+      relatedStory: story._id,
     });
 
     return res.status(201).json({
@@ -1708,7 +1922,7 @@ export async function getCareerPulseFeed(req, res, next) {
       ...(savedOnly ? { savedBy: viewer._id } : {}),
     };
 
-    const [viewerProfile, posts, suggestions, viewerFollowerCount, viewerFollowingCount, viewerPostCount, focusPost, unreadNotifications] =
+    const [viewerProfile, posts, suggestions, viewerFollowerCount, viewerFollowingCount, viewerPostCount, focusPost, unreadNotifications, socialThreads] =
       await Promise.all([
         resolveViewerContext(viewer),
         SocialPost.find(postQuery)
@@ -1727,7 +1941,22 @@ export async function getCareerPulseFeed(req, res, next) {
             }).lean()
           : null,
         SocialNotification.countDocuments({ user: viewer._id, readAt: null }),
+        MessageThread.find({
+          source: "social",
+          $or: [{ student: viewer._id }, { company: viewer._id }],
+        })
+          .select("student company studentUnread companyUnread socialState socialRequestedBy")
+          .lean(),
       ]);
+
+    const messagesUnread = socialThreads.reduce((total, thread) => {
+      const viewerIsStudent = String(thread?.student || "") === String(viewer._id || "");
+      const unread = viewerIsStudent ? Number(thread?.studentUnread || 0) : Number(thread?.companyUnread || 0);
+      const isIncomingRequest =
+        String(thread?.socialState || "accepted") === "pending" &&
+        String(thread?.socialRequestedBy || "") !== String(viewer._id || "");
+      return total + unread + (isIncomingRequest ? 1 : 0);
+    }, 0);
 
     const hasMore = posts.length > limit;
     const initialVisiblePosts = hasMore ? posts.slice(0, limit) : posts;
@@ -1760,6 +1989,7 @@ export async function getCareerPulseFeed(req, res, next) {
         following: viewerFollowingCount,
         posts: viewerPostCount,
         notificationsUnread: unreadNotifications,
+        messagesUnread,
       },
       insights: {
         title: savedOnly ? "Saved" : "Explore",
@@ -2047,15 +2277,26 @@ export async function toggleCareerPulseFollow(req, res, next) {
     });
 
     let following = false;
-    if (existing) {
-      await existing.deleteOne();
-    } else {
-      await SocialFollow.create({
-        follower: viewer._id,
-        following: target._id,
-      });
-      following = true;
-    }
+      if (existing) {
+        await existing.deleteOne();
+      } else {
+        await SocialFollow.create({
+          follower: viewer._id,
+          following: target._id,
+        });
+        following = true;
+        await createExploreNotification({
+          userId: target._id,
+          actorUser: viewer._id,
+          actorName: safeStr(viewer?.name || viewer?.fullName || "Someone"),
+          actorAvatarUrl: "",
+          kind: "social",
+          eventType: "follow",
+          title: "New follower",
+          message: `${safeStr(viewer?.name || "Someone")} started following you on Explore.`,
+          severity: "info",
+        });
+      }
 
     const followers = await SocialFollow.countDocuments({ following: target._id });
 
@@ -2197,10 +2438,13 @@ export async function listCareerPulseMessageThreads(req, res, next) {
       .lean();
 
     const items = await mapSocialThreadsForViewer(threads, viewer);
+    const unreadCount = items.reduce((total, item) => total + Number(item?.unread || 0), 0);
+    const requestCount = items.filter((item) => item.type === "request_received").length;
 
     return res.json({
       threads: items,
-      requests: items.filter((item) => item.type === "request_received").length,
+      requests: requestCount,
+      unreadCount: unreadCount + requestCount,
     });
   } catch (error) {
     next(error);
@@ -2211,6 +2455,7 @@ export async function openCareerPulseMessageThread(req, res, next) {
   try {
     const viewer = req.user;
     const recipientId = req.body?.recipientId;
+    const initialText = safeStr(req.body?.text);
 
     if (!mongoose.Types.ObjectId.isValid(recipientId)) {
       return res.status(400).json({ message: "Invalid recipient id." });
@@ -2237,18 +2482,46 @@ export async function openCareerPulseMessageThread(req, res, next) {
     const existing = await findExistingSocialThreadBetweenUsers(viewer._id, recipient._id);
 
     if (existing) {
-      const [mappedThread] = await mapSocialThreadsForViewer([existing], viewer);
+      let hydratedThread = existing;
+
+      if (
+        initialText &&
+        (safeStr(existing?.socialState || "accepted") === "accepted" ||
+          String(existing?.socialRequestedBy || "") === String(viewer._id || ""))
+      ) {
+        await appendSocialThreadTextMessage(existing, viewer, initialText);
+        hydratedThread = await getSocialMessageThreadForViewer(existing._id, viewer);
+      }
+
+      const [mappedThread] = await mapSocialThreadsForViewer([hydratedThread], viewer);
       return res.json({
         thread: mappedThread,
         created: false,
       });
     }
 
-    const followExists = await SocialFollow.exists({
+    const followRows = await SocialFollow.find({
       $or: [
         { follower: viewer._id, following: recipient._id },
         { follower: recipient._id, following: viewer._id },
       ],
+    })
+      .select("follower following")
+      .lean();
+
+    const viewerFollowsRecipient = followRows.some(
+      (row) =>
+        String(row?.follower || "") === String(viewer._id || "") &&
+        String(row?.following || "") === String(recipient._id || "")
+    );
+    const recipientFollowsViewer = followRows.some(
+      (row) =>
+        String(row?.follower || "") === String(recipient._id || "") &&
+        String(row?.following || "") === String(viewer._id || "")
+    );
+    const autoAccept = shouldAutoAcceptSocialThread(viewer, recipient, {
+      viewerFollowsRecipient,
+      recipientFollowsViewer,
     });
 
     let thread;
@@ -2267,10 +2540,10 @@ export async function openCareerPulseMessageThread(req, res, next) {
             source: "social",
             subject: "Explore connection",
             status: "Connected",
-            socialState: followExists ? "accepted" : "pending",
-            socialRequestedBy: followExists ? null : viewer._id,
-            socialAcceptedAt: followExists ? new Date() : null,
-            lastMessageText: followExists ? "Conversation started from Explore." : "Message request sent from Explore.",
+            socialState: autoAccept ? "accepted" : "pending",
+            socialRequestedBy: autoAccept ? null : viewer._id,
+            socialAcceptedAt: autoAccept ? new Date() : null,
+            lastMessageText: initialText || (autoAccept ? "Conversation started from Explore." : "Message request sent from Explore."),
             lastMessageAt: new Date(),
             studentUnread: 0,
             companyUnread: 0,
@@ -2313,24 +2586,35 @@ export async function openCareerPulseMessageThread(req, res, next) {
     }
 
     if (created) {
-      await Message.create({
-        thread: thread._id,
-        senderRole: "system",
-        type: "system",
-        text: followExists ? "Conversation started from Explore." : "Message request sent from Explore.",
-      });
+      const hydratedThread = await MessageThread.findById(thread._id)
+        .populate("student")
+        .populate("company")
+        .lean();
 
-      if (!followExists) {
-        await createExploreNotification({
-          userId: recipient._id,
-          actorUser: viewer._id,
-          actorName: safeStr(viewer?.name || "Explore member"),
-          kind: "social",
-          title: "New message request",
-          message: `${safeStr(viewer?.name || "Someone")} wants to message you on Explore.`,
-          severity: "info",
+      if (initialText) {
+        await appendSocialThreadTextMessage(hydratedThread, viewer, initialText);
+      } else {
+        await Message.create({
+          thread: thread._id,
+          senderRole: "system",
+          type: "system",
+          text: autoAccept ? "Conversation started from Explore." : "Message request sent from Explore.",
         });
       }
+
+        if (!autoAccept) {
+          await createExploreNotification({
+            userId: recipient._id,
+            actorUser: viewer._id,
+            actorName: safeStr(viewer?.name || "Explore member"),
+            kind: "social",
+            eventType: "message_request",
+            title: "New message request",
+            message: `${safeStr(viewer?.name || "Someone")} wants to message you on Explore.`,
+            severity: "info",
+            relatedThread: thread._id,
+          });
+        }
     }
 
     const hydrated = await MessageThread.findById(thread._id)
@@ -2358,9 +2642,23 @@ export async function getCareerPulseMessageThread(req, res, next) {
       return res.status(404).json({ message: "Conversation not found." });
     }
 
+    await Message.updateMany(
+      {
+        thread: thread._id,
+        senderRole: { $ne: "system" },
+        deletedAt: null,
+      },
+      {
+        $addToSet: { seenBy: viewer._id },
+      }
+    );
+
     const [mappedThread, messages] = await Promise.all([
       mapSocialThreadsForViewer([thread], viewer),
-      Message.find({ thread: thread._id }).sort({ createdAt: 1 }).lean(),
+      Message.find({ thread: thread._id })
+        .populate("replyTo")
+        .sort({ createdAt: 1 })
+        .lean(),
     ]);
 
     const unreadField =
@@ -2383,9 +2681,21 @@ export async function sendCareerPulseMessage(req, res, next) {
     const viewer = req.user;
     const { threadId } = req.params;
     const text = safeStr(req.body?.text);
+    const replyToMessageId = safeStr(req.body?.replyToMessageId);
+    const fileUrl = safeStr(req.body?.fileUrl);
+    const fileName = safeStr(req.body?.fileName);
+    const fileSize = safeStr(req.body?.fileSize);
+    const mimeType = safeStr(req.body?.mimeType);
+    const messageType =
+      mimeType &&
+      (mimeType.startsWith("image/") ||
+        mimeType.startsWith("video/") ||
+        mimeType.startsWith("audio/"))
+        ? "file"
+        : "text";
 
-    if (!text) {
-      return res.status(400).json({ message: "Message text is required." });
+    if (!text && !fileUrl) {
+      return res.status(400).json({ message: "Message text or attachment is required." });
     }
 
     const thread = await getSocialMessageThreadForViewer(threadId, viewer);
@@ -2396,27 +2706,279 @@ export async function sendCareerPulseMessage(req, res, next) {
       return res.status(400).json({ message: "This message request has not been accepted yet." });
     }
 
+    let replyTo = null;
+    if (replyToMessageId) {
+      if (!mongoose.Types.ObjectId.isValid(replyToMessageId)) {
+        return res.status(400).json({ message: "Invalid reply message id." });
+      }
+
+      replyTo = await Message.findOne({
+        _id: new mongoose.Types.ObjectId(replyToMessageId),
+        thread: thread._id,
+      }).lean();
+
+      if (!replyTo) {
+        return res.status(404).json({ message: "Reply message not found." });
+      }
+    }
+
     const message = await Message.create({
       thread: thread._id,
+      senderUser: viewer._id,
       senderRole: viewer.role,
-      type: "text",
+      type: messageType,
       text,
+      replyTo: replyTo?._id || null,
+      fileUrl,
+      fileName,
+      fileSize,
+      mimeType,
+      seenBy: [viewer._id],
     });
 
-    const viewerIsStudent = String(thread?.student?._id || thread?.student || "") === String(viewer._id || "");
-    await MessageThread.updateOne(
-      { _id: thread._id },
+      const viewerIsStudent = String(thread?.student?._id || thread?.student || "") === String(viewer._id || "");
+      const receiverId = viewerIsStudent
+        ? String(thread?.company?._id || thread?.company || "")
+        : String(thread?.student?._id || thread?.student || "");
+      await MessageThread.updateOne(
+        { _id: thread._id },
+        {
+          $set: {
+            lastMessageText:
+              text ||
+              fileName ||
+              (mimeType.startsWith("video/")
+                ? "Sent a video."
+                : mimeType.startsWith("audio/")
+                  ? "Sent a voice message."
+                  : "Sent an image."),
+            lastMessageAt: new Date(),
+          },
+          $inc: viewerIsStudent ? { companyUnread: 1 } : { studentUnread: 1 },
+        }
+      );
+
+      await createExploreNotification({
+        userId: receiverId,
+        actorUser: viewer._id,
+        actorName: safeStr(viewer?.name || "Explore member"),
+        actorAvatarUrl: "",
+        kind: "social",
+        eventType: "message",
+        title: replyTo ? "New reply" : "New message",
+        message: replyTo
+          ? `${safeStr(viewer?.name || "Someone")} replied to your Explore message.`
+          : `${safeStr(viewer?.name || "Someone")} sent you a new Explore message.`,
+        severity: "info",
+        relatedThread: thread._id,
+      });
+
+      return res.status(201).json({
+      message: mapSocialMessage(
+        {
+          ...message.toObject(),
+          replyTo,
+        },
+        viewer
+      ),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteCareerPulseMessages(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { threadId } = req.params;
+    const messageIds = Array.isArray(req.body?.messageIds)
+      ? req.body.messageIds.map((item) => safeStr(item)).filter(Boolean)
+      : [];
+
+    if (!messageIds.length) {
+      return res.status(400).json({ message: "Select at least one message to delete." });
+    }
+
+    const thread = await getSocialMessageThreadForViewer(threadId, viewer);
+    if (!thread) {
+      return res.status(404).json({ message: "Conversation not found." });
+    }
+
+    const objectIds = messageIds
+      .filter((id) => mongoose.Types.ObjectId.isValid(id))
+      .map((id) => new mongoose.Types.ObjectId(id));
+
+    const result = await Message.updateMany(
+      {
+        _id: { $in: objectIds },
+        thread: thread._id,
+        senderUser: viewer._id,
+        deletedAt: null,
+      },
       {
         $set: {
-          lastMessageText: text,
-          lastMessageAt: new Date(),
+          deletedAt: new Date(),
+          deletedBy: viewer._id,
+          text: "",
+          fileName: "",
+          fileSize: "",
+          fileUrl: "",
+          mimeType: "",
         },
-        $inc: viewerIsStudent ? { companyUnread: 1 } : { studentUnread: 1 },
       }
     );
 
-    return res.status(201).json({
+    await refreshSocialThreadLastMessage(thread._id);
+
+    return res.json({
+      deleted: Number(result?.modifiedCount || 0),
+      messageIds,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteCareerPulseMessageThread(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { threadId } = req.params;
+
+    const thread = await getSocialMessageThreadForViewer(threadId, viewer);
+    if (!thread) {
+      return res.status(404).json({ message: "Conversation not found." });
+    }
+
+    await Message.deleteMany({ thread: thread._id });
+    await MessageThread.deleteOne({ _id: thread._id, source: "social" });
+
+    return res.json({
+      success: true,
+      threadId: String(thread._id || ""),
+      message: "Explore chat deleted successfully.",
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function toggleCareerPulseMessageReaction(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { threadId, messageId } = req.params;
+    const emoji = safeStr(req.body?.emoji);
+
+    if (!emoji) {
+      return res.status(400).json({ message: "Reaction emoji is required." });
+    }
+
+    const thread = await getSocialMessageThreadForViewer(threadId, viewer);
+    if (!thread) {
+      return res.status(404).json({ message: "Conversation not found." });
+    }
+    if (!mongoose.Types.ObjectId.isValid(messageId)) {
+      return res.status(400).json({ message: "Invalid message id." });
+    }
+
+    const message = await Message.findOne({
+      _id: new mongoose.Types.ObjectId(messageId),
+      thread: thread._id,
+      deletedAt: null,
+    });
+
+    if (!message) {
+      return res.status(404).json({ message: "Message not found." });
+    }
+
+    const existingIndex = (message.reactions || []).findIndex(
+      (item) =>
+        String(item?.user || "") === String(viewer._id || "") && safeStr(item?.emoji) === emoji
+    );
+
+    if (existingIndex >= 0) {
+      message.reactions.splice(existingIndex, 1);
+    } else {
+      message.reactions.push({
+        user: viewer._id,
+        emoji,
+        createdAt: new Date(),
+      });
+    }
+
+    await message.save();
+
+    return res.json({
       message: mapSocialMessage(message.toObject(), viewer),
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function reportCareerPulseMessage(req, res, next) {
+  try {
+    const viewer = req.user;
+    const { threadId, messageId } = req.params;
+    const reason = safeStr(req.body?.reason) || "Other";
+    const details = safeStr(req.body?.details);
+
+    const thread = await getSocialMessageThreadForViewer(threadId, viewer);
+    if (!thread) {
+      return res.status(404).json({ message: "Conversation not found." });
+    }
+    if (!mongoose.Types.ObjectId.isValid(messageId)) {
+      return res.status(400).json({ message: "Invalid message id." });
+    }
+
+    const message = await Message.findOne({
+      _id: new mongoose.Types.ObjectId(messageId),
+      thread: thread._id,
+    });
+
+    if (!message) {
+      return res.status(404).json({ message: "Message not found." });
+    }
+    if (String(message.senderUser || "") === String(viewer._id || "")) {
+      return res.status(400).json({ message: "You cannot report your own message." });
+    }
+
+    const alreadyReported = (message.reports || []).some(
+      (item) => String(item?.reporterUser || "") === String(viewer._id || "")
+    );
+    if (alreadyReported) {
+      return res.status(400).json({ message: "You already reported this message." });
+    }
+
+    message.reports.push({
+      reporterUser: viewer._id,
+      reason,
+      details,
+      createdAt: new Date(),
+    });
+    message.reportCount = Number(message.reportCount || 0) + 1;
+    await message.save();
+
+    const receiverId =
+      String(thread?.student?._id || thread?.student || "") === String(viewer._id || "")
+        ? String(thread?.company?._id || thread?.company || "")
+        : String(thread?.student?._id || thread?.student || "");
+
+    await createExploreNotification({
+      userId: receiverId,
+      actorUser: viewer._id,
+      actorName: safeStr(viewer?.name || "Explore member"),
+      kind: "social",
+      eventType: "message_report",
+      title: "Message reported",
+      message: "One of your Explore messages was reported for review.",
+      severity: "warning",
+      relatedThread: thread._id,
+    });
+
+    return res.status(201).json({
+      success: true,
+      reportCount: Number(message.reportCount || 0),
+      message: "Message reported successfully.",
     });
   } catch (error) {
     next(error);
@@ -2463,9 +3025,11 @@ export async function acceptCareerPulseMessageRequest(req, res, next) {
       actorUser: viewer._id,
       actorName: safeStr(viewer?.name || "Explore member"),
       kind: "social",
+      eventType: "request_accepted",
       title: "Request accepted",
       message: `${safeStr(viewer?.name || "Someone")} accepted your Explore message request.`,
       severity: "info",
+      relatedThread: thread._id,
     });
 
     const updated = await getSocialMessageThreadForViewer(thread._id, viewer);

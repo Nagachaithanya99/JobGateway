@@ -4,6 +4,8 @@ import {
   addCareerPulseComment,
   createCareerPulseStory,
   createCareerPulsePost,
+  deleteCareerPulseMessages,
+  deleteCareerPulseMessageThread,
   getCareerPulseComments,
   getCareerPulseFeed,
   getCareerPulseMessageThread,
@@ -13,13 +15,16 @@ import {
   markCareerPulseMessageThreadRead,
   markCareerPulseNotificationsRead,
   getCareerPulseStories,
+  getCareerPulseStoryInsights,
   openCareerPulseMessageThread,
   markCareerPulseStorySeen,
   deleteCareerPulseStory,
   toggleCareerPulseStoryLike,
   reportCareerPulseStory,
   reportCareerPulsePost,
+  reportCareerPulseMessage,
   sendCareerPulseMessage,
+  toggleCareerPulseMessageReaction,
   acceptCareerPulseMessageRequest,
   shareCareerPulsePost,
   startCareerPulseMessage,
@@ -35,6 +40,7 @@ router.use(socialActorOnly);
 
 router.get("/music/tracks", searchCareerPulseMusic);
 router.get("/stories", getCareerPulseStories);
+router.get("/stories/:storyId/insights", getCareerPulseStoryInsights);
 router.post("/stories", createCareerPulseStory);
 router.post("/stories/:storyId/view", markCareerPulseStorySeen);
 router.delete("/stories/:storyId", deleteCareerPulseStory);
@@ -46,6 +52,10 @@ router.get("/messages/threads", listCareerPulseMessageThreads);
 router.post("/messages/open", openCareerPulseMessageThread);
 router.get("/messages/threads/:threadId", getCareerPulseMessageThread);
 router.post("/messages/threads/:threadId/send", sendCareerPulseMessage);
+router.post("/messages/threads/:threadId/delete", deleteCareerPulseMessages);
+router.delete("/messages/threads/:threadId", deleteCareerPulseMessageThread);
+router.post("/messages/threads/:threadId/messages/:messageId/react", toggleCareerPulseMessageReaction);
+router.post("/messages/threads/:threadId/messages/:messageId/report", reportCareerPulseMessage);
 router.post("/messages/threads/:threadId/accept", acceptCareerPulseMessageRequest);
 router.patch("/messages/threads/:threadId/read", markCareerPulseMessageThreadRead);
 router.get("/notifications", getCareerPulseNotifications);

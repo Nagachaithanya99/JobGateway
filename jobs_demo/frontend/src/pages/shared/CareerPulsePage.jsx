@@ -56,6 +56,8 @@ import {
   addCareerPulseComment,
   createCareerPulsePost,
   createCareerPulseStory,
+  deleteCareerPulseMessages,
+  deleteCareerPulseMessageThread,
   deleteCareerPulseStory,
   getCareerPulseMessageThread,
   getCareerPulseMessageThreads,
@@ -63,16 +65,20 @@ import {
   getCareerPulseFeed,
   getCareerPulseMusicTracks,
   getCareerPulseNotifications,
+  getCareerPulseStoryInsights,
   getCareerPulseStories,
   markCareerPulseMessageThreadRead,
   markCareerPulseNotificationsRead,
   toggleCareerPulseStoryLike,
   markCareerPulseStoryViewed,
   openCareerPulseMessageThread,
+  reportCareerPulseMessage,
   reportCareerPulseStory,
   reportCareerPulsePost,
   sendCareerPulseMessage,
   shareCareerPulsePost,
+  toggleCareerPulseMessageReaction,
+  toggleCareerPulseStoryAuthorMute,
   toggleCareerPulseFollow,
   toggleCareerPulseLike,
   toggleCareerPulseSave,
@@ -146,6 +152,16 @@ function defaultNotificationsState() {
   return { items: [], unreadCount: 0, loading: false };
 }
 
+function loadPinnedReels() {
+  try {
+    const raw = window.localStorage.getItem("explore-pinned-reels-v1");
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map((item) => String(item || "")).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
 function defaultMessagesState() {
   return {
     threads: [],
@@ -153,10 +169,26 @@ function defaultMessagesState() {
     activeThread: null,
     messages: [],
     draft: "",
+    attachmentPreview: "",
+    attachmentName: "",
+    attachmentMimeType: "",
+    attachmentFileSize: "",
+    attachmentUploading: false,
+    replyTarget: null,
+    selectedMessageIds: [],
     loadingList: false,
     loadingThread: false,
     sending: false,
+    deleting: false,
   };
+}
+
+function defaultStoryReplyState() {
+  return { draft: "", sending: false };
+}
+
+function defaultStoryInsightsState() {
+  return { open: false, loading: false, storyId: "", metrics: { views: 0, likes: 0 }, viewers: [], likes: [], activeTab: "views" };
 }
 
 function timeAgo(value) {
@@ -268,6 +300,14 @@ function uniqMusicTracks(items = []) {
   });
 }
 
+function sortExploreThreadsByRecent(items = []) {
+  return [...items].sort((left, right) => {
+    const rightTime = new Date(right?.updatedAt || 0).getTime();
+    const leftTime = new Date(left?.updatedAt || 0).getTime();
+    return rightTime - leftTime;
+  });
+}
+
 function markStorySeenGroups(groups = [], storyId) {
   return groups.map((group) => {
     let changed = false;
@@ -359,6 +399,8 @@ export default function CareerPulsePage() {
   const [mutedStoryAuthors, setMutedStoryAuthors] = useState({});
   const [hiddenStoryIds, setHiddenStoryIds] = useState({});
   const [storyViewer, setStoryViewer] = useState(defaultStoryViewer());
+  const [storyReply, setStoryReply] = useState(defaultStoryReplyState());
+  const [storyInsights, setStoryInsights] = useState(defaultStoryInsightsState());
   const [shareSheet, setShareSheet] = useState(defaultShareSheet());
   const [composerOpen, setComposerOpen] = useState(false);
   const [composer, setComposer] = useState(defaultComposer());
@@ -367,9 +409,12 @@ export default function CareerPulsePage() {
   const [commentsPanel, setCommentsPanel] = useState(defaultCommentsPanel());
   const [reportDialog, setReportDialog] = useState(defaultReportDialog());
   const [notifications, setNotifications] = useState(defaultNotificationsState());
+  const [exploreNotificationPopup, setExploreNotificationPopup] = useState(null);
+  const [exploreNotificationSound, setExploreNotificationSound] = useState(true);
   const [messagesPanel, setMessagesPanel] = useState(defaultMessagesState());
   const [busy, setBusy] = useState({});
-  const [mutedPosts, setMutedPosts] = useState({});
+  const [reelAudioMuted, setReelAudioMuted] = useState(true);
+  const [pinnedReelIds, setPinnedReelIds] = useState(() => loadPinnedReels());
   const [expandedCaptions, setExpandedCaptions] = useState({});
   const reelViewportRef = useRef(null);
   const reelRefs = useRef([]);
@@ -381,6 +426,11 @@ export default function CareerPulsePage() {
   const viewedStoriesRef = useRef(new Set());
   const searchInputRef = useRef(null);
   const hasHandledInitialMode = useRef(false);
+  const notificationUnreadRef = useRef(0);
+  const notificationLatestIdRef = useRef("");
+  const notificationPopupTimerRef = useRef(null);
+  const messageUnreadRef = useRef(0);
+  const messagesPanelRef = useRef(defaultMessagesState());
 
   const homePosts = useMemo(() => {
     const query = String(searchValue || "").trim().toLowerCase();
@@ -416,13 +466,16 @@ export default function CareerPulsePage() {
     });
   }, [savedFeed.posts, searchValue]);
   const filteredNotifications = useMemo(() => {
-    const query = String(searchValue || "").trim().toLowerCase();
-    const items = Array.isArray(notifications.items) ? notifications.items : [];
-    if (!query) return items;
-    return items.filter((item) =>
-      `${item.title} ${item.message} ${item.actor?.name || ""}`.toLowerCase().includes(query)
-    );
-  }, [notifications.items, searchValue]);
+      const query = String(searchValue || "").trim().toLowerCase();
+      const cutoff = Date.now() - 1000 * 60 * 60 * 24 * 30;
+      const items = (Array.isArray(notifications.items) ? notifications.items : []).filter(
+        (item) => new Date(item?.createdAt || 0).getTime() >= cutoff
+      );
+      if (!query) return items;
+      return items.filter((item) =>
+        `${item.title} ${item.message} ${item.actor?.name || ""} ${item.eventType || ""}`.toLowerCase().includes(query)
+      );
+    }, [notifications.items, searchValue]);
   const filteredMessageThreads = useMemo(() => {
     const query = String(searchValue || "").trim().toLowerCase();
     const items = Array.isArray(messagesPanel.threads) ? messagesPanel.threads : [];
@@ -507,6 +560,42 @@ export default function CareerPulsePage() {
       timerProgressBar: true,
     });
   };
+
+  const playExploreNotificationSound = () => {
+    if (!exploreNotificationSound || typeof window === "undefined") return;
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtor) return;
+    try {
+      const audioContext = new AudioCtor();
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(880, audioContext.currentTime);
+      gain.gain.setValueAtTime(0.001, audioContext.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.05, audioContext.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + 0.22);
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start();
+      oscillator.stop(audioContext.currentTime + 0.24);
+      window.setTimeout(() => {
+        void audioContext.close().catch(() => {});
+      }, 300);
+    } catch {
+      // ignore audio failures
+    }
+  };
+
+  const showExploreNotificationPopup = (notification) => {
+    if (!notification?.id) return;
+    if (notificationPopupTimerRef.current) {
+      window.clearTimeout(notificationPopupTimerRef.current);
+    }
+    setExploreNotificationPopup(notification);
+    notificationPopupTimerRef.current = window.setTimeout(() => {
+      setExploreNotificationPopup(null);
+    }, 3600);
+  };
   const canAttachStoryMusic = Boolean(storyComposer.file && String(storyComposer.file?.type || "").startsWith("image/"));
   const selectedStoryMusic = storyComposer.music && storyComposer.music.audioUrl ? storyComposer.music : null;
   const selectedStoryMusicDuration = Math.max(3, Math.floor(Number(selectedStoryMusic?.durationSeconds || 0) || 15));
@@ -529,6 +618,27 @@ export default function CareerPulsePage() {
   const storyMusicTracks = storyMusicTab === "saved" ? filteredSavedStoryMusicTracks : storyMusicResults;
 
   const setBusyFlag = (key, value) => setBusy((prev) => ({ ...prev, [key]: value }));
+
+  useEffect(() => {
+    messagesPanelRef.current = messagesPanel;
+  }, [messagesPanel]);
+
+  useEffect(
+    () => () => {
+      if (notificationPopupTimerRef.current) {
+        window.clearTimeout(notificationPopupTimerRef.current);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("explore-pinned-reels-v1", JSON.stringify(pinnedReelIds));
+    } catch {
+      // ignore
+    }
+  }, [pinnedReelIds]);
   const patchPostAcrossCollections = (postId, updater) => {
     setFeed((prev) => ({
       ...prev,
@@ -942,27 +1052,45 @@ export default function CareerPulsePage() {
   };
 
   const loadNotifications = async ({ silent = false, markRead = false } = {}) => {
-    try {
-      setNotifications((prev) => ({ ...prev, loading: true }));
-      const data = await getCareerPulseNotifications({ limit: 40 });
-      setNotifications({
-        items: Array.isArray(data?.notifications) ? data.notifications : [],
-        unreadCount: Number(data?.unreadCount || 0),
-        loading: false,
-      });
-      setFeed((prev) => ({
-        ...prev,
-        viewer: prev.viewer
-          ? { ...prev.viewer, notificationsUnread: Number(data?.unreadCount || 0) }
-          : prev.viewer,
-      }));
-
-      if (markRead && Number(data?.unreadCount || 0) > 0) {
-        const readResult = await markCareerPulseNotificationsRead();
+      try {
         setNotifications((prev) => ({
           ...prev,
-          unreadCount: Number(readResult?.unreadCount || 0),
-          items: prev.items.map((item) => ({ ...item, readAt: item.readAt || new Date().toISOString() })),
+          loading: silent ? prev.loading && !(prev.items || []).length : true,
+        }));
+        const data = await getCareerPulseNotifications({ limit: 40 });
+        const nextItems = Array.isArray(data?.notifications) ? data.notifications : [];
+        const nextUnreadCount = Number(data?.unreadCount || 0);
+        const latestNotification = nextItems[0] || null;
+        setNotifications({
+          items: nextItems,
+          unreadCount: nextUnreadCount,
+          loading: false,
+        });
+        if (
+          silent &&
+          nextUnreadCount > notificationUnreadRef.current &&
+          homeMode !== "notifications" &&
+          latestNotification?.id &&
+          latestNotification.id !== notificationLatestIdRef.current
+        ) {
+          showExploreNotificationPopup(latestNotification);
+          playExploreNotificationSound();
+        }
+        notificationUnreadRef.current = nextUnreadCount;
+        notificationLatestIdRef.current = String(latestNotification?.id || notificationLatestIdRef.current || "");
+        setFeed((prev) => ({
+          ...prev,
+          viewer: prev.viewer
+            ? { ...prev.viewer, notificationsUnread: nextUnreadCount }
+            : prev.viewer,
+        }));
+
+        if (markRead && nextUnreadCount > 0) {
+          const readResult = await markCareerPulseNotificationsRead();
+          setNotifications((prev) => ({
+            ...prev,
+            unreadCount: Number(readResult?.unreadCount || 0),
+            items: prev.items.map((item) => ({ ...item, readAt: item.readAt || new Date().toISOString() })),
         }));
         setFeed((prev) => ({
           ...prev,
@@ -970,6 +1098,7 @@ export default function CareerPulsePage() {
             ? { ...prev.viewer, notificationsUnread: Number(readResult?.unreadCount || 0) }
             : prev.viewer,
         }));
+        notificationUnreadRef.current = Number(readResult?.unreadCount || 0);
       }
     } catch (error) {
       if (!silent) {
@@ -984,22 +1113,39 @@ export default function CareerPulsePage() {
   };
 
   const loadMessageThreads = async ({ silent = false } = {}) => {
-    try {
-      setMessagesPanel((prev) => ({ ...prev, loadingList: true }));
-      const data = await getCareerPulseMessageThreads();
+      try {
+        setMessagesPanel((prev) => ({
+          ...prev,
+          loadingList: silent ? prev.loadingList && !(prev.threads || []).length : true,
+        }));
+        const data = await getCareerPulseMessageThreads();
+      const nextThreads = Array.isArray(data?.threads) ? data.threads : [];
+      const nextUnreadCount = Number(data?.unreadCount || 0);
+      if (silent && nextUnreadCount > messageUnreadRef.current && homeMode !== "messages") {
+        setToast({
+          show: true,
+          tone: "info",
+          message: Number(data?.requests || 0) > 0 ? "You have a new Explore message request." : "You have a new Explore message.",
+        });
+      }
+      messageUnreadRef.current = nextUnreadCount;
+      setFeed((prev) => ({
+        ...prev,
+        viewer: prev.viewer ? { ...prev.viewer, messagesUnread: nextUnreadCount } : prev.viewer,
+      }));
       setMessagesPanel((prev) => {
-        const nextThreads = Array.isArray(data?.threads) ? data.threads : [];
         const activeThreadId = prev.activeThread?.id || "";
+        const sortedThreads = sortExploreThreadsByRecent(nextThreads);
         const matchedActive =
-          nextThreads.find((thread) => thread.id === activeThreadId) ||
-          prev.activeThread ||
-          nextThreads[0] ||
+          sortedThreads.find((thread) => thread.id === activeThreadId) ||
+          sortedThreads[0] ||
           null;
         return {
           ...prev,
-          threads: nextThreads,
+          threads: sortedThreads,
           requests: Number(data?.requests || 0),
           activeThread: matchedActive,
+          messages: matchedActive?.id === activeThreadId ? prev.messages : [],
           loadingList: false,
         };
       });
@@ -1015,24 +1161,69 @@ export default function CareerPulsePage() {
     }
   };
 
-  const openMessageThreadById = async (threadId, { silent = false } = {}) => {
+  const openMessageThreadById = async (threadOrId, { silent = false } = {}) => {
+    const threadId =
+      typeof threadOrId === "string"
+        ? threadOrId
+        : String(threadOrId?.id || "");
     if (!threadId) return;
-    try {
-      setMessagesPanel((prev) => ({ ...prev, loadingThread: true }));
+      try {
+        const selectedThread =
+          (typeof threadOrId === "object" && threadOrId) ||
+          messagesPanelRef.current.threads.find((thread) => thread.id === threadId) ||
+          null;
+        const isSameActiveThread = String(messagesPanelRef.current.activeThread?.id || "") === threadId;
+        const unreadReduction =
+          Number(selectedThread?.unread || 0) +
+          (selectedThread?.type === "request_received" ? 1 : 0);
+        setMessagesPanel((prev) => ({
+          ...prev,
+          activeThread: prev.threads.find((thread) => thread.id === threadId) || selectedThread || prev.activeThread,
+          loadingThread:
+            silent
+              ? prev.loadingThread && !prev.messages.length && String(prev.activeThread?.id || "") !== threadId
+              : true,
+          replyTarget: isSameActiveThread ? prev.replyTarget : null,
+          attachmentPreview: isSameActiveThread ? prev.attachmentPreview : "",
+          attachmentName: isSameActiveThread ? prev.attachmentName : "",
+          attachmentMimeType: isSameActiveThread ? prev.attachmentMimeType : "",
+          attachmentFileSize: isSameActiveThread ? prev.attachmentFileSize : "",
+          attachmentUploading: isSameActiveThread ? prev.attachmentUploading : false,
+          selectedMessageIds: [],
+          messages: prev.activeThread?.id === threadId ? prev.messages : [],
+        }));
       const data = await getCareerPulseMessageThread(threadId);
+      setMessagesPanel((prev) => {
+        if (String(prev.activeThread?.id || "") !== threadId) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          activeThread: data?.thread || prev.activeThread,
+          messages: Array.isArray(data?.messages) ? data.messages : [],
+          loadingThread: false,
+        };
+      });
       setMessagesPanel((prev) => ({
         ...prev,
-        activeThread: data?.thread || prev.activeThread,
-        messages: Array.isArray(data?.messages) ? data.messages : [],
-        loadingThread: false,
-      }));
-      setMessagesPanel((prev) => ({
-        ...prev,
-        threads: prev.threads.map((thread) =>
-          thread.id === threadId ? { ...thread, unread: 0, ...(data?.thread || {}) } : thread
+        threads: sortExploreThreadsByRecent(
+          prev.threads.map((thread) =>
+            thread.id === threadId ? { ...thread, unread: 0, ...(data?.thread || {}) } : thread
+          )
         ),
       }));
       await markCareerPulseMessageThreadRead(threadId);
+      setFeed((prev) => ({
+        ...prev,
+        viewer: prev.viewer
+          ? {
+              ...prev.viewer,
+              messagesUnread: Math.max(0, Number(prev.viewer.messagesUnread || 0) - unreadReduction),
+            }
+          : prev.viewer,
+      }));
+      messageUnreadRef.current = Math.max(0, messageUnreadRef.current - unreadReduction);
     } catch (error) {
       if (!silent) {
         setToast({
@@ -1058,7 +1249,7 @@ export default function CareerPulsePage() {
 
   useEffect(() => {
     if (homeMode !== "notifications") return;
-    void loadNotifications({ silent: false, markRead: true });
+    void loadNotifications({ silent: false, markRead: false });
   }, [homeMode]);
 
   useEffect(() => {
@@ -1074,11 +1265,18 @@ export default function CareerPulsePage() {
       void openMessageThreadById(messagesPanel.threads[0].id, { silent: true });
       return;
     }
+    if (
+      messagesPanel.activeThread?.type === "request_sent" ||
+      messagesPanel.activeThread?.type === "request_received"
+    ) {
+      return;
+    }
     if (messagesPanel.messages.length) return;
     void openMessageThreadById(messagesPanel.activeThread.id, { silent: true });
   }, [
     homeMode,
     messagesPanel.activeThread?.id,
+    messagesPanel.activeThread?.type,
     messagesPanel.loadingList,
     messagesPanel.loadingThread,
     messagesPanel.messages.length,
@@ -1088,10 +1286,25 @@ export default function CareerPulsePage() {
   useEffect(() => {
     const timer = window.setInterval(() => {
       void loadStories({ silent: true });
-    }, 60000);
+      void loadNotifications({ silent: true, markRead: false });
+      void loadMessageThreads({ silent: true });
+    }, 10000);
 
     return () => window.clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (homeMode !== "messages") return undefined;
+    const activeThreadId = String(messagesPanel.activeThread?.id || "");
+    if (!activeThreadId) return undefined;
+
+    const timer = window.setInterval(() => {
+      void loadMessageThreads({ silent: true });
+      void openMessageThreadById(activeThreadId, { silent: true });
+    }, 3500);
+
+    return () => window.clearInterval(timer);
+  }, [homeMode, messagesPanel.activeThread?.id]);
 
   useEffect(() => {
     if (!hasHandledInitialMode.current) {
@@ -1331,7 +1544,7 @@ export default function CareerPulsePage() {
   useEffect(() => {
     Object.entries(videoRefs.current).forEach(([postId, node]) => {
       if (!node) return;
-      node.muted = mutedPosts[postId] ?? false;
+      node.muted = reelAudioMuted;
       node.volume = node.muted ? 0 : 1;
       if (commentsPanel.open || composerOpen || activePost?.id !== postId) {
         node.pause();
@@ -1340,7 +1553,7 @@ export default function CareerPulsePage() {
       const promise = node.play();
       if (promise?.catch) promise.catch(() => {});
     });
-  }, [activePost?.id, commentsPanel.open, composerOpen, mutedPosts]);
+  }, [activePost?.id, commentsPanel.open, composerOpen, reelAudioMuted]);
 
   const refreshFeed = async () => {
     const tasks = [
@@ -1376,7 +1589,11 @@ export default function CareerPulsePage() {
     setStoryViewer({ open: true, groupIndex: nextGroupIndex, storyIndex: 0 });
   };
 
-  const closeStoryViewer = () => setStoryViewer(defaultStoryViewer());
+  const closeStoryViewer = () => {
+    setStoryViewer(defaultStoryViewer());
+    setStoryReply(defaultStoryReplyState());
+    setStoryInsights(defaultStoryInsightsState());
+  };
 
   const navigateStoryViewer = (groupIndex, storyIndex) => {
     setStoryViewer({ open: true, groupIndex, storyIndex });
@@ -1384,9 +1601,30 @@ export default function CareerPulsePage() {
 
   const handleStoryMessage = async (author) => {
     const targetId = String(author?.id || "");
-    if (!targetId) return;
-    await handleMessage(targetId);
-    closeStoryViewer();
+    const text = String(storyReply.draft || "").trim();
+    if (!targetId || !text) return;
+
+    try {
+      setStoryReply((prev) => ({ ...prev, sending: true }));
+      const result = await openCareerPulseMessageThread({ recipientId: targetId, text });
+      setStoryReply(defaultStoryReplyState());
+      void loadMessageThreads({ silent: true });
+      setToast({
+        show: true,
+        tone: "success",
+        message:
+          result?.thread?.type === "request_sent"
+            ? "Message request sent from story."
+            : "Message sent from story.",
+      });
+    } catch (error) {
+      setToast({
+        show: true,
+        tone: "error",
+        message: error?.response?.data?.message || "Could not send the story message.",
+      });
+      setStoryReply((prev) => ({ ...prev, sending: false }));
+    }
   };
 
   const handleStoryLike = async (story) => {
@@ -1538,6 +1776,198 @@ export default function CareerPulsePage() {
       });
     } finally {
       setBusyFlag(`story-report-${storyId}`, false);
+    }
+  };
+
+  const handleStoryMuteAuthor = async (author, story) => {
+    const authorId = String(author?.id || "");
+    if (!authorId) return;
+
+    try {
+      setBusyFlag(`story-mute-${authorId}`, true);
+      const result = await toggleCareerPulseStoryAuthorMute(authorId);
+      const nextMuted = Boolean(result?.muted);
+      setMutedStoryAuthors((prev) => ({ ...prev, [authorId]: nextMuted }));
+      if (nextMuted && story?.id) {
+        setHiddenStoryIds((prev) => ({ ...prev, [String(story.id)]: true }));
+        closeStoryViewer();
+      }
+      setToast({
+        show: true,
+        tone: "success",
+        message: nextMuted ? "Story updates from this author are muted." : "Story updates from this author are visible again.",
+      });
+      void loadStories({ silent: true });
+    } catch (error) {
+      setToast({
+        show: true,
+        tone: "error",
+        message: error?.response?.data?.message || "Could not update story author mute right now.",
+      });
+    } finally {
+      setBusyFlag(`story-mute-${authorId}`, false);
+    }
+  };
+
+  const handleStoryHide = (story, author) => {
+    const storyId = String(story?.id || "");
+    if (!storyId) return;
+    setHiddenStoryIds((prev) => ({ ...prev, [storyId]: true }));
+    closeStoryViewer();
+    setToast({
+      show: true,
+      tone: "success",
+      message: `Story from ${author?.name || "this user"} hidden from your Explore stories.`,
+    });
+  };
+
+  const handleStorySendAccount = async (author, story) => {
+    const targetId = String(author?.id || "");
+    if (!targetId) return;
+
+    const accountText = [
+      `Explore account: ${author?.name || "Explore member"}`,
+      author?.headline ? `About: ${author.headline}` : "",
+      story?.caption ? `Story: ${story.caption}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    try {
+      const result = await openCareerPulseMessageThread({ recipientId: targetId, text: accountText });
+      void loadMessageThreads({ silent: true });
+      setToast({
+        show: true,
+        tone: "success",
+        message: result?.thread?.type === "request_sent" ? "Account sent as a message request." : "Account sent in Explore messages.",
+      });
+    } catch (error) {
+      setToast({
+        show: true,
+        tone: "error",
+        message: error?.response?.data?.message || "Could not send this account right now.",
+      });
+    }
+  };
+
+  const openStoryInsights = async (story, options = {}) => {
+    const { silent = false } = options;
+    const storyId = String(story?.id || "");
+    if (!storyId) return;
+    setStoryInsights((prev) => ({
+      ...prev,
+      open: true,
+      loading: silent ? prev.loading && prev.storyId !== storyId : true,
+      storyId,
+      metrics: {
+        views: Number(story?.metrics?.views || 0),
+        likes: Number(story?.metrics?.likes || 0),
+      },
+    }));
+    try {
+      const data = await getCareerPulseStoryInsights(storyId);
+      setStoryInsights((prev) => ({
+        ...prev,
+        open: true,
+        loading: false,
+        storyId,
+        metrics: {
+          views: Number(data?.metrics?.views || 0),
+          likes: Number(data?.metrics?.likes || 0),
+        },
+        viewers: Array.isArray(data?.viewers) ? data.viewers : [],
+        likes: Array.isArray(data?.likes) ? data.likes : [],
+      }));
+    } catch (error) {
+      setStoryInsights((prev) => ({ ...prev, loading: false }));
+      if (!silent) {
+        setToast({
+          show: true,
+          tone: "error",
+          message: error?.response?.data?.message || "Could not load story viewers right now.",
+        });
+      }
+    }
+  };
+
+  const closeStoryInsights = () => {
+    setStoryInsights((prev) => ({ ...prev, open: false }));
+  };
+
+  const handleMarkExploreNotificationRead = async (notificationId = "") => {
+    const targetId = String(notificationId || "");
+    try {
+      const result = await markCareerPulseNotificationsRead(targetId);
+      setNotifications((prev) => ({
+        ...prev,
+        unreadCount: Number(result?.unreadCount || 0),
+        items: prev.items.map((item) =>
+          !targetId || String(item.id || "") === targetId
+            ? { ...item, readAt: item.readAt || new Date().toISOString() }
+            : item
+        ),
+      }));
+      setFeed((prev) => ({
+        ...prev,
+        viewer: prev.viewer
+          ? { ...prev.viewer, notificationsUnread: Number(result?.unreadCount || 0) }
+          : prev.viewer,
+      }));
+      notificationUnreadRef.current = Number(result?.unreadCount || 0);
+    } catch (error) {
+      setToast({
+        show: true,
+        tone: "error",
+        message: error?.response?.data?.message || "Could not update this Explore notification.",
+      });
+    }
+  };
+
+  const handleOpenExploreNotification = async (notification) => {
+    if (!notification?.id) return;
+    if (!notification.readAt) {
+      void handleMarkExploreNotificationRead(notification.id);
+    }
+
+    const relatedThreadId = String(notification.relatedThreadId || "");
+    const relatedStoryId = String(notification.relatedStoryId || "");
+    const relatedPostId = String(notification.relatedPostId || "");
+
+    if (relatedThreadId) {
+      setHomeMode("messages");
+      setViewMode("home");
+      await loadMessageThreads({ silent: true });
+      await openMessageThreadById(relatedThreadId, { silent: true });
+      return;
+    }
+
+    if (relatedStoryId) {
+      const match = storyGroups.reduce((found, group, groupIndex) => {
+        if (found) return found;
+        const nextStoryIndex = (group.items || []).findIndex((item) => String(item.id || "") === relatedStoryId);
+        return nextStoryIndex >= 0 ? { groupIndex, storyIndex: nextStoryIndex } : null;
+      }, null);
+
+      if (match) {
+        setStoryViewer({ open: true, groupIndex: match.groupIndex, storyIndex: match.storyIndex });
+        return;
+      }
+
+      const data = await loadStories({ silent: true });
+      const groups = Array.isArray(data?.groups) ? data.groups : [];
+      const refreshedMatch = groups.reduce((found, group, groupIndex) => {
+        if (found) return found;
+        const nextStoryIndex = (group.items || []).findIndex((item) => String(item.id || "") === relatedStoryId);
+        return nextStoryIndex >= 0 ? { groupIndex, storyIndex: nextStoryIndex } : null;
+      }, null);
+      if (refreshedMatch) {
+        setStoryViewer({ open: true, groupIndex: refreshedMatch.groupIndex, storyIndex: refreshedMatch.storyIndex });
+        return;
+      }
+    }
+
+    if (relatedPostId) {
+      enterReels(relatedPostId);
     }
   };
 
@@ -2210,20 +2640,46 @@ export default function CareerPulsePage() {
   const handleSendExploreMessage = async () => {
     const threadId = messagesPanel.activeThread?.id;
     const text = String(messagesPanel.draft || "").trim();
-    if (!threadId || !text) return;
+    const hasAttachment = Boolean(messagesPanel.attachmentPreview);
+    if (!threadId || (!text && !hasAttachment)) return;
+    if (messagesPanel.attachmentUploading) return;
 
     try {
       setMessagesPanel((prev) => ({ ...prev, sending: true }));
-      const result = await sendCareerPulseMessage(threadId, { text });
+      const result = await sendCareerPulseMessage(threadId, {
+        text,
+        replyToMessageId: messagesPanel.replyTarget?.id || "",
+        fileUrl: messagesPanel.attachmentPreview || "",
+        fileName: messagesPanel.attachmentName || "",
+        mimeType: messagesPanel.attachmentMimeType || "",
+        fileSize: messagesPanel.attachmentFileSize || "",
+      });
       setMessagesPanel((prev) => ({
         ...prev,
         draft: "",
+        attachmentPreview: "",
+        attachmentName: "",
+        attachmentMimeType: "",
+        attachmentFileSize: "",
+        attachmentUploading: false,
+        replyTarget: null,
         sending: false,
         messages: [...prev.messages, result?.message].filter(Boolean),
-        threads: prev.threads.map((thread) =>
-          thread.id === threadId
-            ? { ...thread, preview: text, updatedAt: new Date().toISOString(), unread: 0 }
-            : thread
+        threads: sortExploreThreadsByRecent(
+          prev.threads.map((thread) =>
+            thread.id === threadId
+              ? {
+                  ...thread,
+                  preview:
+                    text ||
+                    (String(messagesPanel.attachmentMimeType || "").startsWith("video/")
+                      ? "Sent a video"
+                      : "Sent an image"),
+                  updatedAt: new Date().toISOString(),
+                  unread: 0,
+                }
+              : thread
+          )
         ),
       }));
     } catch (error) {
@@ -2232,6 +2688,300 @@ export default function CareerPulsePage() {
         show: true,
         tone: "error",
         message: error?.response?.data?.message || "Could not send this Explore message.",
+      });
+    }
+  };
+
+  const handleReplyToExploreMessage = (message) => {
+    if (!message?.id || message?.deleted || message?.sender === "system") return;
+    setMessagesPanel((prev) => ({
+      ...prev,
+      replyTarget: {
+        id: message.id,
+        text: message.text,
+        sender: message.sender,
+      },
+      selectedMessageIds: [],
+    }));
+  };
+
+  const handleToggleExploreMessageSelection = (messageId) => {
+    const id = String(messageId || "");
+    if (!id) return;
+    setMessagesPanel((prev) => ({
+      ...prev,
+      selectedMessageIds: prev.selectedMessageIds.includes(id)
+        ? prev.selectedMessageIds.filter((item) => item !== id)
+        : [...prev.selectedMessageIds, id],
+    }));
+  };
+
+  const handleClearExploreSelection = () => {
+    setMessagesPanel((prev) => ({ ...prev, selectedMessageIds: [] }));
+  };
+
+  const handleSelectExploreAttachment = async (payload = {}) => {
+    const file = payload?.file;
+    if (!(file instanceof File)) return;
+
+    const localPreview = String(payload.preview || "");
+    setMessagesPanel((prev) => ({
+      ...prev,
+      attachmentUploading: true,
+      attachmentPreview: localPreview,
+      attachmentName: String(file.name || ""),
+      attachmentMimeType: String(file.type || ""),
+      attachmentFileSize: `${Math.max(1, Math.round(Number(file.size || 0) / 1024))} KB`,
+    }));
+
+    try {
+      const uploadRes = await uploadSocialMedia(file);
+      const uploadPayload = uploadRes?.data || uploadRes || {};
+      setMessagesPanel((prev) => ({
+        ...prev,
+        attachmentUploading: false,
+        attachmentPreview: String(uploadPayload.mediaUrl || localPreview || ""),
+        attachmentName: String(uploadPayload.fileName || file.name || ""),
+        attachmentMimeType: String(uploadPayload.mimeType || file.type || ""),
+        attachmentFileSize: `${Math.max(
+          1,
+          Math.round(Number(uploadPayload.bytes || file.size || 0) / 1024)
+        )} KB`,
+      }));
+    } catch (error) {
+      setMessagesPanel((prev) => ({
+        ...prev,
+        attachmentUploading: false,
+        attachmentPreview: "",
+        attachmentName: "",
+        attachmentMimeType: "",
+        attachmentFileSize: "",
+      }));
+      setToast({
+        show: true,
+        tone: "error",
+        message: error?.response?.data?.message || "Could not upload this attachment.",
+      });
+    }
+  };
+
+  const handleClearExploreAttachment = () => {
+    setMessagesPanel((prev) => ({
+      ...prev,
+      attachmentPreview: "",
+      attachmentName: "",
+      attachmentMimeType: "",
+      attachmentFileSize: "",
+      attachmentUploading: false,
+    }));
+  };
+
+  const handleToggleExploreMessageReaction = async (messageId, emoji) => {
+    const threadId = messagesPanel.activeThread?.id;
+    if (!threadId || !messageId || !emoji) return;
+
+    try {
+      const result = await toggleCareerPulseMessageReaction(threadId, messageId, { emoji });
+      setMessagesPanel((prev) => ({
+        ...prev,
+        messages: prev.messages.map((message) =>
+          String(message.id || "") === String(messageId || "") ? { ...message, ...(result?.message || {}) } : message
+        ),
+      }));
+    } catch (error) {
+      setToast({
+        show: true,
+        tone: "error",
+        message: error?.response?.data?.message || "Could not update the reaction.",
+      });
+    }
+  };
+
+  const handleDeleteExploreMessages = async (messageIds = []) => {
+    const threadId = messagesPanel.activeThread?.id;
+    const ids = messageIds.map((item) => String(item || "")).filter(Boolean);
+    if (!threadId || !ids.length) return;
+
+    const { isConfirmed } = await Swal.fire({
+      icon: "warning",
+      title: ids.length > 1 ? "Delete selected messages?" : "Delete this message?",
+      text: "Deleted Explore messages cannot be restored.",
+      showCancelButton: true,
+      confirmButtonText: "Delete",
+      confirmButtonColor: "#111111",
+      cancelButtonColor: "#cbd5e1",
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      setMessagesPanel((prev) => ({ ...prev, deleting: true }));
+      await deleteCareerPulseMessages(threadId, { messageIds: ids });
+      setMessagesPanel((prev) => ({
+        ...prev,
+        deleting: false,
+        selectedMessageIds: prev.selectedMessageIds.filter((id) => !ids.includes(id)),
+        replyTarget: ids.includes(String(prev.replyTarget?.id || "")) ? null : prev.replyTarget,
+        messages: prev.messages.map((message) =>
+          ids.includes(String(message.id || ""))
+            ? {
+                ...message,
+                text: "This message was deleted.",
+                deleted: true,
+                canDelete: false,
+                canReport: false,
+              }
+            : message
+        ),
+      }));
+      await loadMessageThreads({ silent: true });
+      setToast({
+        show: true,
+        tone: "success",
+        message: ids.length > 1 ? "Selected messages deleted." : "Message deleted.",
+      });
+    } catch (error) {
+      setMessagesPanel((prev) => ({ ...prev, deleting: false }));
+      setToast({
+        show: true,
+        tone: "error",
+        message: error?.response?.data?.message || "Could not delete the selected messages.",
+      });
+    }
+  };
+
+  const handleDeleteExploreChat = async () => {
+    const threadId = messagesPanel.activeThread?.id;
+    if (!threadId) return;
+
+    const { isConfirmed } = await Swal.fire({
+      icon: "warning",
+      title: "Delete this chat?",
+      text: "This will permanently remove the full Explore conversation.",
+      showCancelButton: true,
+      confirmButtonText: "Delete chat",
+      confirmButtonColor: "#111111",
+      cancelButtonColor: "#cbd5e1",
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      await deleteCareerPulseMessageThread(threadId);
+      setMessagesPanel((prev) => {
+        const remainingThreads = prev.threads.filter((thread) => thread.id !== threadId);
+        return {
+          ...prev,
+          threads: remainingThreads,
+          activeThread: remainingThreads[0] || null,
+          messages: [],
+          draft: "",
+          replyTarget: null,
+          selectedMessageIds: [],
+          attachmentPreview: "",
+          attachmentName: "",
+          attachmentMimeType: "",
+          attachmentFileSize: "",
+          attachmentUploading: false,
+        };
+      });
+      await loadMessageThreads({ silent: true });
+      setToast({
+        show: true,
+        tone: "success",
+        message: "Explore chat deleted.",
+      });
+    } catch (error) {
+      setToast({
+        show: true,
+        tone: "error",
+        message: error?.response?.data?.message || "Could not delete this Explore chat.",
+      });
+    }
+  };
+
+  const handleReportExploreMessage = async (message) => {
+    const threadId = messagesPanel.activeThread?.id;
+    if (!threadId || !message?.id || !message?.canReport) return;
+
+    const { value: details, isConfirmed } = await Swal.fire({
+      title: "Report this message",
+      text: "This will report the Explore message for review.",
+      input: "text",
+      inputPlaceholder: "Optional reason or details",
+      showCancelButton: true,
+      confirmButtonText: "Report",
+      confirmButtonColor: "#111111",
+      cancelButtonColor: "#cbd5e1",
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      const result = await reportCareerPulseMessage(threadId, message.id, {
+        reason: "Other",
+        details: String(details || "").trim(),
+      });
+      setToast({
+        show: true,
+        tone: "success",
+        message: result?.message || "Message reported successfully.",
+      });
+    } catch (error) {
+      setToast({
+        show: true,
+        tone: "error",
+        message: error?.response?.data?.message || "Could not report this message.",
+      });
+    }
+  };
+
+  const handleSendExploreAccount = async () => {
+    const threadId = messagesPanel.activeThread?.id;
+    const participant = messagesPanel.activeThread?.participant;
+    if (!threadId || !participant?.name) return;
+
+    const accountText = [
+      `Explore account`,
+      `Name: ${participant.name}`,
+      participant.headline ? `About: ${participant.headline}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    try {
+      setMessagesPanel((prev) => ({ ...prev, sending: true }));
+      const result = await sendCareerPulseMessage(threadId, {
+        text: accountText,
+      });
+      setMessagesPanel((prev) => ({
+        ...prev,
+        sending: false,
+        messages: [...prev.messages, result?.message].filter(Boolean),
+        threads: sortExploreThreadsByRecent(
+          prev.threads.map((thread) =>
+            thread.id === threadId
+              ? {
+                  ...thread,
+                  preview: "Sent an account card",
+                  updatedAt: new Date().toISOString(),
+                  unread: 0,
+                }
+              : thread
+          )
+        ),
+      }));
+      setToast({
+        show: true,
+        tone: "success",
+        message: "Account sent in Explore chat.",
+      });
+    } catch (error) {
+      setMessagesPanel((prev) => ({ ...prev, sending: false }));
+      setToast({
+        show: true,
+        tone: "error",
+        message: error?.response?.data?.message || "Could not send this account.",
       });
     }
   };
@@ -2260,6 +3010,23 @@ export default function CareerPulsePage() {
       setBusyFlag(`accept-${threadId}`, false);
     }
   };
+
+  useEffect(() => {
+    if (!storyViewer.open || !activeStory?.id) {
+      setStoryReply(defaultStoryReplyState());
+      return;
+    }
+
+    setStoryReply(defaultStoryReplyState());
+  }, [storyViewer.open, activeStory?.id]);
+
+  useEffect(() => {
+    if (!storyViewer.open || !activeStory?.id || !activeStory?.author?.isSelf || !storyInsights.open) return undefined;
+    const timer = window.setInterval(() => {
+      void openStoryInsights(activeStory, { silent: true });
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [storyViewer.open, activeStory?.id, activeStory?.author?.isSelf, storyInsights.open]);
 
   const viewer = feed.viewer;
   const previewComments = Array.isArray(activePost?.comments) ? activePost.comments.slice(-3) : [];
@@ -2363,11 +3130,18 @@ export default function CareerPulsePage() {
                         <ReelSlide
                           post={post}
                           isActive={activePost?.id === post.id}
-                          isMuted={mutedPosts[post.id] ?? false}
+                          isMuted={reelAudioMuted}
+                          pinned={pinnedReelIds.includes(post.id)}
+                          nextPost={reelPosts[index + 1] || null}
                           expanded={Boolean(expandedCaptions[post.id])}
                           busy={busy}
                           timeAgo={timeAgo}
-                          onToggleMute={() => setMutedPosts((prev) => ({ ...prev, [post.id]: !(prev[post.id] ?? false) }))}
+                          onToggleMute={() => setReelAudioMuted((prev) => !prev)}
+                          onTogglePin={() =>
+                            setPinnedReelIds((prev) =>
+                              prev.includes(post.id) ? prev.filter((item) => item !== post.id) : [post.id, ...prev]
+                            )
+                          }
                           onToggleCaption={() => setExpandedCaptions((prev) => ({ ...prev, [post.id]: !prev[post.id] }))}
                           onLike={() => handleLike(post.id)}
                           onSave={() => handleSave(post.id)}
@@ -2540,9 +3314,14 @@ export default function CareerPulsePage() {
               <button
                 type="button"
                 onClick={() => handleRailAction("notifications")}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-black/10 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50"
+                className="relative inline-flex h-11 w-11 items-center justify-center rounded-full border border-black/10 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50"
               >
                 <FiBell />
+                {Number(viewer?.notificationsUnread || 0) > 0 ? (
+                  <span className="absolute -right-1 -top-1 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[#f97316] px-1 py-0.5 text-[10px] font-black text-white">
+                    {Number(viewer?.notificationsUnread || 0) > 9 ? "9+" : Number(viewer?.notificationsUnread || 0)}
+                  </span>
+                ) : null}
               </button>
               <button
                 type="button"
@@ -2671,10 +3450,15 @@ export default function CareerPulsePage() {
                           setHomeMode("messages");
                           setViewMode("home");
                         }}
-                        className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-4 py-3 text-sm font-extrabold text-slate-700 transition hover:bg-slate-50"
+                        className="relative inline-flex items-center gap-2 rounded-full border border-black/10 bg-white px-4 py-3 text-sm font-extrabold text-slate-700 transition hover:bg-slate-50"
                       >
                         <FiMessageSquare />
                         Messages
+                        {Number(viewer?.messagesUnread || 0) > 0 ? (
+                          <span className="absolute -right-1 -top-1 inline-flex min-w-[18px] items-center justify-center rounded-full bg-[#111111] px-1 py-0.5 text-[10px] font-black text-white">
+                            {Number(viewer?.messagesUnread || 0) > 9 ? "9+" : Number(viewer?.messagesUnread || 0)}
+                          </span>
+                        ) : null}
                       </button>
                       <button
                         type="button"
@@ -2745,15 +3529,23 @@ export default function CareerPulsePage() {
                       posts={savedPosts}
                       onOpenReel={(postId) => enterReels(postId, { source: "saved-first" })}
                     />
-                  ) : homeMode === "notifications" ? (
-                    <ExploreNotificationsList
-                      items={filteredNotifications}
-                      timeAgo={timeAgo}
-                      onOpenPost={(postId) => {
-                        if (!postId) return;
-                        enterReels(postId);
-                      }}
-                    />
+                    ) : homeMode === "notifications" ? (
+                      <ExploreNotificationsList
+                        items={filteredNotifications}
+                        unreadCount={notifications.unreadCount}
+                        soundEnabled={exploreNotificationSound}
+                        timeAgo={timeAgo}
+                        onOpenNotification={(item) => {
+                          void handleOpenExploreNotification(item);
+                        }}
+                        onMarkRead={(notificationId) => {
+                          void handleMarkExploreNotificationRead(notificationId);
+                        }}
+                        onMarkAllRead={() => {
+                          void handleMarkExploreNotificationRead();
+                        }}
+                        onToggleSound={() => setExploreNotificationSound((prev) => !prev)}
+                      />
                   ) : homeMode === "messages" ? (
                     <ExploreMessagesUi
                       viewer={viewer}
@@ -2761,15 +3553,34 @@ export default function CareerPulsePage() {
                       activeThread={messagesPanel.activeThread}
                       messages={messagesPanel.messages}
                       draft={messagesPanel.draft}
+                      attachmentPreview={messagesPanel.attachmentPreview}
+                      attachmentName={messagesPanel.attachmentName}
+                      attachmentMimeType={messagesPanel.attachmentMimeType}
+                      attachmentUploading={messagesPanel.attachmentUploading}
+                      replyTarget={messagesPanel.replyTarget}
+                      selectedMessageIds={messagesPanel.selectedMessageIds}
                       loadingList={messagesPanel.loadingList}
                       loadingThread={messagesPanel.loadingThread}
                       sending={messagesPanel.sending}
-                      onSelectThread={(threadId) => {
-                        void openMessageThreadById(threadId);
+                      deleting={messagesPanel.deleting}
+                      onSelectThread={(thread) => {
+                        void openMessageThreadById(thread);
                       }}
                       onDraftChange={(value) => setMessagesPanel((prev) => ({ ...prev, draft: value }))}
                       onSend={handleSendExploreMessage}
                       onAccept={handleAcceptExploreRequest}
+                      onReplyMessage={handleReplyToExploreMessage}
+                      onDeleteMessage={(message) => void handleDeleteExploreMessages([message.id])}
+                      onDeleteSelected={() => void handleDeleteExploreMessages(messagesPanel.selectedMessageIds)}
+                      onDeleteChat={() => void handleDeleteExploreChat()}
+                      onReportMessage={(message) => void handleReportExploreMessage(message)}
+                      onSendAccount={() => void handleSendExploreAccount()}
+                      onToggleReaction={(messageId, emoji) => void handleToggleExploreMessageReaction(messageId, emoji)}
+                      onToggleMessageSelection={handleToggleExploreMessageSelection}
+                      onClearSelection={handleClearExploreSelection}
+                      onAttachmentSelect={handleSelectExploreAttachment}
+                      onAttachmentClear={handleClearExploreAttachment}
+                      onCancelReply={() => setMessagesPanel((prev) => ({ ...prev, replyTarget: null }))}
                       onRefresh={() => {
                         void loadMessageThreads();
                       }}
@@ -3008,8 +3819,18 @@ export default function CareerPulsePage() {
         onReport={handleStoryReport}
         onShare={handleStoryShare}
         onDelete={handleStoryDelete}
+        onMuteAuthor={handleStoryMuteAuthor}
+        onHideStory={handleStoryHide}
+        onSendAccount={handleStorySendAccount}
+        storyInsights={storyInsights}
+        onOpenInsights={openStoryInsights}
+        onCloseInsights={closeStoryInsights}
+        onStoryInsightsTabChange={(tab) => setStoryInsights((prev) => ({ ...prev, activeTab: tab }))}
+        messageDraft={storyReply.draft}
+        onMessageDraftChange={(value) => setStoryReply((prev) => ({ ...prev, draft: value }))}
+        onMessageSend={handleStoryMessage}
         liked={activeStoryLiked}
-        messageBusy={Boolean(busy[`message-${activeStoryGroup?.author?.id}`])}
+        messageBusy={storyReply.sending || Boolean(busy[`message-${activeStoryGroup?.author?.id}`])}
         likeBusy={Boolean(busy[`story-like-${activeStory?.id}`])}
         deleteBusy={Boolean(busy[`story-delete-${activeStory?.id}`])}
         timeAgo={timeAgo}
@@ -3757,6 +4578,43 @@ export default function CareerPulsePage() {
         timeAgo={timeAgo}
         AvatarComponent={Avatar}
       />
+
+      {exploreNotificationPopup ? (
+        <button
+          type="button"
+          onClick={() => {
+            const nextItem = exploreNotificationPopup;
+            setExploreNotificationPopup(null);
+            void handleOpenExploreNotification(nextItem);
+          }}
+          className="fixed right-5 top-5 z-[130] w-full max-w-[360px] rounded-[24px] border border-black/10 bg-white/95 px-4 py-4 text-left shadow-[0_24px_70px_rgba(15,23,42,0.18)] backdrop-blur"
+        >
+          <div className="flex items-start gap-3">
+            <Avatar
+              name={exploreNotificationPopup.actor?.name || "Explore"}
+              avatarUrl={exploreNotificationPopup.actor?.avatarUrl}
+              small
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <p className="truncate text-sm font-black text-slate-900">
+                  {exploreNotificationPopup.title || "Explore notification"}
+                </p>
+                {!exploreNotificationPopup.readAt ? <span className="h-2 w-2 rounded-full bg-[#111111]" /> : null}
+              </div>
+              <p className="mt-1 line-clamp-2 text-sm leading-6 text-slate-600">
+                {exploreNotificationPopup.message}
+              </p>
+              <p className="mt-2 text-xs font-semibold text-slate-400">
+                {timeAgo(exploreNotificationPopup.createdAt)}
+              </p>
+            </div>
+            <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
+              Explore
+            </span>
+          </div>
+        </button>
+      ) : null}
 
     </div>
   );

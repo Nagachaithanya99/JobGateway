@@ -2,15 +2,19 @@ import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   FiBookmark,
+  FiCopy,
   FiFlag,
   FiFileText,
   FiHeart,
   FiLoader,
   FiMessageSquare,
   FiMoreHorizontal,
+  FiPause,
+  FiPlay,
   FiSend,
   FiVolume2,
   FiVolumeX,
+  FiX,
 } from "react-icons/fi";
 import { toAbsoluteMediaUrl } from "../../utils/media.js";
 
@@ -138,10 +142,13 @@ export function ReelSlide({
   post,
   isActive,
   isMuted,
+  pinned,
+  nextPost,
   expanded,
   busy,
   timeAgo,
   onToggleMute,
+  onTogglePin,
   onToggleCaption,
   onLike,
   onSave,
@@ -152,11 +159,92 @@ export function ReelSlide({
   onReport,
   onMediaRef,
 }) {
+  const videoRef = useRef(null);
+  const holdRef = useRef(false);
+  const watchTimerRef = useRef(null);
   const mediaUrl = toAbsoluteMediaUrl(post?.media?.url);
   const hasCaption = Boolean(String(post?.content || "").trim());
   const caption = expanded ? post.content : excerpt(post.content, 110);
   const isVideo = isVideoPost(post);
   const safetyHidden = isSafetyHidden(post);
+  const [paused, setPaused] = useState(false);
+  const [lastTap, setLastTap] = useState(0);
+  const [showHeart, setShowHeart] = useState(false);
+  const [views] = useState(Number(post?.metrics?.impressions || 0));
+  const [watchTime, setWatchTime] = useState(0);
+
+  useEffect(() => {
+    if (!isVideo) return undefined;
+    const node = videoRef.current;
+    if (!node) return undefined;
+    if (onMediaRef) onMediaRef(node);
+    return () => {
+      if (onMediaRef) onMediaRef(null);
+    };
+  }, [isVideo, onMediaRef, post?.id]);
+
+  useEffect(() => {
+    if (!isVideo) return;
+    const node = videoRef.current;
+    if (!node) return;
+    node.muted = isMuted;
+    node.volume = isMuted ? 0 : 1;
+    if (isActive && !paused && !safetyHidden) {
+      const promise = node.play();
+      if (promise?.catch) promise.catch(() => {});
+    } else {
+      node.pause();
+    }
+  }, [isActive, isMuted, isVideo, paused, safetyHidden]);
+
+  useEffect(() => {
+    if (!isActive || paused) return undefined;
+    const timer = window.setInterval(() => {
+      setWatchTime((value) => value + 1);
+    }, 1000);
+    watchTimerRef.current = timer;
+    return () => window.clearInterval(timer);
+  }, [isActive, paused]);
+
+  useEffect(() => {
+    const nextMediaUrl = toAbsoluteMediaUrl(nextPost?.media?.url);
+    if (!nextMediaUrl) return;
+    if (isVideoPost(nextPost)) {
+      const node = document.createElement("video");
+      node.preload = "metadata";
+      node.src = nextMediaUrl;
+      return;
+    }
+    const img = new Image();
+    img.src = nextMediaUrl;
+  }, [nextPost]);
+
+  const handleHoldStart = () => {
+    if (!isActive || safetyHidden) return;
+    holdRef.current = true;
+    setPaused(true);
+    videoRef.current?.pause();
+  };
+
+  const handleHoldEnd = () => {
+    if (!holdRef.current) return;
+    holdRef.current = false;
+    setPaused(false);
+    if (isActive && !safetyHidden) {
+      const promise = videoRef.current?.play?.();
+      if (promise?.catch) promise.catch(() => {});
+    }
+  };
+
+  const handleMediaTap = () => {
+    const now = Date.now();
+    if (now - lastTap < 300 && !safetyHidden) {
+      onLike?.();
+      setShowHeart(true);
+      window.setTimeout(() => setShowHeart(false), 800);
+    }
+    setLastTap(now);
+  };
 
   return (
     <div className="flex min-h-full items-center justify-center px-1 py-1 md:px-6">
@@ -170,11 +258,41 @@ export function ReelSlide({
           {safetyHidden ? (
             <SafetyRemovedPanel />
           ) : (
-            <>
-              <ReelMedia post={post} mediaUrl={mediaUrl} isMuted={isMuted} onToggleMute={onToggleMute} onMediaRef={onMediaRef} />
+            <div
+              className="absolute inset-0"
+              onClick={handleMediaTap}
+              onMouseDown={handleHoldStart}
+              onMouseUp={handleHoldEnd}
+              onMouseLeave={handleHoldEnd}
+              onTouchStart={handleHoldStart}
+              onTouchEnd={handleHoldEnd}
+            >
+              <ReelMedia post={post} mediaUrl={mediaUrl} isMuted={isMuted} onToggleMute={onToggleMute} onMediaRef={(node) => {
+                videoRef.current = node;
+                onMediaRef?.(node);
+              }} />
               <div className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-black/80 via-black/28 to-transparent" />
               <div className="pointer-events-none absolute inset-x-0 bottom-0 h-72 bg-gradient-to-t from-black via-black/78 to-transparent" />
-            </>
+              {showHeart ? (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <motion.div
+                    initial={{ scale: 0.5, opacity: 0 }}
+                    animate={{ scale: 1.45, opacity: 1 }}
+                    transition={{ duration: 0.42 }}
+                    className="text-[5rem] text-[#ef4444]"
+                  >
+                    ❤
+                  </motion.div>
+                </div>
+              ) : null}
+              {paused ? (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                  <div className="rounded-full border border-white/10 bg-black/45 px-4 py-2 text-sm font-black text-white backdrop-blur">
+                    Paused
+                  </div>
+                </div>
+              ) : null}
+            </div>
           )}
 
           <div className="absolute left-4 top-4 flex flex-wrap items-center gap-2 text-[11px] font-black uppercase tracking-[0.18em]">
@@ -189,7 +307,10 @@ export function ReelSlide({
 
           <div className="absolute bottom-0 left-0 right-0 px-5 pb-5 pt-16">
             <div className="flex items-center gap-3">
-              <Avatar name={post.author?.name} avatarUrl={post.author?.avatarUrl} />
+              <div className="relative">
+                <Avatar name={post.author?.name} avatarUrl={post.author?.avatarUrl} />
+                {post.author?.isOnline ? <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-green-500" /> : null}
+              </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <p className="truncate text-base font-black">{post.author?.name}</p>
@@ -240,9 +361,14 @@ export function ReelSlide({
             ) : null}
 
             <div className="mt-4 flex items-center justify-between gap-3 text-xs font-semibold text-white/55">
-              <span>{formatCount(post.metrics?.likes || 0)} likes / {formatCount(post.metrics?.comments || 0)} comments</span>
+              <div>
+                <span>{formatCount(post.metrics?.likes || 0)} likes / {formatCount(post.metrics?.comments || 0)} comments</span>
+                <div className="mt-1 text-[11px] text-white/60">
+                  👁 {formatCount(views)} • ⏱ {watchTime}s {pinned ? "• Pinned" : ""}
+                </div>
+              </div>
               <div className="inline-flex items-center gap-2">
-                <FiMoreHorizontal />
+                {paused ? <FiPause /> : <FiPlay />}
                 {formatCount(post.metrics?.saves || 0)} saved
               </div>
             </div>
@@ -250,14 +376,14 @@ export function ReelSlide({
         </div>
 
         <div className="hidden md:flex">
-          <ReelActionRail post={post} busy={busy} onLike={onLike} onComment={onComment} onSave={onSave} onShare={onShare} onMessage={onMessage} onReport={onReport} isVideo={isVideo && !safetyHidden} isMuted={isMuted} onToggleMute={onToggleMute} />
+          <ReelActionRail post={post} busy={busy} pinned={pinned} onLike={onLike} onComment={onComment} onSave={onSave} onShare={onShare} onMessage={onMessage} onReport={onReport} onTogglePin={onTogglePin} isVideo={isVideo && !safetyHidden} isMuted={isMuted} onToggleMute={onToggleMute} />
         </div>
       </motion.article>
     </div>
   );
 }
 
-function ReelActionRail({ post, busy, onLike, onComment, onSave, onShare, onMessage, onReport, compact = false, isVideo = false, isMuted = true, onToggleMute }) {
+function ReelActionRail({ post, busy, pinned = false, onLike, onComment, onSave, onShare, onMessage, onReport, onTogglePin, compact = false, isVideo = false, isMuted = true, onToggleMute }) {
   const railClass = compact ? "flex-col gap-3" : "flex-col gap-4";
   const buttonSize = compact ? "h-12 w-12 text-lg" : "h-14 w-14 text-xl";
   const [menuOpen, setMenuOpen] = useState(false);
@@ -296,6 +422,30 @@ function ReelActionRail({ post, busy, onLike, onComment, onSave, onShare, onMess
                 Share reel
               </button>
             ) : null}
+            {!safetyHidden ? (
+              <button
+                type="button"
+                onClick={async () => {
+                  setMenuOpen(false);
+                  await onSave?.();
+                }}
+                className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+              >
+                <FiBookmark />
+                Save to collection
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => {
+                setMenuOpen(false);
+                onTogglePin?.();
+              }}
+              className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left text-sm font-bold text-slate-700 transition hover:bg-slate-50"
+            >
+              <FiCopy />
+              {pinned ? "Unpin reel" : "Pin reel"}
+            </button>
             {!safetyHidden && post.author?.canMessage && onMessage ? (
               <button
                 type="button"

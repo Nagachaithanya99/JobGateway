@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  FiBell,
+  FiBellOff,
   FiBookmark,
   FiFlag,
   FiFileText,
@@ -14,6 +16,7 @@ import {
   FiPlusSquare,
   FiSearch,
   FiSend,
+  FiVolume2,
   FiUser,
 } from "react-icons/fi";
 import { Avatar } from "./ExploreReelUi.jsx";
@@ -51,6 +54,7 @@ export const exploreHomeNavItems = [
 
 export function ExploreHomeRail({ activeKey, onAction, viewer }) {
   const unreadNotifications = Number(viewer?.notificationsUnread || 0);
+  const unreadMessages = Number(viewer?.messagesUnread || 0);
   return (
     <div className="sticky top-5 flex h-[calc(100vh-40px)] flex-col justify-between border-r border-black/10 bg-white px-3 py-6">
       <div>
@@ -70,9 +74,11 @@ export function ExploreHomeRail({ activeKey, onAction, viewer }) {
               >
                 <Icon className="text-[25px]" />
                 <span className="hidden xl:inline">{item.label}</span>
-                {item.key === "notifications" && unreadNotifications > 0 ? (
+                {(item.key === "notifications" && unreadNotifications > 0) || (item.key === "messages" && unreadMessages > 0) ? (
                   <span className="ml-auto inline-flex min-w-[22px] items-center justify-center rounded-full bg-[#111111] px-1.5 py-0.5 text-[11px] font-black text-white">
-                    {unreadNotifications > 9 ? "9+" : unreadNotifications}
+                    {item.key === "notifications"
+                      ? unreadNotifications > 9 ? "9+" : unreadNotifications
+                      : unreadMessages > 9 ? "9+" : unreadMessages}
                   </span>
                 ) : null}
               </button>
@@ -92,48 +98,182 @@ export function ExploreHomeRail({ activeKey, onAction, viewer }) {
   );
 }
 
-export function ExploreNotificationsList({ items = [], timeAgo, onOpenPost }) {
+export function ExploreNotificationsList({
+  items = [],
+  unreadCount = 0,
+  soundEnabled = true,
+  timeAgo,
+  onOpenNotification,
+  onMarkRead,
+  onMarkAllRead,
+  onToggleSound,
+}) {
+  const [filter, setFilter] = useState("all");
+
+  const groupedItems = useMemo(() => {
+    const rows = Array.isArray(items) ? items : [];
+    const groups = [];
+
+    rows.forEach((item) => {
+      const targetKey =
+        item.relatedStoryId ||
+        item.relatedThreadId ||
+        item.relatedPostId ||
+        item.actor?.id ||
+        item.id;
+      const groupKey = `${item.eventType || item.kind || "social"}:${targetKey}`;
+      const createdAt = new Date(item.createdAt || 0).getTime();
+      const lastGroup = groups[groups.length - 1];
+      const lastCreatedAt = new Date(lastGroup?.createdAt || 0).getTime();
+
+      if (
+        lastGroup &&
+        lastGroup.groupKey === groupKey &&
+        Math.abs(lastCreatedAt - createdAt) <= 1000 * 60 * 60 * 6
+      ) {
+        lastGroup.count += 1;
+        lastGroup.items.push(item);
+        lastGroup.readAt = lastGroup.readAt && item.readAt ? lastGroup.readAt : null;
+        lastGroup.createdAt = lastGroup.createdAt > item.createdAt ? lastGroup.createdAt : item.createdAt;
+        return;
+      }
+
+      groups.push({
+        ...item,
+        groupKey,
+        count: 1,
+        items: [item],
+      });
+    });
+
+    return groups;
+  }, [items]);
+
+  const visibleItems = useMemo(() => {
+    if (filter === "unread") return groupedItems.filter((item) => !item.readAt);
+    if (filter === "alerts") return groupedItems.filter((item) => item.severity !== "info");
+    return groupedItems;
+  }, [filter, groupedItems]);
+
+  const renderMessage = (item) => {
+    if (item.count <= 1) return item.message;
+    const leadName = item.actor?.name || "Someone";
+    if (item.eventType === "story_like") {
+      return `${leadName} and +${item.count - 1} others liked your story.`;
+    }
+    if (item.eventType === "follow") {
+      return `${leadName} and +${item.count - 1} others started following you.`;
+    }
+    if (item.eventType === "message") {
+      return `${leadName} and +${item.count - 1} others sent new Explore messages.`;
+    }
+    return `${item.message} (+${item.count - 1} more)`;
+  };
+
   return (
     <div className="bg-white">
       <div className="px-4 pb-4 pt-2 sm:px-6">
         <p className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">Explore</p>
-        <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-900">Notifications</h2>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-3xl font-black tracking-tight text-slate-900">Notifications</h2>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onToggleSound}
+              className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-black/10 bg-white text-slate-700 transition hover:bg-slate-50"
+              aria-label={soundEnabled ? "Mute notification sound" : "Enable notification sound"}
+            >
+              {soundEnabled ? <FiVolume2 /> : <FiBellOff />}
+            </button>
+            <button
+              type="button"
+              onClick={onMarkAllRead}
+              disabled={!unreadCount}
+              className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+            >
+              Mark all read
+            </button>
+          </div>
+        </div>
         <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-500">
-          Safety warnings, report updates, and activity from your Explore posts appear here.
+          Likes, follows, story activity, system alerts, and Explore chat updates appear here.
         </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {[
+            { key: "all", label: "All" },
+            { key: "unread", label: `Unread ${unreadCount ? `(${unreadCount})` : ""}`.trim() },
+            { key: "alerts", label: "Alerts" },
+          ].map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => setFilter(item.key)}
+              className={`rounded-full px-4 py-2 text-sm font-bold transition ${
+                filter === item.key ? "bg-[#111111] text-white" : "border border-black/10 bg-white text-slate-600 hover:bg-slate-50"
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="border-t border-black/5">
-        {items.length ? (
-          items.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onOpenPost?.(item.relatedPostId)}
-              disabled={!item.relatedPostId}
-              className="flex w-full items-start gap-3 border-b border-black/5 px-4 py-4 text-left transition hover:bg-slate-50 disabled:cursor-default disabled:hover:bg-white sm:px-6"
-            >
-              <div className="relative">
-                <Avatar name={item.actor?.name || "Explore"} avatarUrl={item.actor?.avatarUrl} small />
-                <span
-                  className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white ${
-                    item.severity === "danger"
-                      ? "bg-rose-500"
-                      : item.severity === "warning"
-                        ? "bg-amber-400"
-                        : "bg-sky-500"
-                  }`}
-                />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="truncate text-sm font-black text-slate-900">{item.title || "Explore update"}</p>
-                  {!item.readAt ? <span className="h-2 w-2 rounded-full bg-[#111111]" /> : null}
+        {visibleItems.length ? (
+          visibleItems.map((item) => (
+            <div key={item.groupKey} className="flex items-start gap-3 border-b border-black/5 px-4 py-4 sm:px-6">
+              <button
+                type="button"
+                onClick={() => onOpenNotification?.(item)}
+                className="flex min-w-0 flex-1 items-start gap-3 text-left transition hover:opacity-90"
+              >
+                <div className="relative">
+                  <Avatar name={item.actor?.name || "Explore"} avatarUrl={item.actor?.avatarUrl} small />
+                  <span
+                    className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-white ${
+                      item.severity === "danger"
+                        ? "bg-rose-500"
+                        : item.severity === "warning"
+                          ? "bg-amber-400"
+                          : item.eventType === "message" || item.eventType === "message_request"
+                            ? "bg-emerald-500"
+                            : item.eventType === "follow"
+                              ? "bg-violet-500"
+                              : "bg-sky-500"
+                    }`}
+                  />
                 </div>
-                <p className="mt-1 text-sm leading-6 text-slate-600">{item.message}</p>
-                <p className="mt-2 text-xs font-semibold text-slate-400">{timeAgo(item.createdAt)}</p>
-              </div>
-            </button>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-black text-slate-900">{item.title || "Explore update"}</p>
+                    {!item.readAt ? <span className="h-2 w-2 rounded-full bg-[#111111]" /> : null}
+                    {item.count > 1 ? (
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-black text-slate-600">
+                        +{item.count - 1}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">{renderMessage(item)}</p>
+                  <div className="mt-2 flex items-center gap-2 text-xs font-semibold text-slate-400">
+                    <span>{timeAgo(item.createdAt)}</span>
+                    <span>{item.readAt ? "Seen" : "Unseen"}</span>
+                  </div>
+                </div>
+              </button>
+              {!item.readAt ? (
+                <button
+                  type="button"
+                  onClick={() => onMarkRead?.(item.id)}
+                  className="inline-flex h-10 items-center rounded-full border border-black/10 px-3 text-xs font-bold text-slate-600 transition hover:bg-slate-50"
+                >
+                  Mark read
+                </button>
+              ) : (
+                <span className="inline-flex h-10 items-center rounded-full bg-slate-50 px-3 text-xs font-bold text-slate-400">
+                  Seen
+                </span>
+              )}
+            </div>
           ))
         ) : (
           <div className="px-6 py-16 text-center">
@@ -543,6 +683,10 @@ export function SavedPostsGrid({ posts = [], onOpenReel }) {
 }
 
 export function SuggestedList({ viewer, items = [], busy, onFollow, onMessage }) {
+  const [showAll, setShowAll] = useState(false);
+  const visibleItems = showAll ? items : items.slice(0, 5);
+  const canExpand = items.length > 5;
+
   return (
     <div className="rounded-[24px] bg-white px-5 py-5">
       <div className="flex items-center gap-3">
@@ -555,11 +699,18 @@ export function SuggestedList({ viewer, items = [], busy, onFollow, onMessage })
 
       <div className="mt-6 flex items-center justify-between">
         <p className="text-sm font-black text-slate-500">Suggested for you</p>
-        <p className="text-xs font-black text-slate-900">See all</p>
+        <button
+          type="button"
+          disabled={!canExpand}
+          onClick={() => canExpand && setShowAll((prev) => !prev)}
+          className="text-xs font-black text-slate-900 transition hover:text-slate-600 disabled:cursor-default disabled:hover:text-slate-900"
+        >
+          {canExpand ? (showAll ? "Show less" : "See all") : "See all"}
+        </button>
       </div>
 
       <div className="mt-4 space-y-4">
-        {items.map((item) => (
+        {visibleItems.map((item) => (
           <div key={item.id} className="flex items-center gap-3">
             <Avatar name={item.name} avatarUrl={item.avatarUrl} small />
             <div className="min-w-0 flex-1">
@@ -573,7 +724,7 @@ export function SuggestedList({ viewer, items = [], busy, onFollow, onMessage })
                 </button>
               ) : null}
               <button type="button" disabled={busy[`follow-${item.id}`]} onClick={() => onFollow(item.id)} className="text-sm font-black text-[#2563eb]">
-                {busy[`follow-${item.id}`] ? "..." : item.isFollowing ? "Following" : "Follow"}
+                {busy[`follow-${item.id}`] ? "..." : item.isFollowing || item.isFollowed ? "Following" : "Follow"}
               </button>
             </div>
           </div>
