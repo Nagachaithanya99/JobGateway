@@ -7,6 +7,9 @@ import requireAuth from "./middleware/requireAuth.js";
 import errorHandler from "./middleware/errorHandler.js";
 import authRoutes from "./routes/auth.routes.js";
 
+
+
+
 // Company
 import companyDashboardRoutes from "./routes/company/company.dashboard.routes.js";
 import companyApplicationsRoutes from "./routes/company/company.applications.routes.js";
@@ -145,5 +148,8 @@ app.use("/api/preferences", preferencesRoutes);
 app.use("/api/social", socialRoutes);
 
 app.use(errorHandler);
+
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 export default app;

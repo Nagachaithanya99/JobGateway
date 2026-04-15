@@ -1,427 +1,374 @@
-import generateResumePDF from "../../utils/pdfGenerator.js";
-import Application from "../../models/Application.js";
-import MessageThread from "../../models/MessageThread.js";
-import User from "../../models/User.js";
+// backend/src/controllers/student/student.profile.controller.js
+//
+// ✅ Place this file at:
+//    backend/src/controllers/student/student.profile.controller.js
+//
+// Uses req.auth().userId — Clerk v5+ syntax (req.auth is now a function).
+// Adjust the two import paths below if your project uses different filenames.
 
-function safeStr(x) {
-  return typeof x === "string" ? x : "";
-}
-function safeObj(x) {
-  return x && typeof x === "object" ? x : {};
-}
-function safeArr(x) {
-  return Array.isArray(x) ? x : [];
-}
-function toStringArray(value) {
-  if (Array.isArray(value)) {
-    return value
-      .flatMap((v) => String(v ?? "").split(/[\n,;/|]+/g))
-      .map((v) => v.trim())
-      .filter(Boolean);
-  }
-  if (typeof value === "string") {
-    return value
-      .split(/[\n,;/|]+/g)
-      .map((v) => v.trim())
-      .filter(Boolean);
-  }
-  return [];
-}
+import fs         from "fs";
+import cloudinary from "../../config/cloudinary.js";  // ← adjust if your file is named differently
+import User       from "../../models/User.js";         // ← adjust if your model file is named differently
 
-function normalizeSkillCount(skills = []) {
-  return safeArr(skills)
-    .flatMap((s) =>
-      String(typeof s === "string" ? s : s?.name || s?.skill || "").split(",")
-    )
-    .map((s) => s.trim())
-    .filter(Boolean).length;
-}
+// ── util: safely delete multer temp file ──────────────────────────────────────
+const deleteTmp = (p) => {
+  try { if (p && fs.existsSync(p)) fs.unlinkSync(p); } catch (_) {}
+};
 
-function hasValidEducation(education = []) {
-  return safeArr(education).some((e) => e?.degree && e?.college && e?.year);
-}
-
-// Same logic as frontend completion
-function calcProfileCompletion(studentProfile, resumeUrl, resumeDoc = {}) {
-  const p = safeObj(studentProfile);
-
-  const personal = safeObj(p.personal);
-  const education = safeArr(p.education);
-  const skills = safeArr(p.skills);
-  const experience = safeArr(p.experience);
-  const preferred = safeObj(p.preferred);
-
-  const resume = safeObj(resumeDoc);
-  const resumeSectionsFilled =
-    Boolean(safeObj(resume.personal).name || safeObj(resume.personal).email) ||
-    safeArr(resume.education).length > 0 ||
-    safeArr(resume.skills).length > 0 ||
-    safeArr(resume.experience).length > 0;
-
-  const checks = {
-    personal: !!(personal.fullName && personal.phone && personal.city && personal.state),
-    education: hasValidEducation(education),
-    skills: normalizeSkillCount(skills) >= 2,
-    experience: p.fresher === true || experience.some((e) => e.company && e.role),
-    resume: !!(p.resumeMeta?.fileName || p.resumeMeta?.updatedAt || resumeUrl || resumeSectionsFilled),
-    preferred:
-      !!safeStr(preferred.stream).trim() &&
-      !!safeStr(preferred.category).trim() &&
-      toStringArray(preferred.locations).length > 0,
-  };
-
-  const total = Object.keys(checks).length;
-  const done = Object.values(checks).filter(Boolean).length;
-  return Math.round((done / total) * 100);
-}
-
-/**
- * GET /api/student/me
- */
-export const getStudentMe = async (req, res, next) => {
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/student/me
+// ─────────────────────────────────────────────────────────────────────────────
+export const getMe = async (req, res) => {
   try {
-    const me = await User.findById(req.user._id).lean();
-    if (!me) return res.status(404).json({ message: "Student not found" });
+    const clerkId = req.auth()?.userId;
+    if (!clerkId) return res.status(401).json({ success: false, message: "Unauthorized" });
 
-    const profileCompletion = calcProfileCompletion(me.studentProfile, me.resumeUrl, me.resume);
-    return res.json({ ...me, profileCompletion });
+    let user = await User.findOne({ clerkId }).lean();
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+    // NOTE: /me is always the owner — do NOT increment profileViews here.
+    // Views are only counted when other users visit via GET /profile/:userId
+
+    return res.json({ success: true, data: user });
   } catch (err) {
-    next(err);
+    console.error("[getMe]", err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
-/**
- * PUT /api/student/me
- */
-export const updateStudentMe = async (req, res, next) => {
+// ─────────────────────────────────────────────────────────────────────────────
+// PUT /api/student/me
+// body: { name, phone, location, linkedin, portfolio, studentProfile }
+// ─────────────────────────────────────────────────────────────────────────────
+export const updateMe = async (req, res) => {
   try {
-    const body = req.body || {};
+    const clerkId = req.auth()?.userId;
+    if (!clerkId) return res.status(401).json({ success: false, message: "Unauthorized" });
 
-    const existing = await User.findById(req.user._id).lean();
-    if (!existing) return res.status(404).json({ message: "Student not found" });
+    const { name, phone, location, linkedin, portfolio, studentProfile } = req.body;
 
-    const patch = {};
-    if (typeof body.name === "string") patch.name = body.name;
-    if (typeof body.phone === "string") patch.phone = body.phone;
-    if (typeof body.location === "string") patch.location = body.location;
-    if (typeof body.linkedin === "string") patch.linkedin = body.linkedin;
-    if (typeof body.portfolio === "string") patch.portfolio = body.portfolio;
-
-    if (body.studentProfile && typeof body.studentProfile === "object") {
-      const existingProfile = safeObj(existing.studentProfile);
-      const incomingProfile = safeObj(body.studentProfile);
-      const incomingPersonal = safeObj(incomingProfile.personal);
-      const incomingPreferred = safeObj(incomingProfile.preferred);
-
-      const mergedPreferred = {
-        ...safeObj(existingProfile.preferred),
-        ...incomingPreferred,
-      };
-
-      if (!mergedPreferred.subCategory && mergedPreferred.subcategory) {
-        mergedPreferred.subCategory = mergedPreferred.subcategory;
-      }
-      if (!mergedPreferred.subcategory && mergedPreferred.subCategory) {
-        mergedPreferred.subcategory = mergedPreferred.subCategory;
-      }
-      if (incomingPreferred.locations !== undefined) {
-        mergedPreferred.locations = toStringArray(incomingPreferred.locations);
-      } else {
-        mergedPreferred.locations = toStringArray(mergedPreferred.locations);
-      }
-
-      // ✅ allow skills in any format (array OR string)
-      let mergedSkills = incomingProfile.skills;
-      if (typeof mergedSkills === "string") {
-        mergedSkills = mergedSkills
-          .split(/[\n,;/|]+/g)
-          .map((s) => s.trim())
-          .filter(Boolean);
-      }
-
-      patch.studentProfile = {
-        ...existingProfile,
-        personal: {
-          ...safeObj(existingProfile.personal),
-          ...incomingPersonal,
+    const user = await User.findOneAndUpdate(
+      { clerkId },
+      {
+        $set: {
+          name,
+          phone,
+          location,
+          linkedin,
+          portfolio,
+          studentProfile,
+          updatedAt: new Date(),
         },
-        education:
-          incomingProfile.education !== undefined
-            ? safeArr(incomingProfile.education)
-            : safeArr(existingProfile.education),
-        skills:
-          incomingProfile.skills !== undefined
-            ? safeArr(mergedSkills)
-            : safeArr(existingProfile.skills),
-        fresher:
-          incomingProfile.fresher !== undefined
-            ? !!incomingProfile.fresher
-            : existingProfile.fresher !== undefined
-            ? !!existingProfile.fresher
-            : true,
-        experience:
-          incomingProfile.experience !== undefined
-            ? safeArr(incomingProfile.experience)
-            : safeArr(existingProfile.experience),
-        preferred: mergedPreferred,
-        resumeMeta: {
-          ...safeObj(existingProfile.resumeMeta),
-          ...safeObj(incomingProfile.resumeMeta),
-        },
-      };
+      },
+      { new: true, runValidators: true, lean: true }
+    );
 
-      // Sync some fields to top-level
-      if (!patch.name && typeof incomingPersonal.fullName === "string") {
-        patch.name = incomingPersonal.fullName;
-      }
-      if (!patch.phone && typeof incomingPersonal.phone === "string") {
-        patch.phone = incomingPersonal.phone;
-      }
-      if (!patch.location) {
-        if (typeof incomingPersonal.location === "string" && incomingPersonal.location) {
-          patch.location = incomingPersonal.location;
-        } else if (typeof incomingPersonal.city === "string" && incomingPersonal.city) {
-          patch.location = incomingPersonal.city;
-        }
-      }
-      if (!patch.linkedin && typeof incomingPersonal.linkedin === "string") {
-        patch.linkedin = incomingPersonal.linkedin;
-      }
-      if (!patch.portfolio && typeof incomingPersonal.portfolio === "string") {
-        patch.portfolio = incomingPersonal.portfolio;
-      }
-    }
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
-    // ✅ IMPORTANT: mongoose v8+ use returnDocument:'after'
-    const updated = await User.findOneAndUpdate(
-      { _id: req.user._id },
-      { $set: patch },
-      { returnDocument: "after" }
-    ).lean();
-
-    const profileCompletion = calcProfileCompletion(updated.studentProfile, updated.resumeUrl, updated.resume);
-    return res.json({ ...updated, profileCompletion });
+    return res.json({ success: true, data: user });
   } catch (err) {
-    next(err);
+    console.error("[updateMe]", err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
-/**
- * GET /api/student/me/applications
- */
-export const listMyApplications = async (req, res, next) => {
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/student/upload-resume
+// multipart/form-data, field name: "file"
+// ─────────────────────────────────────────────────────────────────────────────
+export const uploadResumeHandler = async (req, res) => {
   try {
-    const studentId = req.user._id;
-    const { status = "", company = "", dateApplied = "", page = 1, limit = 10 } = req.query || {};
+    const clerkId = req.auth()?.userId;
+    if (!clerkId)  return res.status(401).json({ success: false, message: "Unauthorized" });
+    if (!req.file) return res.status(400).json({ success: false, message: "No file provided" });
 
-    const apps = await Application.find({ student: studentId })
-      .populate({
-        path: "job",
-        select:
-          "title location city state stream category subCategory jobType workMode mode experience experienceText salary salaryText salaryMin salaryMax company",
-        populate: { path: "company", select: "name email phone phoneNumber contactNumber" },
-      })
-      .sort({ createdAt: -1 })
-      .lean();
-
-    const appIds = apps.map((a) => a._id).filter(Boolean);
-    const threads = await MessageThread.find({
-      application: { $in: appIds },
-      student: studentId,
-    })
-      .select("application _id")
-      .lean();
-
-    const threadMap = new Map(threads.map((t) => [String(t.application), String(t._id)]));
-
-    const mapped = apps.map((a) => {
-      const job = a.job || {};
-      const companyDoc = job.company || {};
-      const st = a.status || "Applied";
-
-      let response = "";
-      let hasResponse = false;
-
-      if (st !== "Applied") {
-        hasResponse = true;
-        if (st === "Shortlisted") response = "You have been shortlisted. Employer may contact you soon.";
-        else if (st === "Hold") response = "Your application is on hold. Please wait for the next update.";
-        else if (st === "Rejected") response = "Application not selected for this role.";
-        else if (st === "Interview Scheduled") response = "Interview scheduled. Check notifications/messages.";
-        else response = "Status updated by employer.";
-      }
-
-      const toSalaryText = () => {
-        if (safeStr(job?.salaryText)) return job.salaryText;
-        const min = Number(job?.salaryMin || 0);
-        const max = Number(job?.salaryMax || 0);
-        if (min || max) return `${min}-${max} LPA`;
-        return safeStr(job?.salary) || "";
-      };
-
-      const phone =
-        safeStr(companyDoc?.phone) ||
-        safeStr(companyDoc?.phoneNumber) ||
-        safeStr(companyDoc?.contactNumber) ||
-        "";
-
-      return {
-        id: String(a._id),
-        applicationId: String(a._id),
-        conversationId: threadMap.get(String(a._id)) || "",
-        jobId: job?._id ? String(job._id) : "",
-        title: job?.title || "Job",
-        company: companyDoc?.name || "Company",
-        location: job?.location || job?.city || "",
-        stream: job?.stream || "",
-        category: job?.category || "",
-        subCategory: job?.subCategory || "",
-        jobType: job?.jobType || "",
-        workMode: job?.workMode || job?.mode || "",
-        experience: job?.experienceText || job?.experience || a.experienceText || "",
-        salary: toSalaryText(),
-        appliedOn: a.createdAt,
-        status: st,
-        phone,
-        email: safeStr(companyDoc?.email),
-        hasResponse,
-        response,
-      };
+    // Upload to Cloudinary as "raw" — this keeps the PDF URL directly accessible
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      resource_type: "raw",
+      folder:        "resumes",
+      public_id:     `resume_${clerkId}_${Date.now()}`,
+      overwrite:     false,
     });
 
-    const statusFilter = String(status || "").trim().toLowerCase();
-    const companyFilter = String(company || "").trim().toLowerCase();
-    const dateFilter = String(dateApplied || "").trim();
+    deleteTmp(req.file.path);
 
-    const filtered = mapped.filter((item) => {
-      if (statusFilter && statusFilter !== "all" && String(item.status || "").toLowerCase() !== statusFilter) return false;
-      if (companyFilter && !String(item.company || "").toLowerCase().includes(companyFilter)) return false;
-      if (dateFilter) {
-        const applied = item.appliedOn ? String(item.appliedOn).slice(0, 10) : "";
-        if (applied !== dateFilter) return false;
-      }
-      return true;
-    });
-
-    const pageNum = Math.max(1, Number(page) || 1);
-    const limitNum = Math.max(1, Math.min(100, Number(limit) || 10));
-    const total = filtered.length;
-    const pages = Math.max(1, Math.ceil(total / limitNum));
-    const start = (pageNum - 1) * limitNum;
-    const rows = filtered.slice(start, start + limitNum);
-
-    return res.json({ rows, total, page: pageNum, limit: limitNum, pages });
-  } catch (err) {
-    next(err);
-  }
-};
-
-// Resume endpoints (unchanged logic)
-export const getMyResume = async (req, res, next) => {
-  try {
-    const user = await User.findById(req.user._id).lean();
-    if (!user) return res.status(404).json({ message: "Student not found" });
-
-    const resume = user.resume || {};
-    const sp = user.studentProfile || {};
-    const personal = sp.personal || {};
-
-    const merged = {
-      ...resume,
-      personal: {
-        ...(resume.personal || {}),
-        name: resume?.personal?.name || user.name || personal.fullName || "",
-        email: resume?.personal?.email || user.email || "",
-        phone: resume?.personal?.phone || user.phone || personal.phone || "",
-        location: resume?.personal?.location || user.location || "",
-        linkedin: resume?.personal?.linkedin || user.linkedin || "",
-        portfolio: resume?.personal?.portfolio || user.portfolio || "",
-      },
-      education:
-        Array.isArray(resume.education) && resume.education.length
-          ? resume.education
-          : Array.isArray(sp.education)
-          ? sp.education
-          : [],
-      skills:
-        Array.isArray(resume.skills) && resume.skills.length
-          ? resume.skills
-          : Array.isArray(sp.skills)
-          ? sp.skills
-          : [],
-      experience:
-        Array.isArray(resume.experience) && resume.experience.length
-          ? resume.experience
-          : Array.isArray(sp.experience)
-          ? sp.experience
-          : [],
-    };
-
-    return res.json(merged);
-  } catch (err) {
-    next(err);
-  }
-};
-
-export const saveMyResume = async (req, res, next) => {
-  try {
-    const resumeData = req.body || {};
-    const existing = await User.findById(req.user._id).lean();
-    if (!existing) return res.status(404).json({ message: "Student not found" });
-
-    const personal = safeObj(resumeData.personal);
-    const resumeSkills = safeArr(resumeData.skills).map((x) => String(x || "").trim()).filter(Boolean);
-    const resumeEducation = safeArr(resumeData.education);
-    const resumeExperience = safeArr(resumeData.experience);
-
-    const oldSp = safeObj(existing.studentProfile);
-    const oldPersonal = safeObj(oldSp.personal);
-
-    const patch = {
-      resume: resumeData,
-      name: safeStr(personal.name) || safeStr(existing.name),
-      phone: safeStr(personal.phone) || safeStr(existing.phone),
-      location: safeStr(personal.location) || safeStr(existing.location),
-      linkedin: safeStr(personal.linkedin) || safeStr(existing.linkedin),
-      portfolio: safeStr(personal.portfolio) || safeStr(existing.portfolio),
-      studentProfile: {
-        ...oldSp,
-        personal: {
-          ...oldPersonal,
-          fullName: safeStr(personal.name) || safeStr(oldPersonal.fullName),
-          phone: safeStr(personal.phone) || safeStr(oldPersonal.phone),
-          city: safeStr(personal.location) || safeStr(oldPersonal.city),
-          linkedin: safeStr(personal.linkedin) || safeStr(oldPersonal.linkedin),
-          portfolio: safeStr(personal.portfolio) || safeStr(oldPersonal.portfolio),
-          github: safeStr(personal.github) || safeStr(oldPersonal.github),
-        },
-        education: resumeEducation.length ? resumeEducation : safeArr(oldSp.education),
-        skills: resumeSkills.length ? resumeSkills : safeArr(oldSp.skills),
-        fresher: resumeExperience.length === 0 ? true : false,
-        experience: resumeExperience.length ? resumeExperience : safeArr(oldSp.experience),
-      },
+    const resumeMeta = {
+      fileName:     req.file.originalname,
+      size:         `${Math.max(1, Math.round(req.file.size / 1024))} KB`,
+      updatedAt:    new Date().toISOString(),
+      cloudinaryId: result.public_id,
     };
 
     await User.findOneAndUpdate(
-      { _id: req.user._id },
-      { $set: patch },
-      { returnDocument: "after" }
-    ).lean();
+      { clerkId },
+      {
+        $set: {
+          resumeUrl:                    result.secure_url,
+          "studentProfile.resumeMeta":  resumeMeta,
+        },
+      }
+    );
 
-    return res.json(resumeData);
+    return res.json({
+      success: true,
+      data: {
+        resumeUrl:  result.secure_url,
+        resumeMeta,
+      },
+    });
   } catch (err) {
-    next(err);
+    deleteTmp(req.file?.path);
+    console.error("[uploadResumeHandler]", err);
+    return res.status(500).json({ success: false, message: "Resume upload failed" });
   }
 };
 
-export const downloadResumePDF = async (req, res, next) => {
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/student/upload-avatar
+// multipart/form-data, field name: "file"
+// ─────────────────────────────────────────────────────────────────────────────
+export const uploadAvatarHandler = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).lean();
-    if (!user || !user.resume) return res.status(404).json({ message: "Resume not found" });
+    const clerkId = req.auth()?.userId;
+    if (!clerkId)  return res.status(401).json({ success: false, message: "Unauthorized" });
+    if (!req.file) return res.status(400).json({ success: false, message: "No file provided" });
 
-    const filePath = await generateResumePDF(user.resume, user.name);
-    res.download(filePath, "resume.pdf");
+    const result = await cloudinary.uploader.upload(req.file.path, {
+      resource_type: "image",
+      folder:        "avatars",
+      public_id:     `avatar_${clerkId}`,
+      overwrite:     true,
+      transformation: [{ width: 400, height: 400, crop: "fill", gravity: "face" }],
+    });
+
+    deleteTmp(req.file.path);
+
+    await User.findOneAndUpdate(
+      { clerkId },
+      { $set: { "studentProfile.personal.avatarUrl": result.secure_url } }
+    );
+
+    return res.json({ success: true, data: { avatarUrl: result.secure_url } });
   } catch (err) {
-    next(err);
+    deleteTmp(req.file?.path);
+    console.error("[uploadAvatarHandler]", err);
+    return res.status(500).json({ success: false, message: "Avatar upload failed" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/student/follow-suggestions
+// Returns up to 5 real DB users ranked by shared skills / designation / city
+// ─────────────────────────────────────────────────────────────────────────────
+export const getFollowSuggestionsHandler = async (req, res) => {
+  try {
+    const clerkId = req.auth()?.userId;
+    if (!clerkId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const me = await User.findOne({ clerkId }).lean();
+    if (!me) return res.status(404).json({ success: false, message: "User not found" });
+
+    // Exclude self + already-followed users
+    const excludeIds = [me._id.toString(), ...(me.following || []).map(String)];
+
+    // My signals for scoring relevance
+    const mySkills = (me.studentProfile?.skills || [])
+      .map(s => (typeof s === "string" ? s : s?.name || "").toLowerCase())
+      .filter(Boolean);
+    const myDesig = (me.studentProfile?.personal?.designation || "").toLowerCase();
+    const myCity  = (me.studentProfile?.personal?.city        || "").toLowerCase();
+
+    const candidates = await User.find({
+      _id:  { $nin: excludeIds },
+      role: "student",
+    })
+      .select(
+        "name email followers following profileViews " +
+        "studentProfile.personal.designation " +
+        "studentProfile.personal.avatarUrl " +
+        "studentProfile.personal.city " +
+        "studentProfile.skills"
+      )
+      .limit(30)
+      .lean();
+
+    const scored = candidates.map(u => {
+      let score = 0;
+
+      const uSkills = (u.studentProfile?.skills || [])
+        .map(s => (typeof s === "string" ? s : s?.name || "").toLowerCase())
+        .filter(Boolean);
+      const uDesig = (u.studentProfile?.personal?.designation || "").toLowerCase();
+      const uCity  = (u.studentProfile?.personal?.city        || "").toLowerCase();
+
+      // Exact designation match → strong signal
+      if (myDesig && uDesig && myDesig === uDesig)                                          score += 10;
+      // Both developers (different exact titles)
+      if (myDesig && uDesig && myDesig.includes("developer") && uDesig.includes("developer")) score += 5;
+      // Each shared skill
+      const sharedSkills = uSkills.filter(s => mySkills.includes(s));
+      score += sharedSkills.length * 3;
+      // Same city
+      if (myCity && uCity && myCity === uCity) score += 4;
+      // Mutual followers
+      const mutualCount = (u.followers || []).filter(f => (me.followers || []).map(String).includes(String(f))).length;
+      score += mutualCount * 2;
+
+      return {
+        _id:               u._id,
+        name:              u.name || u.email?.split("@")[0] || "Student",
+        email:             u.email,
+        designation:       u.studentProfile?.personal?.designation || "Student",
+        avatarUrl:         u.studentProfile?.personal?.avatarUrl   || "",
+        city:              u.studentProfile?.personal?.city        || "",
+        mutualConnections: mutualCount,
+        sharedSkills:      sharedSkills.length,
+        followersCount:    (u.followers || []).length,
+        score,
+      };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+
+    return res.json({ success: true, data: scored.slice(0, 5) });
+  } catch (err) {
+    console.error("[getFollowSuggestionsHandler]", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/student/follow/:targetUserId  — toggles follow/unfollow
+// ─────────────────────────────────────────────────────────────────────────────
+export const followUserHandler = async (req, res) => {
+  try {
+    const clerkId = req.auth()?.userId;
+    if (!clerkId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const { targetUserId } = req.params;
+
+    const [me, target] = await Promise.all([
+      User.findOne({ clerkId }),
+      User.findById(targetUserId),
+    ]);
+
+    if (!me)     return res.status(404).json({ success: false, message: "User not found" });
+    if (!target) return res.status(404).json({ success: false, message: "Target user not found" });
+
+    const isFollowing = (me.following || []).map(String).includes(String(targetUserId));
+
+    if (isFollowing) {
+      await Promise.all([
+        User.findByIdAndUpdate(me._id,       { $pull:     { following: targetUserId          } }),
+        User.findByIdAndUpdate(targetUserId,  { $pull:     { followers: me._id.toString()    } }),
+      ]);
+      return res.json({ success: true, action: "unfollowed" });
+    } else {
+      await Promise.all([
+        User.findByIdAndUpdate(me._id,       { $addToSet: { following: targetUserId          } }),
+        User.findByIdAndUpdate(targetUserId,  { $addToSet: { followers: me._id.toString()    } }),
+      ]);
+      return res.json({ success: true, action: "followed" });
+    }
+  } catch (err) {
+    console.error("[followUserHandler]", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/student/applied-jobs
+// ─────────────────────────────────────────────────────────────────────────────
+export const getAppliedJobsHandler = async (req, res) => {
+  try {
+    const clerkId = req.auth()?.userId;
+    if (!clerkId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const me = await User.findOne({ clerkId })
+      .populate({
+        path:   "appliedJobs.job",
+        select: "title company companyLogo location salary jobType",
+        populate: { path: "company", select: "name logo about website" },
+      })
+      .lean();
+
+    if (!me) return res.status(404).json({ success: false, message: "User not found" });
+
+    const jobs = (me.appliedJobs || []).map(app => ({
+      applicationId:   app._id,
+      jobId:           app.job?._id,
+      title:           app.job?.title                              || "Unknown Role",
+      company:         app.job?.company?.name || app.job?.company  || "Unknown Company",
+      companyLogo:     app.job?.company?.logo  || app.job?.companyLogo || "",
+      companyAbout:    app.job?.company?.about                     || "No description available.",
+      companyWebsite:  app.job?.company?.website                   || "",
+      location:        app.job?.location  || "",
+      salary:          app.job?.salary    || "",
+      jobType:         app.job?.jobType   || "Full-time",
+      appliedAt:       app.appliedAt      || app.createdAt,
+      status:          app.status         || "Applied",
+    }));
+
+    return res.json({ success: true, data: jobs });
+  } catch (err) {
+    console.error("[getAppliedJobsHandler]", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DELETE /api/student/applied-jobs/:applicationId
+// ─────────────────────────────────────────────────────────────────────────────
+export const withdrawApplicationHandler = async (req, res) => {
+  try {
+    const clerkId          = req.auth()?.userId;
+    const { applicationId } = req.params;
+    if (!clerkId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const me = await User.findOne({ clerkId });
+    if (!me) return res.status(404).json({ success: false, message: "User not found" });
+
+    const idx = (me.appliedJobs || []).findIndex(
+      a => a._id.toString() === applicationId
+    );
+    if (idx === -1) return res.status(404).json({ success: false, message: "Application not found" });
+
+    me.appliedJobs.splice(idx, 1);
+    await me.save();
+
+    return res.json({ success: true, message: "Application withdrawn" });
+  } catch (err) {
+    console.error("[withdrawApplicationHandler]", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/student/profile/:userId  — PUBLIC profile view (increments view count)
+// Called when ANOTHER user visits someone's profile via search/suggestions
+// ─────────────────────────────────────────────────────────────────────────────
+export const getPublicProfile = async (req, res) => {
+  try {
+    const viewerClerkId = req.auth()?.userId;
+    const { userId }    = req.params;
+
+    const profile = await User.findById(userId)
+      .select("name email studentProfile followers following profileViews projectViews resumeUrl")
+      .lean();
+
+    if (!profile) return res.status(404).json({ success: false, message: "User not found" });
+
+    // Only increment if the viewer is NOT the profile owner
+    const owner = await User.findOne({ clerkId: viewerClerkId }).lean();
+    if (!owner || owner._id.toString() !== userId) {
+      await User.findByIdAndUpdate(userId, { $inc: { profileViews: 1 } });
+      profile.profileViews = (profile.profileViews || 0) + 1;
+    }
+
+    return res.json({ success: true, data: profile });
+  } catch (err) {
+    console.error("[getPublicProfile]", err);
+    return res.status(500).json({ success: false, message: "Server error" });
   }
 };

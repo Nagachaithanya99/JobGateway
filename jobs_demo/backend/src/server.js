@@ -1,10 +1,19 @@
+import express from "express";
 import "dotenv/config";
 import http from "http";
 import app from "./app.js";
 import connectDB from "./config/db.js";
 import { initInterviewSignaling } from "./realtime/interviewSignaling.js";
 
+
+
+
+
 const PORT = process.env.PORT || 5000;
+
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+
 
 async function start() {
   try {
