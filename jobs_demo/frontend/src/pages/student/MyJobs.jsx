@@ -337,6 +337,7 @@ export default function MyJobs() {
                 const stream = item.stream || item.category || "";
                 const when = item.appliedAt || item.appliedOn || item.createdAt;
                 const logoText = initials(company) || "C";
+                const logoUrl = item.companyLogo || item.logoUrl || "";
 
                 return (
                   <article
@@ -345,8 +346,8 @@ export default function MyJobs() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-start gap-3">
-                        <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-white border border-slate-200 text-[#F97316] font-extrabold">
-                          {logoText}
+                        <div className="inline-flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-white border border-slate-200 text-[#F97316] font-extrabold">
+                          {logoUrl ? <img src={logoUrl} alt="" className="h-full w-full object-cover" /> : logoText}
                         </div>
 
                         <div className="min-w-0">

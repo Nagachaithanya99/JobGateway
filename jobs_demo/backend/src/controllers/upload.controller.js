@@ -4,6 +4,7 @@ import path from "path";
 import crypto from "crypto";
 import User from "../models/User.js";
 import { uploadBufferToCloudinary, uploadRemoteUrlToCloudinary } from "../utils/cloudinaryUpload.js";
+import { getPrimaryResumeUploadsDir } from "../utils/uploadPaths.js";
 
 // ---------- helpers ----------
 function safeObj(x) {
@@ -77,7 +78,7 @@ export const uploadResume = async (req, res, next) => {
     }
 
     // Ensure upload dir exists
-    const baseDir = path.join(process.cwd(), "uploads", "resumes");
+    const baseDir = getPrimaryResumeUploadsDir();
     fs.mkdirSync(baseDir, { recursive: true });
 
     // unique file name
@@ -187,6 +188,90 @@ export const uploadContentImage = async (req, res, next) => {
       ok: true,
       imageUrl: result?.secure_url || "",
       fileName: file.originalname || result?.original_filename || "image",
+      publicId: result?.public_id || "",
+      mimeType: file.mimetype || "",
+      width: Number(result?.width || 0),
+      height: Number(result?.height || 0),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const uploadCompanyLogo = async (req, res, next) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ message: "Image file is required" });
+
+    if (!String(file.mimetype || "").startsWith("image/")) {
+      return res.status(400).json({ message: "Only image files are allowed" });
+    }
+
+    const result = await uploadBufferToCloudinary(file.buffer, {
+      folder: "jobgateway/company-logos",
+      resource_type: "image",
+      use_filename: true,
+      unique_filename: true,
+      overwrite: false,
+    });
+
+    return res.json({
+      ok: true,
+      imageUrl: result?.secure_url || "",
+      logoUrl: result?.secure_url || "",
+      fileName: file.originalname || result?.original_filename || "company-logo",
+      publicId: result?.public_id || "",
+      mimeType: file.mimetype || "",
+      width: Number(result?.width || 0),
+      height: Number(result?.height || 0),
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const uploadStudentAvatar = async (req, res, next) => {
+  try {
+    const file = req.file;
+    if (!file) return res.status(400).json({ message: "Image file is required" });
+
+    if (!String(file.mimetype || "").startsWith("image/")) {
+      return res.status(400).json({ message: "Only image files are allowed" });
+    }
+
+    const result = await uploadBufferToCloudinary(file.buffer, {
+      folder: "jobgateway/student-avatars",
+      resource_type: "image",
+      use_filename: true,
+      unique_filename: true,
+      overwrite: false,
+    });
+
+    const avatarUrl = result?.secure_url || "";
+    if (!avatarUrl) return res.status(500).json({ message: "Upload did not return an image URL" });
+
+    await User.findByIdAndUpdate(
+      req.user._id,
+      {
+        $set: {
+          avatarUrl,
+          avatar: avatarUrl,
+          profilePhoto: avatarUrl,
+          profileImageUrl: avatarUrl,
+          imageUrl: avatarUrl,
+          "studentProfile.personal.avatarUrl": avatarUrl,
+          "studentProfile.personal.profileImageUrl": avatarUrl,
+        },
+      },
+      { returnDocument: "after" },
+    ).lean();
+
+    return res.json({
+      ok: true,
+      avatarUrl,
+      imageUrl: avatarUrl,
+      profileImageUrl: avatarUrl,
+      fileName: file.originalname || result?.original_filename || "student-avatar",
       publicId: result?.public_id || "",
       mimeType: file.mimetype || "",
       width: Number(result?.width || 0),

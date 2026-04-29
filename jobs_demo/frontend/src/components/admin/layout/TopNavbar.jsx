@@ -10,9 +10,9 @@ const titleMap = {
   "/admin": "Admin Dashboard",
   "/admin/companies": "Companies",
   "/admin/jobs": "Jobs",
-  "/admin/applicants": "Applicants",
+  "/admin/applicants": "Company Applications",
+  "/admin/my-applications": "My Applications",
   "/admin/students": "Students",
-  "/admin/interviews": "Interviews",
   "/admin/pricing": "Pricing Plans",
   "/admin/content": "Content Management",
   "/admin/ads": "Ads Users",
@@ -39,6 +39,10 @@ export default function TopNavbar({ onToggleSidebar }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const openProfile = () => {
+    navigate("/admin/profile");
+    setMenuOpen(false);
+  };
 
   const initials = useMemo(() => {
     const name = user?.name || "Admin User";
@@ -90,26 +94,33 @@ export default function TopNavbar({ onToggleSidebar }) {
           </button>
 
           <div className="relative">
-            <button
-              type="button"
-              onClick={() => setMenuOpen((prev) => !prev)}
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 px-2 py-1.5 transition hover:border-orange-200 hover:bg-orange-50"
-            >
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[#FFF3EB] text-sm font-semibold text-[#FF6B00]">
-                {initials}
-              </span>
-              <span className="hidden text-sm font-medium text-slate-700 sm:block">{user?.name || "Admin"}</span>
-              <FiChevronDown className="text-slate-500" />
-            </button>
+            <div className="inline-flex items-center overflow-hidden rounded-xl border border-slate-200 transition hover:border-orange-200">
+              <button
+                type="button"
+                onClick={openProfile}
+                className="inline-flex items-center gap-2 px-2 py-1.5 transition hover:bg-orange-50"
+                title="Open profile"
+              >
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[#FFF3EB] text-sm font-semibold text-[#FF6B00]">
+                  {initials}
+                </span>
+                <span className="hidden text-sm font-medium text-slate-700 sm:block">{user?.name || "Admin"}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setMenuOpen((prev) => !prev)}
+                className="inline-flex h-full items-center justify-center border-l border-slate-200 px-2 text-slate-500 transition hover:bg-orange-50"
+                aria-label="Open profile menu"
+              >
+                <FiChevronDown />
+              </button>
+            </div>
 
             {menuOpen ? (
               <div className="absolute right-0 mt-2 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg">
                 <button
                   type="button"
-                  onClick={() => {
-                    navigate("/admin/profile");
-                    setMenuOpen(false);
-                  }}
+                  onClick={openProfile}
                   className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-slate-600 transition hover:bg-slate-50"
                 >
                   <FiUser />

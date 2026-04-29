@@ -29,6 +29,7 @@ import {
   adminDeletePlan,
   adminListPlans,
   adminListPlanRequests,
+  adminRunPlanRequestAction,
   adminSavePlan,
   adminUpdatePlanRequest,
 } from "../../services/adminService";
@@ -47,8 +48,91 @@ function toNumberAmount(text) {
 function statusClass(value) {
   const v = String(value || "pending").toLowerCase();
   if (v === "approved") return "bg-green-50 border-green-200 text-green-700";
-  if (v === "rejected") return "bg-red-50 border-red-200 text-red-600";
+  if (v === "rejected" || v === "failed") return "bg-red-50 border-red-200 text-red-600";
+  if (v === "created") return "bg-blue-50 border-blue-200 text-blue-700";
+  if (v === "inactive") return "bg-slate-100 border-slate-200 text-slate-600";
   return "bg-orange-50 border-orange-200 text-[#F97316]";
+}
+
+function statusLabel(value) {
+  const v = String(value || "pending").toLowerCase();
+  if (v === "pending") return "Pending Approval";
+  if (v === "approved") return "Approved";
+  if (v === "rejected") return "Rejected";
+  if (v === "created") return "Payment Pending";
+  if (v === "failed") return "Payment Failed";
+  if (v === "inactive") return "Inactive";
+  return value || "Pending";
+}
+
+function isReviewableRequest(row) {
+  return String(row?.status || "").toLowerCase() === "pending" && String(row?.source || "manual") === "manual";
+}
+
+function canApproveRow(row) {
+  const status = String(row?.status || "").toLowerCase();
+  return ["pending", "created", "failed"].includes(status);
+}
+
+function canActivateRow(row) {
+  return String(row?.status || "").toLowerCase() === "inactive";
+}
+
+function canDeactivateRow(row) {
+  return String(row?.status || "").toLowerCase() === "approved";
+}
+
+function canRejectRow(row) {
+  return String(row?.source || "").toLowerCase() === "manual"
+    && String(row?.status || "").toLowerCase() === "pending";
+}
+
+function canDeleteRow(row) {
+  return Boolean(row?.id);
+}
+
+function actionPrompt(action, row) {
+  const company = row?.companyName || "this company";
+  const plan = row?.planName || "selected plan";
+
+  if (action === "approve") {
+    return {
+      title: "Approve Plan?",
+      text: `Approve ${company} for the ${plan} plan?`,
+      confirmButtonText: "Approve",
+      tone: "info",
+    };
+  }
+  if (action === "active") {
+    return {
+      title: "Activate Subscription?",
+      text: `Activate ${company} on the ${plan} plan?`,
+      confirmButtonText: "Active",
+      tone: "info",
+    };
+  }
+  if (action === "inactive") {
+    return {
+      title: "Mark Subscription Inactive?",
+      text: `Set ${company}'s ${plan} plan to inactive?`,
+      confirmButtonText: "In-Active",
+      tone: "warning",
+    };
+  }
+  if (action === "reject") {
+    return {
+      title: "Reject Plan Request?",
+      text: `Reject ${company} for the ${plan} plan?`,
+      confirmButtonText: "Reject",
+      tone: "warning",
+    };
+  }
+  return {
+    title: "Delete Plan Record?",
+    text: `Delete the ${plan} plan record for ${company}?`,
+    confirmButtonText: "Delete",
+    tone: "warning",
+  };
 }
 
 function InputField({ label, children }) {
@@ -183,6 +267,7 @@ export default function PricingPlans() {
 
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkAction, setBulkAction] = useState("approve");
+  const [busyRequestId, setBusyRequestId] = useState("");
 
   const [planOpen, setPlanOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -237,7 +322,6 @@ export default function PricingPlans() {
 
   useEffect(() => {
     loadPricingData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const requestRows = useMemo(() => {
@@ -312,7 +396,7 @@ export default function PricingPlans() {
     );
 
     return { planDistribution, revenueTrend, popularity, mostPopular };
-  }, [requests, plans, stats.monthlyRevenue]);
+  }, [requests, plans]);
 
   const revenueInsight = useMemo(() => {
     const monthly = stats.monthlyRevenue;
@@ -408,9 +492,23 @@ export default function PricingPlans() {
     }
   };
 
-  const applyDecision = async (row, nextStatus) => {
+  const applyDecision = async (row, nextStatus, options = {}) => {
+    if (!isReviewableRequest(row)) return false;
+
+    if (!options.skipConfirm) {
+      const isApprove = nextStatus === "approved";
+      const ok = await showSweetConfirm({
+        title: isApprove ? "Approve Plan Request?" : "Reject Plan Request?",
+        text: `${isApprove ? "Approve" : "Reject"} ${row.companyName} for the ${row.planName} plan?`,
+        confirmButtonText: isApprove ? "Approve" : "Reject",
+        tone: isApprove ? "info" : "warning",
+      });
+      if (!ok) return false;
+    }
+
     try {
       setError("");
+      setBusyRequestId(row.id);
       const res = await adminUpdatePlanRequest(row.id, nextStatus);
       if (res?.request) {
         setRequests((prev) =>
@@ -425,7 +523,7 @@ export default function PricingPlans() {
               : x,
           ),
         );
-        return;
+        return true;
       }
       setRequests((prev) =>
         prev.map((x) =>
@@ -434,8 +532,35 @@ export default function PricingPlans() {
             : x,
         ),
       );
+      return true;
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || "Failed to update request.");
+      return false;
+    } finally {
+      setBusyRequestId("");
+    }
+  };
+
+  const executePlanAction = async (row, action) => {
+    const prompt = actionPrompt(action, row);
+    const ok = await showSweetConfirm(prompt);
+    if (!ok) return false;
+
+    try {
+      setError("");
+      setBusyRequestId(row.id);
+      await adminRunPlanRequestAction(row.id, {
+        action,
+        source: row.source,
+      });
+      setSelectedIds((prev) => prev.filter((id) => id !== row.id));
+      await loadPricingData();
+      return true;
+    } catch (e) {
+      setError(e?.response?.data?.message || e?.message || "Failed to update plan record.");
+      return false;
+    } finally {
+      setBusyRequestId("");
     }
   };
 
@@ -472,7 +597,7 @@ export default function PricingPlans() {
         x.paymentMethod,
         x.transactionId,
         x.createdAt,
-        x.status,
+        statusLabel(x.status),
       ]);
       const csv = [headers, ...lines]
         .map((row) => row.map((v) => `"${String(v ?? "").replaceAll('"', '""')}"`).join(","))
@@ -489,12 +614,28 @@ export default function PricingPlans() {
     }
 
     const next = bulkAction === "approve" ? "approved" : "rejected";
-    await Promise.all(
-      selectedIds.map((id) => {
-        const row = requests.find((r) => r.id === id);
-        return row ? applyDecision(row, next) : Promise.resolve();
-      }),
-    );
+    const eligibleRows = selectedIds
+      .map((id) => requests.find((r) => r.id === id))
+      .filter(Boolean)
+      .filter(isReviewableRequest);
+
+    if (!eligibleRows.length) {
+      setError("Only pending manual plan requests can be approved or rejected from this table.");
+      return;
+    }
+
+    const ok = await showSweetConfirm({
+      title: next === "approved" ? "Approve Selected Requests?" : "Reject Selected Requests?",
+      text: `${next === "approved" ? "Approve" : "Reject"} ${eligibleRows.length} selected pending request${eligibleRows.length > 1 ? "s" : ""}?`,
+      confirmButtonText: next === "approved" ? "Approve Selected" : "Reject Selected",
+      tone: next === "approved" ? "info" : "warning",
+    });
+    if (!ok) return;
+
+    for (const row of eligibleRows) {
+      // Process sequentially so the row-level busy state stays accurate.
+      await applyDecision(row, next, { skipConfirm: true });
+    }
     setSelectedIds([]);
   };
 
@@ -559,6 +700,9 @@ export default function PricingPlans() {
               <option value="pending">Pending</option>
               <option value="approved">Approved</option>
               <option value="rejected">Rejected</option>
+              <option value="created">Payment Pending</option>
+              <option value="failed">Payment Failed</option>
+              <option value="inactive">Inactive</option>
             </select>
           </div>
         </div>
@@ -604,9 +748,12 @@ export default function PricingPlans() {
             </thead>
             <tbody>
               {requestRows.map((row) => {
-                const isPending = String(row.status).toLowerCase() === "pending";
-                const isAutoPayment = row.source === "razorpay";
-                const isLegacy = row.source === "legacy-subscription";
+                const isBusy = busyRequestId === row.id;
+                const canApprove = canApproveRow(row);
+                const canActivate = canActivateRow(row);
+                const canDeactivate = canDeactivateRow(row);
+                const canReject = canRejectRow(row);
+                const canDelete = canDeleteRow(row);
                 return (
                   <tr key={row.id} className="border-t border-slate-100 transition hover:bg-blue-50/40">
                     <td className="px-4 py-3">
@@ -628,7 +775,7 @@ export default function PricingPlans() {
                     <td className="px-4 py-3 text-slate-600">{row.createdAt}</td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${statusClass(row.status)}`}>
-                        {row.status}
+                        {statusLabel(row.status)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-slate-600">
@@ -642,24 +789,64 @@ export default function PricingPlans() {
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => applyDecision(row, "approved")}
-                          disabled={!isPending || isAutoPayment || isLegacy}
-                          className="rounded-lg bg-[#2563EB] px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => applyDecision(row, "rejected")}
-                          disabled={!isPending || isAutoPayment || isLegacy}
-                          className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          Reject
-                        </button>
-                      </div>
+                      {canApprove || canActivate || canDeactivate || canReject || canDelete ? (
+                        <div className="flex flex-wrap justify-end gap-2">
+                          {canApprove ? (
+                            <button
+                              type="button"
+                              onClick={() => executePlanAction(row, "approve")}
+                              disabled={isBusy}
+                              className="rounded-lg bg-[#2563EB] px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {isBusy ? "Updating..." : "Approve"}
+                            </button>
+                          ) : null}
+                          {canActivate ? (
+                            <button
+                              type="button"
+                              onClick={() => executePlanAction(row, "active")}
+                              disabled={isBusy}
+                              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Active
+                            </button>
+                          ) : null}
+                          {canDeactivate ? (
+                            <button
+                              type="button"
+                              onClick={() => executePlanAction(row, "inactive")}
+                              disabled={isBusy}
+                              className="rounded-lg border border-amber-200 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              In-Active
+                            </button>
+                          ) : null}
+                          {canReject ? (
+                            <button
+                              type="button"
+                              onClick={() => executePlanAction(row, "reject")}
+                              disabled={isBusy}
+                              className="rounded-lg border border-red-200 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Reject
+                            </button>
+                          ) : null}
+                          {canDelete ? (
+                            <button
+                              type="button"
+                              onClick={() => executePlanAction(row, "delete")}
+                              disabled={isBusy}
+                              className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              Delete
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <p className="text-right text-xs font-medium text-slate-400">
+                          -
+                        </p>
+                      )}
                     </td>
                   </tr>
                 );

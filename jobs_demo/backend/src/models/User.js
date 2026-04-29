@@ -58,6 +58,7 @@ const PersonalSchema = new mongoose.Schema({
   about:       String,
   coverPhoto:  String,
   avatarUrl:   String,
+  profileImageUrl: String,
 }, { _id: false });
 
 const PreferredSchema = new mongoose.Schema({
@@ -109,9 +110,16 @@ const UserSchema = new mongoose.Schema(
     linkedin:  String,
     portfolio: String,
     resumeUrl: String,
-    role:      { type: String, enum: ["student", "recruiter", "admin"], default: "student" },
+    avatarUrl: String,
+    avatar: String,
+    profilePhoto: String,
+    profileImageUrl: String,
+    imageUrl: String,
+    role:      { type: String, enum: ["student", "company", "recruiter", "admin"], default: "student" },
 
     studentProfile: StudentProfileSchema,
+    resume: { type: mongoose.Schema.Types.Mixed, default: {} },
+    savedJobs: [{ type: mongoose.Schema.Types.ObjectId, ref: "Job" }],
 
     followers:  [{ type: String }],
     following:  [{ type: String }],

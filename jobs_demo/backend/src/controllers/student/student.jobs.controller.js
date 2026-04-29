@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import Job from "../../models/Job.js";
 import User from "../../models/User.js";
 import Application from "../../models/Application.js";
+import Company from "../../models/Company.js";
 
 /**
  * Helpers
@@ -142,7 +143,28 @@ function calcProfileCompletion(studentProfile, resumeUrl, resumeDoc = {}) {
   return Math.round((done / total) * 100);
 }
 
-function mapJob(jobDoc) {
+function hasResumeReady(student = {}) {
+  const profile = safeObj(student.studentProfile);
+  const resume = safeObj(student.resume);
+  return Boolean(
+    student.resumeUrl ||
+      profile.resumeMeta?.fileName ||
+      profile.resumeMeta?.updatedAt ||
+      safeObj(resume.personal).name ||
+      safeObj(resume.personal).email ||
+      safeArr(resume.education).length ||
+      safeArr(resume.skills).length ||
+      safeArr(resume.experience).length
+  );
+}
+
+function normalizeApplicantProfileRequirement(value) {
+  const raw = String(value || "both").toLowerCase();
+  if (raw === "resume" || raw === "student_profile" || raw === "both") return raw;
+  return "both";
+}
+
+function mapJob(jobDoc, companyProfile = null) {
   // Keep rich info for JobDetails too (you can reuse same endpoint later)
   return {
     _id: jobDoc._id,
@@ -183,6 +205,7 @@ function mapJob(jobDoc) {
     status: jobDoc.status,
     requireResume: jobDoc.requireResume !== false,
     requireProfile100: Boolean(jobDoc.requireProfile100),
+    applicantProfileRequirement: normalizeApplicantProfileRequirement(jobDoc.applicantProfileRequirement),
     oneClickApply: jobDoc.oneClickApply !== false,
     allowWhatsapp: Boolean(jobDoc.allowWhatsapp),
     allowCall: Boolean(jobDoc.allowCall),
@@ -193,8 +216,19 @@ function mapJob(jobDoc) {
     companyName: jobDoc.company?.name || jobDoc.companyName || "Company",
     companyEmail: jobDoc.company?.email || "",
     companyPhone: jobDoc.company?.phone || "",
-    companyWebsite: jobDoc.company?.website || "",
-    companyAddress: jobDoc.company?.location || "",
+    companyWebsite: companyProfile?.website || jobDoc.company?.website || "",
+    companyLogo: companyProfile?.logoUrl || "",
+    logoUrl: companyProfile?.logoUrl || "",
+    companyIndustry: companyProfile?.industry || "",
+    companySize: companyProfile?.size || "",
+    companyAbout: companyProfile?.about || "",
+    companyMission: companyProfile?.mission || "",
+    companyCulture: companyProfile?.culture || "",
+    companyPerks: companyProfile?.perks || "",
+    companyHiringProcess: companyProfile?.hiringProcess || "",
+    companyStudentMessage: companyProfile?.studentMessage || "",
+    companyProfileAudience: companyProfile?.profileAudience || "both",
+    companyAddress: companyProfile?.location || companyProfile?.address || jobDoc.company?.location || "",
 
     createdAt: jobDoc.createdAt,
     updatedAt: jobDoc.updatedAt,
@@ -297,7 +331,13 @@ export const listStudentJobs = async (req, res, next) => {
         .lean(),
     ]);
 
-    const items = docs.map(mapJob);
+    const companyIds = docs.map((job) => job.company?._id || job.company).filter(Boolean);
+    const companyProfiles = companyIds.length
+      ? await Company.find({ ownerUserId: { $in: companyIds } }).lean()
+      : [];
+    const companyProfileMap = new Map(companyProfiles.map((company) => [String(company.ownerUserId), company]));
+
+    const items = docs.map((job) => mapJob(job, companyProfileMap.get(String(job.company?._id || job.company))));
 
     return res.json({
       items,
@@ -326,7 +366,8 @@ export const getStudentJobById = async (req, res, next) => {
       .lean();
 
     if (!doc) return res.status(404).json({ message: "Job not found" });
-    return res.json(mapJob(doc));
+    const companyProfile = await Company.findOne({ ownerUserId: doc.company?._id || doc.company }).lean();
+    return res.json(mapJob(doc, companyProfile));
   } catch (err) {
     next(err);
   }
@@ -359,7 +400,20 @@ export const applyStudentJob = async (req, res, next) => {
     }
 
     const profileCompletion = calcProfileCompletion(student.studentProfile, student.resumeUrl, student.resume);
-    if (profileCompletion < 100) {
+    const applicantProfileRequirement = normalizeApplicantProfileRequirement(job.applicantProfileRequirement);
+    const needsResume = job.requireResume !== false && ["resume", "both"].includes(applicantProfileRequirement);
+    const needsStudentProfile = job.requireProfile100 || ["student_profile", "both"].includes(applicantProfileRequirement);
+
+    if (needsResume && !hasResumeReady(student)) {
+      return res.status(400).json({
+        ok: false,
+        resumeRequired: true,
+        profileCompletion,
+        message: "Upload your resume before applying",
+      });
+    }
+
+    if (needsStudentProfile && profileCompletion < 100) {
       return res.status(400).json({
         ok: false,
         profileIncomplete: true,
@@ -406,9 +460,15 @@ export const listSavedJobs = async (req, res, next) => {
     const user = await User.findById(userId)
       .populate({
         path: "savedJobs",
-        populate: { path: "company", select: "name email" },
+        populate: { path: "company", select: "name email phone website location" },
       })
       .lean();
+
+    const savedCompanyIds = (user?.savedJobs || []).map((job) => job.company?._id || job.company).filter(Boolean);
+    const savedCompanyProfiles = savedCompanyIds.length
+      ? await Company.find({ ownerUserId: { $in: savedCompanyIds } }).lean()
+      : [];
+    const savedCompanyProfileMap = new Map(savedCompanyProfiles.map((company) => [String(company.ownerUserId), company]));
 
     const items = (user?.savedJobs || []).map((job) => ({
       _id: job._id,
@@ -416,6 +476,8 @@ export const listSavedJobs = async (req, res, next) => {
       title: job.title,
       company: job.company?._id,
       companyName: job.company?.name || "Company",
+      logoUrl: savedCompanyProfileMap.get(String(job.company?._id || job.company))?.logoUrl || "",
+      companyLogo: savedCompanyProfileMap.get(String(job.company?._id || job.company))?.logoUrl || "",
       location: job.location || job.city || "",
       experience: job.experience || job.experienceText || "",
       salary: job.salaryText || `${job.salaryMin}-${job.salaryMax} LPA`,

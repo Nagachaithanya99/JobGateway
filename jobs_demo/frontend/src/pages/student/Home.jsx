@@ -836,6 +836,7 @@ function StatBox({ icon, value, label, delay = 0 }) {
 
 function JobCard({ job, onClick, delay = 0 }) {
   const ratingText = Math.min(5, Math.max(3.5, Number(job.rating || 4.4))).toFixed(1);
+  const logoUrl = job.companyLogo || job.logoUrl || "";
   return (
     <motion.button
       type="button"
@@ -848,8 +849,12 @@ function JobCard({ job, onClick, delay = 0 }) {
       whileTap={{ scale: 0.98 }}
     >
       <div className="flex items-start gap-3">
-        <motion.div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-50 to-orange-100 text-[#F97316]" whileHover={{ rotate: 10 }}>
-          <span className="text-[16px] font-extrabold">{initials(job.company)}</span>
+        <motion.div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-orange-50 to-orange-100 text-[#F97316]" whileHover={{ rotate: 10 }}>
+          {logoUrl ? (
+            <img src={logoUrl} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <span className="text-[16px] font-extrabold">{initials(job.company)}</span>
+          )}
         </motion.div>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[15px] font-extrabold text-slate-900">{job.title}</p>

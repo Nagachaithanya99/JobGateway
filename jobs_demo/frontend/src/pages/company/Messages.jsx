@@ -48,6 +48,18 @@ function initials(name = "") {
     .toUpperCase();
 }
 
+function CandidateAvatar({ item, name, size = "h-10 w-10" }) {
+  const src = item?.avatarUrl || item?.avatar || "";
+  if (src) {
+    return <img src={src} alt={name || item?.candidate || "Candidate"} className={`${size} rounded-full border border-slate-200 object-cover`} />;
+  }
+  return (
+    <div className={`${size} inline-flex items-center justify-center rounded-full bg-blue-50 text-xs font-bold text-[#2563EB]`}>
+      {initials(name || item?.candidate)}
+    </div>
+  );
+}
+
 function timeLabel(dateValue) {
   if (!dateValue) return "";
   const d = new Date(dateValue);
@@ -421,7 +433,7 @@ export default function Messages() {
             {!loadingList && list.map((c) => (
               <button key={c.id} onClick={() => setActiveConversation(c.id)} className={`mb-2 w-full rounded-xl border p-3 text-left transition hover:bg-slate-50 ${c.id === activeId ? "border-blue-200 border-l-4 border-l-[#2563EB] bg-blue-50" : "border-slate-200 bg-white"}`}>
                 <div className="flex gap-3">
-                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-xs font-bold text-[#2563EB]">{initials(c.candidate)}</div>
+                  <CandidateAvatar item={c} name={c.candidate} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
                       <p className="truncate text-sm font-semibold text-[#0F172A]">{c.candidate}</p>
@@ -448,7 +460,7 @@ export default function Messages() {
               <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 p-4">
                 <div className="flex items-center gap-3">
                   <button onClick={() => setMobileListOpen(true)} className="rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-600 lg:hidden">Back</button>
-                  <div className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-blue-50 text-xs font-bold text-[#2563EB]">{initials(active.candidate)}</div>
+                  <CandidateAvatar item={active} name={active.candidate} />
                   <div>
                     <p className="font-semibold text-[#0F172A]">{active.candidate}</p>
                     <p className="text-xs text-slate-500">{active.job}</p>

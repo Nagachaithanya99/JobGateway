@@ -39,6 +39,11 @@ const companySchema = new mongoose.Schema(
     size: { type: String, default: "", trim: true }, // e.g. "201-500"
     founded: { type: String, default: "", trim: true }, // e.g. "2017"
     logoUrl: { type: String, default: "", trim: true },
+    profileAudience: {
+      type: String,
+      enum: ["company", "student", "both"],
+      default: "both",
+    },
 
     // ================= CONTACT =================
     email: { type: String, default: "", trim: true },
@@ -53,6 +58,10 @@ const companySchema = new mongoose.Schema(
     // ================= ABOUT =================
     about: { type: String, default: "", trim: true },
     mission: { type: String, default: "", trim: true },
+    culture: { type: String, default: "", trim: true },
+    perks: { type: String, default: "", trim: true },
+    hiringProcess: { type: String, default: "", trim: true },
+    studentMessage: { type: String, default: "", trim: true },
 
     category: { type: String, default: "", trim: true },
 

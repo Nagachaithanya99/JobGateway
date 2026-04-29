@@ -49,6 +49,11 @@ export async function adminToggleCompanyStatus(companyId, nextStatus) {
   return data;
 }
 
+export async function adminDeleteCompany(companyId) {
+  const { data } = await api.delete(`/admin/companies/${companyId}`);
+  return data;
+}
+
 /* =========================
    ✅ Step 3: Jobs APIs (REAL)
    ========================= */
@@ -56,7 +61,7 @@ export async function adminToggleCompanyStatus(companyId, nextStatus) {
 /**
  * GET /api/admin/jobs
  * params supported by backend:
- * q, status, company, stream, category, location, minApplications, postedAfter, page, limit
+ * q, status, company, stream, category, location, minApplications, postedAfter, source, page, limit
  *
  * Backend returns: { rows, page, limit, total }
  * This function returns: rows[]
@@ -71,6 +76,11 @@ export async function adminListJobs(params = {}, options = {}) {
 
 export async function adminCreateJob(payload) {
   const { data } = await api.post("/admin/jobs", payload);
+  return data;
+}
+
+export async function adminUpdateJob(jobId, payload) {
+  const { data } = await api.put(`/admin/jobs/${jobId}`, payload);
   return data;
 }
 
@@ -173,6 +183,11 @@ export async function adminUpdatePlanRequest(requestId, nextStatus) {
   const { data } = await api.patch(`/admin/plan-requests/${requestId}`, {
     status: nextStatus,
   });
+  return data;
+}
+
+export async function adminRunPlanRequestAction(requestId, payload) {
+  const { data } = await api.patch(`/admin/plan-requests/${requestId}/action`, payload);
   return data;
 }
 
@@ -354,6 +369,11 @@ export async function adminGetAdsCenter() {
 
 export async function adminUpdateAdsPlanRequest(id, status) {
   const { data } = await api.patch(`/admin/ads/plan-requests/${id}`, { status });
+  return data;
+}
+
+export async function adminRunAdsPlanRequestAction(id, payload = {}) {
+  const { data } = await api.patch(`/admin/ads/plan-requests/${id}/action`, payload);
   return data;
 }
 

@@ -4,6 +4,7 @@ import {
   adminDeletePlan,
   adminListPlanRequests,
   adminListPlans,
+  adminRunPlanRequestAction,
   adminSavePlan,
   adminUpdatePlanRequest,
 } from "../../controllers/admin/admin.plans.controller.js";
@@ -17,5 +18,6 @@ router.delete("/plans/:id", adminDeletePlan);
 
 router.get("/plan-requests", adminListPlanRequests);
 router.patch("/plan-requests/:id", adminUpdatePlanRequest);
+router.patch("/plan-requests/:id/action", adminRunPlanRequestAction);
 
 export default router;

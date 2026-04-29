@@ -276,9 +276,37 @@ function uniqComments(items = []) {
   });
 }
 
+function sanitizeExplorePosts(items = []) {
+  return (Array.isArray(items) ? items : []).filter(
+    (item) =>
+      item &&
+      typeof item === "object" &&
+      item.author &&
+      typeof item.author === "object" &&
+      String(item.id || "").trim(),
+  );
+}
+
+function sanitizeExploreStoryGroups(items = []) {
+  return (Array.isArray(items) ? items : [])
+    .filter((group) => group && typeof group === "object" && group.author && typeof group.author === "object")
+    .map((group) => ({
+      ...group,
+      items: (Array.isArray(group.items) ? group.items : []).filter(
+        (item) =>
+          item &&
+          typeof item === "object" &&
+          item.author &&
+          typeof item.author === "object" &&
+          String(item.id || "").trim(),
+      ),
+    }))
+    .filter((group) => (group.items || []).length > 0);
+}
+
 function uniqPosts(items = []) {
   const seen = new Set();
-  return items.filter((item) => {
+  return sanitizeExplorePosts(items).filter((item) => {
     const id = String(item?.id || "");
     if (!id || seen.has(id)) return false;
     seen.add(id);
@@ -350,6 +378,18 @@ function removeStoryFromGroups(groups = [], storyId) {
     .filter((group) => (group.items || []).length > 0);
 }
 
+function resolveStoryAuthor(story, group = null) {
+  return group?.author || story?.author || null;
+}
+
+function isOwnStory(story, group = null) {
+  return Boolean(resolveStoryAuthor(story, group)?.isSelf);
+}
+
+function findStoryGroupByStoryId(groups = [], storyId) {
+  return groups.find((group) => (group.items || []).some((item) => String(item?.id || "") === String(storyId || ""))) || null;
+}
+
 export default function CareerPulsePage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -412,6 +452,7 @@ export default function CareerPulsePage() {
   const [exploreNotificationPopup, setExploreNotificationPopup] = useState(null);
   const [exploreNotificationSound, setExploreNotificationSound] = useState(true);
   const [messagesPanel, setMessagesPanel] = useState(defaultMessagesState());
+  const [selectedMessageThreadId, setSelectedMessageThreadId] = useState("");
   const [busy, setBusy] = useState({});
   const [reelAudioMuted, setReelAudioMuted] = useState(true);
   const [pinnedReelIds, setPinnedReelIds] = useState(() => loadPinnedReels());
@@ -431,6 +472,7 @@ export default function CareerPulsePage() {
   const notificationPopupTimerRef = useRef(null);
   const messageUnreadRef = useRef(0);
   const messagesPanelRef = useRef(defaultMessagesState());
+  const selectedMessageThreadIdRef = useRef("");
 
   const homePosts = useMemo(() => {
     const query = String(searchValue || "").trim().toLowerCase();
@@ -486,6 +528,45 @@ export default function CareerPulsePage() {
         .includes(query)
     );
   }, [messagesPanel.threads, searchValue]);
+  const selectedMessageThread = useMemo(() => {
+    const activeThreadId = String(selectedMessageThreadId || messagesPanel.activeThread?.id || "");
+    if (!activeThreadId) return messagesPanel.activeThread || null;
+    return (
+      messagesPanel.threads.find((thread) => String(thread?.id || "") === activeThreadId) ||
+      (String(messagesPanel.activeThread?.id || "") === activeThreadId ? messagesPanel.activeThread : null) ||
+      null
+    );
+  }, [messagesPanel.threads, messagesPanel.activeThread, selectedMessageThreadId]);
+
+  useEffect(() => {
+    if (!selectedMessageThread) return;
+    setMessagesPanel((prev) => {
+      const selectedId = String(selectedMessageThread.id || "");
+      if (!selectedId) return prev;
+      const activeId = String(prev.activeThread?.id || "");
+      const sameParticipant =
+        String(prev.activeThread?.participant?.id || "") === String(selectedMessageThread.participant?.id || "") &&
+        String(prev.activeThread?.participant?.name || "") === String(selectedMessageThread.participant?.name || "") &&
+        String(prev.activeThread?.participant?.headline || "") === String(selectedMessageThread.participant?.headline || "") &&
+        String(prev.activeThread?.participant?.avatarUrl || "") === String(selectedMessageThread.participant?.avatarUrl || "");
+
+      if (activeId === selectedId && sameParticipant) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        activeThread:
+          activeId === selectedId && prev.activeThread
+            ? {
+                ...prev.activeThread,
+                ...selectedMessageThread,
+                participant: selectedMessageThread.participant,
+              }
+            : selectedMessageThread,
+      };
+    });
+  }, [selectedMessageThread]);
 
   const regularReelPosts = useMemo(() => feed.posts.filter((post) => isReelEligible(post)), [feed.posts]);
   const savedReelPosts = useMemo(() => savedFeed.posts.filter((post) => isReelEligible(post)), [savedFeed.posts]);
@@ -512,9 +593,10 @@ export default function CareerPulsePage() {
   const storyGroups = useMemo(
     () =>
       (Array.isArray(stories.groups) ? stories.groups : [])
+        .filter(Boolean)
         .map((group) => ({
           ...group,
-          items: (group.items || []).filter((item) => !hiddenStoryIds[item.id]),
+          items: (group.items || []).filter((item) => item && !hiddenStoryIds[item.id]),
         }))
         .filter(
           (group) =>
@@ -530,6 +612,10 @@ export default function CareerPulsePage() {
   const activeStory = useMemo(
     () => activeStoryGroup?.items?.[storyViewer.storyIndex] || null,
     [activeStoryGroup, storyViewer.storyIndex],
+  );
+  const activeStoryAuthor = useMemo(
+    () => resolveStoryAuthor(activeStory, activeStoryGroup),
+    [activeStory, activeStoryGroup],
   );
   const activeStoryLiked = Boolean(activeStory?.viewerState?.liked);
   const hasExploreRightSidebar = viewMode === "reels" || homeMode === "home";
@@ -621,7 +707,12 @@ export default function CareerPulsePage() {
 
   useEffect(() => {
     messagesPanelRef.current = messagesPanel;
-  }, [messagesPanel]);
+    const nextSelectedThreadId = String(selectedMessageThreadIdRef.current || selectedMessageThreadId || messagesPanel.activeThread?.id || "");
+    selectedMessageThreadIdRef.current = nextSelectedThreadId;
+    if (nextSelectedThreadId && nextSelectedThreadId !== selectedMessageThreadId) {
+      setSelectedMessageThreadId(nextSelectedThreadId);
+    }
+  }, [messagesPanel, selectedMessageThreadId]);
 
   useEffect(
     () => () => {
@@ -959,12 +1050,13 @@ export default function CareerPulsePage() {
           .filter(Boolean)
           .map((id) => [String(id), true]),
       );
+      const safeGroups = sanitizeExploreStoryGroups(data?.groups);
       setStories({
-        groups: Array.isArray(data?.groups) ? data.groups : [],
+        groups: safeGroups,
         ttlHours: Number(data?.ttlHours || 24),
       });
       setMutedStoryAuthors(mutedAuthorMap);
-      return data;
+      return { ...(data || {}), groups: safeGroups };
     } catch (error) {
       if (!silent) {
         setToast({
@@ -986,12 +1078,12 @@ export default function CareerPulsePage() {
       }
 
       const data = await getCareerPulseFeed({ limit: 6, offset, mediaOnly, focusPostId });
-      const incomingPosts = Array.isArray(data?.posts) ? data.posts : [];
+      const incomingPosts = sanitizeExplorePosts(data?.posts);
 
       setFeed((prev) => ({
         viewer: data?.viewer || prev.viewer,
         insights: data?.insights || prev.insights,
-        suggestions: Array.isArray(data?.suggestions) ? data.suggestions : prev.suggestions,
+        suggestions: Array.isArray(data?.suggestions) ? data.suggestions.filter(Boolean) : prev.suggestions,
         trending: Array.isArray(data?.trending) ? data.trending : prev.trending,
         posts: reset ? incomingPosts : uniqPosts([...(prev.posts || []), ...incomingPosts]),
         hasMore: Boolean(data?.hasMore),
@@ -1025,7 +1117,7 @@ export default function CareerPulsePage() {
       }
 
       const data = await getCareerPulseFeed({ limit: 12, offset, savedOnly: true });
-      const incomingPosts = Array.isArray(data?.posts) ? data.posts : [];
+      const incomingPosts = sanitizeExplorePosts(data?.posts);
 
       setSavedFeed((prev) => ({
         posts: reset ? incomingPosts : uniqPosts([...(prev.posts || []), ...incomingPosts]),
@@ -1134,12 +1226,15 @@ export default function CareerPulsePage() {
         viewer: prev.viewer ? { ...prev.viewer, messagesUnread: nextUnreadCount } : prev.viewer,
       }));
       setMessagesPanel((prev) => {
-        const activeThreadId = prev.activeThread?.id || "";
+        const activeThreadId = String(selectedMessageThreadIdRef.current || selectedMessageThreadId || prev.activeThread?.id || "");
         const sortedThreads = sortExploreThreadsByRecent(nextThreads);
         const matchedActive =
           sortedThreads.find((thread) => thread.id === activeThreadId) ||
-          sortedThreads[0] ||
+          (String(prev.activeThread?.id || "") === activeThreadId ? prev.activeThread : null) ||
+          (!activeThreadId ? sortedThreads[0] : null) ||
           null;
+        selectedMessageThreadIdRef.current = String(matchedActive?.id || "");
+        setSelectedMessageThreadId(String(matchedActive?.id || ""));
         return {
           ...prev,
           threads: sortedThreads,
@@ -1161,12 +1256,22 @@ export default function CareerPulsePage() {
     }
   };
 
-  const openMessageThreadById = async (threadOrId, { silent = false } = {}) => {
+  const openMessageThreadById = async (threadOrId, { silent = false, setSelected = true } = {}) => {
     const threadId =
       typeof threadOrId === "string"
         ? threadOrId
         : String(threadOrId?.id || "");
     if (!threadId) return;
+      if (!setSelected) {
+        const selectedThreadId = String(selectedMessageThreadIdRef.current || "");
+        if (selectedThreadId && selectedThreadId !== threadId) {
+          return;
+        }
+      }
+      if (setSelected) {
+        selectedMessageThreadIdRef.current = threadId;
+        setSelectedMessageThreadId(threadId);
+      }
       try {
         const selectedThread =
           (typeof threadOrId === "object" && threadOrId) ||
@@ -1178,7 +1283,7 @@ export default function CareerPulsePage() {
           (selectedThread?.type === "request_received" ? 1 : 0);
         setMessagesPanel((prev) => ({
           ...prev,
-          activeThread: prev.threads.find((thread) => thread.id === threadId) || selectedThread || prev.activeThread,
+          activeThread: selectedThread || prev.threads.find((thread) => thread.id === threadId) || prev.activeThread,
           loadingThread:
             silent
               ? prev.loadingThread && !prev.messages.length && String(prev.activeThread?.id || "") !== threadId
@@ -1190,11 +1295,11 @@ export default function CareerPulsePage() {
           attachmentFileSize: isSameActiveThread ? prev.attachmentFileSize : "",
           attachmentUploading: isSameActiveThread ? prev.attachmentUploading : false,
           selectedMessageIds: [],
-          messages: prev.activeThread?.id === threadId ? prev.messages : [],
+          messages: isSameActiveThread ? prev.messages : [],
         }));
       const data = await getCareerPulseMessageThread(threadId);
       setMessagesPanel((prev) => {
-        if (String(prev.activeThread?.id || "") !== threadId) {
+        if (String(selectedMessageThreadIdRef.current || "") !== threadId) {
           return prev;
         }
 
@@ -1212,6 +1317,10 @@ export default function CareerPulsePage() {
             thread.id === threadId ? { ...thread, unread: 0, ...(data?.thread || {}) } : thread
           )
         ),
+        activeThread:
+          String(prev.activeThread?.id || "") === threadId
+            ? { ...prev.activeThread, ...(data?.thread || {}) }
+            : prev.activeThread,
       }));
       await markCareerPulseMessageThreadRead(threadId);
       setFeed((prev) => ({
@@ -1262,7 +1371,7 @@ export default function CareerPulsePage() {
     if (messagesPanel.loadingList || messagesPanel.loadingThread) return;
     if (!messagesPanel.activeThread?.id) {
       if (!messagesPanel.threads.length) return;
-      void openMessageThreadById(messagesPanel.threads[0].id, { silent: true });
+      void openMessageThreadById(messagesPanel.threads[0].id, { silent: true, setSelected: true });
       return;
     }
     if (
@@ -1272,7 +1381,7 @@ export default function CareerPulsePage() {
       return;
     }
     if (messagesPanel.messages.length) return;
-    void openMessageThreadById(messagesPanel.activeThread.id, { silent: true });
+    void openMessageThreadById(messagesPanel.activeThread.id, { silent: true, setSelected: false });
   }, [
     homeMode,
     messagesPanel.activeThread?.id,
@@ -1300,7 +1409,7 @@ export default function CareerPulsePage() {
 
     const timer = window.setInterval(() => {
       void loadMessageThreads({ silent: true });
-      void openMessageThreadById(activeThreadId, { silent: true });
+      void openMessageThreadById(activeThreadId, { silent: true, setSelected: false });
     }, 3500);
 
     return () => window.clearInterval(timer);
@@ -1629,7 +1738,8 @@ export default function CareerPulsePage() {
 
   const handleStoryLike = async (story) => {
     const storyId = String(story?.id || "");
-    if (!storyId || story?.author?.isSelf) return;
+    const storyGroup = findStoryGroupByStoryId(storyGroups, storyId);
+    if (!storyId || isOwnStory(story, storyGroup)) return;
 
     try {
       setBusyFlag(`story-like-${storyId}`, true);
@@ -1735,7 +1845,7 @@ export default function CareerPulsePage() {
     const storyId = String(story?.id || "");
     if (!storyId) return;
 
-    if (story?.author?.isSelf) {
+    if (isOwnStory(story, findStoryGroupByStoryId(storyGroups, storyId))) {
       void Swal.fire({
         icon: "info",
         title: "You can't report this story",
@@ -1894,15 +2004,27 @@ export default function CareerPulsePage() {
     setStoryInsights((prev) => ({ ...prev, open: false }));
   };
 
-  const handleMarkExploreNotificationRead = async (notificationId = "") => {
-    const targetId = String(notificationId || "");
+  const handleMarkExploreNotificationRead = async (notificationIds = "") => {
+    const targetIds = Array.isArray(notificationIds)
+      ? notificationIds.map((item) => String(item || "")).filter(Boolean)
+      : [String(notificationIds || "")].filter(Boolean);
+    const markAll = targetIds.length === 0;
     try {
-      const result = await markCareerPulseNotificationsRead(targetId);
+      let result = null;
+      if (markAll) {
+        result = await markCareerPulseNotificationsRead();
+      } else {
+        const results = [];
+        for (const targetId of targetIds) {
+          results.push(await markCareerPulseNotificationsRead(targetId));
+        }
+        result = results[results.length - 1] || null;
+      }
       setNotifications((prev) => ({
         ...prev,
         unreadCount: Number(result?.unreadCount || 0),
         items: prev.items.map((item) =>
-          !targetId || String(item.id || "") === targetId
+          markAll || targetIds.includes(String(item.id || ""))
             ? { ...item, readAt: item.readAt || new Date().toISOString() }
             : item
         ),
@@ -1925,8 +2047,11 @@ export default function CareerPulsePage() {
 
   const handleOpenExploreNotification = async (notification) => {
     if (!notification?.id) return;
+    const groupedNotificationIds = Array.isArray(notification.items)
+      ? notification.items.map((item) => String(item?.id || "")).filter(Boolean)
+      : [String(notification.id || "")].filter(Boolean);
     if (!notification.readAt) {
-      void handleMarkExploreNotificationRead(notification.id);
+      void handleMarkExploreNotificationRead(groupedNotificationIds);
     }
 
     const relatedThreadId = String(notification.relatedThreadId || "");
@@ -1937,7 +2062,7 @@ export default function CareerPulsePage() {
       setHomeMode("messages");
       setViewMode("home");
       await loadMessageThreads({ silent: true });
-      await openMessageThreadById(relatedThreadId, { silent: true });
+      await openMessageThreadById(relatedThreadId, { silent: true, setSelected: true });
       return;
     }
 
@@ -2599,9 +2724,10 @@ export default function CareerPulsePage() {
         activeThread: result?.thread || prev.activeThread,
         draft: "",
       }));
+      setSelectedMessageThreadId(String(result?.thread?.id || ""));
       await loadMessageThreads({ silent: true });
       if (result?.thread?.id) {
-        await openMessageThreadById(result.thread.id, { silent: true });
+        await openMessageThreadById(result.thread.id, { silent: true, setSelected: true });
       }
       if (result?.thread?.type === "request_sent") {
         setToast({ show: true, tone: "success", message: "Message request sent from Explore." });
@@ -2623,7 +2749,7 @@ export default function CareerPulsePage() {
               activeThread: existingThread,
               draft: "",
             }));
-            await openMessageThreadById(existingThread.id, { silent: true });
+            await openMessageThreadById(existingThread.id, { silent: true, setSelected: true });
             return;
           }
         } catch {
@@ -2998,7 +3124,7 @@ export default function CareerPulsePage() {
         activeThread: result?.thread || prev.activeThread,
       }));
       await loadMessageThreads({ silent: true });
-      await openMessageThreadById(threadId, { silent: true });
+      await openMessageThreadById(threadId, { silent: true, setSelected: false });
       setToast({ show: true, tone: "success", message: "Message request accepted." });
     } catch (error) {
       setToast({
@@ -3021,12 +3147,12 @@ export default function CareerPulsePage() {
   }, [storyViewer.open, activeStory?.id]);
 
   useEffect(() => {
-    if (!storyViewer.open || !activeStory?.id || !activeStory?.author?.isSelf || !storyInsights.open) return undefined;
+    if (!storyViewer.open || !activeStory?.id || !activeStoryAuthor?.isSelf || !storyInsights.open) return undefined;
     const timer = window.setInterval(() => {
       void openStoryInsights(activeStory, { silent: true });
     }, 5000);
     return () => window.clearInterval(timer);
-  }, [storyViewer.open, activeStory?.id, activeStory?.author?.isSelf, storyInsights.open]);
+  }, [storyViewer.open, activeStory?.id, activeStoryAuthor?.isSelf, storyInsights.open]);
 
   const viewer = feed.viewer;
   const previewComments = Array.isArray(activePost?.comments) ? activePost.comments.slice(-3) : [];
@@ -3147,8 +3273,8 @@ export default function CareerPulsePage() {
                           onSave={() => handleSave(post.id)}
                           onShare={() => handleShare(post.id)}
                           onComment={() => openComments(post)}
-                          onFollow={() => handleFollow(post.author.id)}
-                          onMessage={() => handleMessage(post.author.id)}
+                          onFollow={() => post.author?.id && handleFollow(post.author.id)}
+                          onMessage={() => post.author?.id && handleMessage(post.author.id)}
                           onReport={() => openReportDialog(post)}
                           onMediaRef={(node) => {
                             videoRefs.current[post.id] = node;
@@ -3244,7 +3370,7 @@ export default function CareerPulsePage() {
                           </div>
                           <div className="mt-5 flex flex-wrap gap-2">
                             <InlineActionButton icon={<FiMessageSquare />} label="Comments" onClick={() => openComments(activePost)} />
-                            <InlineActionButton icon={<FiSend />} label="Message" onClick={() => handleMessage(activePost.author.id)} disabled={!activePost.author?.canMessage} />
+                            <InlineActionButton icon={<FiSend />} label="Message" onClick={() => activePost.author?.id && handleMessage(activePost.author.id)} disabled={!activePost.author?.canMessage || !activePost.author?.id} />
                             <InlineActionButton icon={<FiShare2 />} label="Share" onClick={() => handleShare(activePost.id)} />
                           </div>
                           {previewComments.length ? (
@@ -3538,8 +3664,8 @@ export default function CareerPulsePage() {
                         onOpenNotification={(item) => {
                           void handleOpenExploreNotification(item);
                         }}
-                        onMarkRead={(notificationId) => {
-                          void handleMarkExploreNotificationRead(notificationId);
+                        onMarkRead={(notificationIds) => {
+                          void handleMarkExploreNotificationRead(notificationIds);
                         }}
                         onMarkAllRead={() => {
                           void handleMarkExploreNotificationRead();
@@ -3547,46 +3673,121 @@ export default function CareerPulsePage() {
                         onToggleSound={() => setExploreNotificationSound((prev) => !prev)}
                       />
                   ) : homeMode === "messages" ? (
-                    <ExploreMessagesUi
-                      viewer={viewer}
-                      threads={filteredMessageThreads}
-                      activeThread={messagesPanel.activeThread}
-                      messages={messagesPanel.messages}
-                      draft={messagesPanel.draft}
-                      attachmentPreview={messagesPanel.attachmentPreview}
-                      attachmentName={messagesPanel.attachmentName}
-                      attachmentMimeType={messagesPanel.attachmentMimeType}
-                      attachmentUploading={messagesPanel.attachmentUploading}
-                      replyTarget={messagesPanel.replyTarget}
-                      selectedMessageIds={messagesPanel.selectedMessageIds}
-                      loadingList={messagesPanel.loadingList}
-                      loadingThread={messagesPanel.loadingThread}
-                      sending={messagesPanel.sending}
-                      deleting={messagesPanel.deleting}
-                      onSelectThread={(thread) => {
-                        void openMessageThreadById(thread);
-                      }}
-                      onDraftChange={(value) => setMessagesPanel((prev) => ({ ...prev, draft: value }))}
-                      onSend={handleSendExploreMessage}
-                      onAccept={handleAcceptExploreRequest}
-                      onReplyMessage={handleReplyToExploreMessage}
-                      onDeleteMessage={(message) => void handleDeleteExploreMessages([message.id])}
-                      onDeleteSelected={() => void handleDeleteExploreMessages(messagesPanel.selectedMessageIds)}
-                      onDeleteChat={() => void handleDeleteExploreChat()}
-                      onReportMessage={(message) => void handleReportExploreMessage(message)}
-                      onSendAccount={() => void handleSendExploreAccount()}
-                      onToggleReaction={(messageId, emoji) => void handleToggleExploreMessageReaction(messageId, emoji)}
-                      onToggleMessageSelection={handleToggleExploreMessageSelection}
-                      onClearSelection={handleClearExploreSelection}
-                      onAttachmentSelect={handleSelectExploreAttachment}
-                      onAttachmentClear={handleClearExploreAttachment}
-                      onCancelReply={() => setMessagesPanel((prev) => ({ ...prev, replyTarget: null }))}
-                      onRefresh={() => {
-                        void loadMessageThreads();
-                      }}
-                      timeAgo={timeAgo}
-                      requests={messagesPanel.requests}
-                    />
+                   <ExploreMessagesUi
+  viewer={feed.viewer}
+  threads={filteredMessageThreads}
+  activeThread={selectedMessageThread}
+   selectedThreadId={selectedMessageThreadId}
+  messages={messagesPanel.messages}
+  draft={messagesPanel.draft}
+  attachmentPreview={messagesPanel.attachmentPreview}
+  attachmentName={messagesPanel.attachmentName}
+  attachmentMimeType={messagesPanel.attachmentMimeType}
+  attachmentUploading={messagesPanel.attachmentUploading}
+  replyTarget={messagesPanel.replyTarget}
+  selectedMessageIds={messagesPanel.selectedMessageIds}
+  loadingList={messagesPanel.loadingList}
+  loadingThread={messagesPanel.loadingThread}
+  sending={messagesPanel.sending}
+  deleting={messagesPanel.deleting}
+  requests={messagesPanel.requests}
+
+  // ✅🔥 MAIN FIX
+  onSelectThread={(thread) => {
+    messagesPanelRef.current = {
+      ...messagesPanelRef.current,
+      activeThread: thread || messagesPanelRef.current.activeThread,
+    };
+    selectedMessageThreadIdRef.current = String(thread?.id || "");
+    setSelectedMessageThreadId(String(thread?.id || ""));
+    setMessagesPanel((prev) => ({
+      ...prev,
+      activeThread: thread || prev.activeThread,
+      loadingThread: true,
+      replyTarget: String(prev.activeThread?.id || "") === String(thread?.id || "") ? prev.replyTarget : null,
+      attachmentPreview: String(prev.activeThread?.id || "") === String(thread?.id || "") ? prev.attachmentPreview : "",
+      attachmentName: String(prev.activeThread?.id || "") === String(thread?.id || "") ? prev.attachmentName : "",
+      attachmentMimeType: String(prev.activeThread?.id || "") === String(thread?.id || "") ? prev.attachmentMimeType : "",
+      attachmentFileSize: String(prev.activeThread?.id || "") === String(thread?.id || "") ? prev.attachmentFileSize : "",
+      attachmentUploading: String(prev.activeThread?.id || "") === String(thread?.id || "") ? prev.attachmentUploading : false,
+      selectedMessageIds: [],
+      messages: String(prev.activeThread?.id || "") === String(thread?.id || "") ? prev.messages : [],
+    }));
+    void openMessageThreadById(thread, { setSelected: true });
+  }}
+
+  onDraftChange={(value) =>
+    setMessagesPanel((prev) => ({ ...prev, draft: value }))
+  }
+
+  onSend={handleSendExploreMessage}
+
+  onReplyMessage={(msg) =>
+    setMessagesPanel((prev) => ({ ...prev, replyTarget: msg }))
+  }
+
+  onDeleteMessage={(msg) => {
+    void handleDeleteExploreMessages([msg?.id]);
+  }}
+
+  onDeleteSelected={() => {
+    void handleDeleteExploreMessages(messagesPanel.selectedMessageIds);
+  }}
+
+  onDeleteChat={() => {
+    void handleDeleteExploreChat();
+  }}
+
+  onReportMessage={(msg) => {
+    void handleReportExploreMessage(msg);
+  }}
+
+  onSendAccount={() => {
+    void handleSendExploreAccount();
+  }}
+
+  onToggleReaction={(messageId, reaction) => {
+    void handleToggleExploreMessageReaction(messageId, reaction);
+  }}
+
+  onToggleMessageSelection={(id) => {
+    setMessagesPanel((prev) => {
+      const exists = prev.selectedMessageIds.includes(id);
+      return {
+        ...prev,
+        selectedMessageIds: exists
+          ? prev.selectedMessageIds.filter((i) => i !== id)
+          : [...prev.selectedMessageIds, id],
+      };
+    });
+  }}
+
+  onClearSelection={() =>
+    setMessagesPanel((prev) => ({
+      ...prev,
+      selectedMessageIds: [],
+    }))
+  }
+
+  onAttachmentSelect={(file) => {
+    console.log(file);
+  }}
+
+  onAttachmentClear={() => {
+    console.log("clear attachment");
+  }}
+
+  onCancelReply={() =>
+    setMessagesPanel((prev) => ({
+      ...prev,
+      replyTarget: null,
+    }))
+  }
+
+  onRefresh={() => loadMessageThreads()}
+
+  timeAgo={timeAgo}
+/>
                   ) : (
                     <>
                       {homePosts.length ? (
@@ -3600,8 +3801,8 @@ export default function CareerPulsePage() {
                             onComment={() => openComments(post)}
                             onShare={() => handleShare(post.id)}
                             onSave={() => handleSave(post.id)}
-                            onFollow={() => handleFollow(post.author.id)}
-                            onMessage={() => handleMessage(post.author.id)}
+                            onFollow={() => post.author?.id && handleFollow(post.author.id)}
+                            onMessage={() => post.author?.id && handleMessage(post.author.id)}
                             onReport={() => openReportDialog(post)}
                             onOpenReel={isReelEligible(post) ? () => enterReels(post.id) : undefined}
                           />
@@ -3744,7 +3945,7 @@ export default function CareerPulsePage() {
                         </div>
                         <div className="mt-5 flex flex-wrap gap-2">
                           <InlineActionButton icon={<FiMessageSquare />} label="Comments" onClick={() => openComments(activePost)} />
-                          <InlineActionButton icon={<FiSend />} label="Message" onClick={() => handleMessage(activePost.author.id)} disabled={!activePost.author?.canMessage} />
+                          <InlineActionButton icon={<FiSend />} label="Message" onClick={() => activePost.author?.id && handleMessage(activePost.author.id)} disabled={!activePost.author?.canMessage || !activePost.author?.id} />
                           <InlineActionButton icon={<FiShare2 />} label="Share" onClick={() => handleShare(activePost.id)} />
                         </div>
                         {previewComments.length ? (
@@ -3830,7 +4031,7 @@ export default function CareerPulsePage() {
         onMessageDraftChange={(value) => setStoryReply((prev) => ({ ...prev, draft: value }))}
         onMessageSend={handleStoryMessage}
         liked={activeStoryLiked}
-        messageBusy={storyReply.sending || Boolean(busy[`message-${activeStoryGroup?.author?.id}`])}
+        messageBusy={storyReply.sending || Boolean(busy[`message-${activeStoryAuthor?.id}`])}
         likeBusy={Boolean(busy[`story-like-${activeStory?.id}`])}
         deleteBusy={Boolean(busy[`story-delete-${activeStory?.id}`])}
         timeAgo={timeAgo}

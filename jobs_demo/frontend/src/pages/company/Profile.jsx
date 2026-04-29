@@ -11,6 +11,7 @@ import {
   updateCompanyProfile,
   deleteCompanyAccount,
 } from "../../services/companyService.js";
+import { uploadCompanyLogo } from "../../services/uploadService.js";
 import { showSweetPrompt, showSweetToast } from "../../utils/sweetAlert.js";
 
 function Section({ title, children, action }) {
@@ -54,6 +55,7 @@ export default function Profile() {
   const [editMode, setEditMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingLogo, setUploadingLogo] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteText, setDeleteText] = useState("");
 
@@ -69,6 +71,11 @@ export default function Profile() {
     mission: "",
     about: "",
     logoUrl: "",
+    profileAudience: "both",
+    culture: "",
+    perks: "",
+    hiringProcess: "",
+    studentMessage: "",
   });
 
   const set = (k, v) => setForm((s) => ({ ...s, [k]: v }));
@@ -98,6 +105,11 @@ export default function Profile() {
           mission: c.mission || "",
           about: c.about || "",
           logoUrl: c.logoUrl || "",
+          profileAudience: c.profileAudience || "both",
+          culture: c.culture || "",
+          perks: c.perks || "",
+          hiringProcess: c.hiringProcess || "",
+          studentMessage: c.studentMessage || "",
         });
       } catch (err) {
         notify(err?.response?.data?.message || "Failed to load profile");
@@ -128,6 +140,11 @@ export default function Profile() {
         mission: form.mission,
         about: form.about,
         logoUrl: form.logoUrl,
+        profileAudience: form.profileAudience,
+        culture: form.culture,
+        perks: form.perks,
+        hiringProcess: form.hiringProcess,
+        studentMessage: form.studentMessage,
       });
 
       notify("Profile updated successfully");
@@ -136,6 +153,25 @@ export default function Profile() {
       notify(err?.response?.data?.message || "Failed to update profile");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleLogoFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    try {
+      setUploadingLogo(true);
+      const { data } = await uploadCompanyLogo(file);
+      const logoUrl = data?.logoUrl || data?.imageUrl || "";
+      if (!logoUrl) throw new Error("Upload did not return a logo URL");
+      set("logoUrl", logoUrl);
+      notify("Logo uploaded. Save changes to update profile.");
+    } catch (err) {
+      notify(err?.response?.data?.message || err?.message || "Logo upload failed");
+    } finally {
+      setUploadingLogo(false);
     }
   };
 
@@ -196,22 +232,12 @@ export default function Profile() {
               form.name?.slice(0, 2).toUpperCase()
             )}
             {editMode && (
-              <button
-                type="button"
-                onClick={async () => {
-                  const { isConfirmed, value } = await showSweetPrompt({
-                    title: "Company Logo URL",
-                    inputValue: form.logoUrl || "",
-                    inputPlaceholder: "https://example.com/logo.png",
-                    confirmButtonText: "Save",
-                  });
-                  if (!isConfirmed) return;
-                  set("logoUrl", String(value || "").trim());
-                }}
-                className="absolute -right-1 -top-1 inline-flex h-7 w-7 items-center justify-center rounded-full border border-blue-200 bg-white text-[#2563EB] hover:bg-blue-50"
-              >
-                <FiUpload size={14} />
-              </button>
+              <div className="absolute -right-1 -top-1">
+                <label className="inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-full border border-blue-200 bg-white text-[#2563EB] hover:bg-blue-50" title="Upload logo from device">
+                  <FiUpload size={14} />
+                  <input type="file" accept="image/*" onChange={handleLogoFile} className="hidden" disabled={uploadingLogo} />
+                </label>
+              </div>
             )}
           </div>
 
@@ -222,8 +248,35 @@ export default function Profile() {
             <p className="mt-1 text-sm text-slate-600">
               {form.industry} {form.size && `- ${form.size}`}
             </p>
+            {uploadingLogo ? <p className="mt-2 text-xs font-semibold text-[#2563EB]">Uploading logo...</p> : null}
           </div>
         </div>
+        {editMode ? (
+          <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]">
+            <Input
+              label="Logo URL"
+              value={form.logoUrl}
+              onChange={(e) => set("logoUrl", e.target.value)}
+              placeholder="https://example.com/logo.png"
+            />
+            <button
+              type="button"
+              onClick={async () => {
+                const { isConfirmed, value } = await showSweetPrompt({
+                  title: "Company Logo URL",
+                  inputValue: form.logoUrl || "",
+                  inputPlaceholder: "https://example.com/logo.png",
+                  confirmButtonText: "Use URL",
+                });
+                if (!isConfirmed) return;
+                set("logoUrl", String(value || "").trim());
+              }}
+              className="self-end rounded-xl border border-blue-200 px-4 py-2 text-sm font-semibold text-[#2563EB] hover:bg-blue-50"
+            >
+              Add URL
+            </button>
+          </div>
+        ) : null}
       </section>
 
       {/* Company Details */}
@@ -265,6 +318,21 @@ export default function Profile() {
             onChange={(e) => set("linkedin", e.target.value)}
             readOnly={!editMode}
           />
+          <label className="block">
+            <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Profile Visible To
+            </span>
+            <select
+              value={form.profileAudience}
+              onChange={(e) => set("profileAudience", e.target.value)}
+              disabled={!editMode}
+              className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300 disabled:bg-slate-50"
+            >
+              <option value="both">Company and Student profile</option>
+              <option value="company">Company profile only</option>
+              <option value="student">Student-facing profile only</option>
+            </select>
+          </label>
           <Input
             label="HR Email"
             value={form.email}
@@ -288,6 +356,54 @@ export default function Profile() {
             onChange={(e) => set("about", e.target.value)}
             readOnly={!editMode}
             rows={4}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300"
+          />
+        </label>
+        <label className="mt-3 block">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Culture
+          </span>
+          <textarea
+            value={form.culture}
+            onChange={(e) => set("culture", e.target.value)}
+            readOnly={!editMode}
+            rows={3}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300"
+          />
+        </label>
+        <label className="mt-3 block">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Perks And Benefits
+          </span>
+          <textarea
+            value={form.perks}
+            onChange={(e) => set("perks", e.target.value)}
+            readOnly={!editMode}
+            rows={3}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300"
+          />
+        </label>
+        <label className="mt-3 block">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Hiring Process
+          </span>
+          <textarea
+            value={form.hiringProcess}
+            onChange={(e) => set("hiringProcess", e.target.value)}
+            readOnly={!editMode}
+            rows={3}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300"
+          />
+        </label>
+        <label className="mt-3 block">
+          <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Student Profile Message
+          </span>
+          <textarea
+            value={form.studentMessage}
+            onChange={(e) => set("studentMessage", e.target.value)}
+            readOnly={!editMode}
+            rows={3}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300"
           />
         </label>

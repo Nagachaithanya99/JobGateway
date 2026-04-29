@@ -41,6 +41,11 @@ export async function startCompanyInterview(id) {
   return data;
 }
 
+export async function companyLeaveInterview(id) {
+  const { data } = await api.post(`/company/interviews/${id}/leave`);
+  return data;
+}
+
 export async function admitCompanyCandidate(id) {
   const { data } = await api.post(`/company/interviews/${id}/admit`);
   return data;
@@ -76,8 +81,8 @@ export async function companyInterviewCode(id, payload = {}) {
   return data;
 }
 
-export async function companyRunInterviewCode(id) {
-  const { data } = await api.post(`/company/interviews/${id}/code/run`);
+export async function companyRunInterviewCode(id, mode = "console") {
+  const { data } = await api.post(`/company/interviews/${id}/code/run`, { mode });
   return data;
 }
 
@@ -96,6 +101,16 @@ export async function companyInterviewWebrtcCandidate(id, payload = {}) {
   return data;
 }
 
+export async function companyInterviewAdminMonitorAnswer(id, payload = {}) {
+  const { data } = await api.post(`/company/interviews/${id}/admin-monitor/answer`, payload);
+  return data;
+}
+
+export async function companyInterviewAdminMonitorCandidate(id, payload = {}) {
+  const { data } = await api.post(`/company/interviews/${id}/admin-monitor/candidate`, payload);
+  return data;
+}
+
 export async function getStudentInterviews(params = {}) {
   const { data } = await api.get("/student/interviews", { params });
   return data;
@@ -108,6 +123,11 @@ export async function studentCompletePreJoin(id, payload = {}) {
 
 export async function studentEnterWaitingRoom(id) {
   const { data } = await api.post(`/student/interviews/${id}/waiting-room`);
+  return data;
+}
+
+export async function studentLeaveInterview(id) {
+  const { data } = await api.post(`/student/interviews/${id}/leave`);
   return data;
 }
 
@@ -141,6 +161,11 @@ export async function studentInterviewCode(id, payload = {}) {
   return data;
 }
 
+export async function studentRunInterviewCode(id, mode = "console") {
+  const { data } = await api.post(`/student/interviews/${id}/code/run`, { mode });
+  return data;
+}
+
 export async function studentInterviewScreenShare(id, active) {
   const { data } = await api.patch(`/student/interviews/${id}/screen-share`, { active });
   return data;
@@ -153,6 +178,16 @@ export async function studentInterviewWebrtcAnswer(id, payload = {}) {
 
 export async function studentInterviewWebrtcCandidate(id, payload = {}) {
   const { data } = await api.post(`/student/interviews/${id}/webrtc/candidate`, payload);
+  return data;
+}
+
+export async function studentInterviewAdminMonitorAnswer(id, payload = {}) {
+  const { data } = await api.post(`/student/interviews/${id}/admin-monitor/answer`, payload);
+  return data;
+}
+
+export async function studentInterviewAdminMonitorCandidate(id, payload = {}) {
+  const { data } = await api.post(`/student/interviews/${id}/admin-monitor/candidate`, payload);
   return data;
 }
 
@@ -173,6 +208,16 @@ export async function adminStartInterview(id) {
 
 export async function adminEndInterview(id, payload = {}) {
   const { data } = await api.post(`/admin/interviews/${id}/end`, payload);
+  return data;
+}
+
+export async function adminInterviewMonitorOffer(id, targetRole, payload = {}) {
+  const { data } = await api.post(`/admin/interviews/${id}/admin-monitor/${targetRole}/offer`, payload);
+  return data;
+}
+
+export async function adminInterviewMonitorCandidate(id, targetRole, payload = {}) {
+  const { data } = await api.post(`/admin/interviews/${id}/admin-monitor/${targetRole}/candidate`, payload);
   return data;
 }
 

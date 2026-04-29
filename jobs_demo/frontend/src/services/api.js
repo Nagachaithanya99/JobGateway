@@ -16,6 +16,18 @@ const api = axios.create({
   },
 });
 
+const LOCAL_ADMIN_AUTH_KEY = "jobgateway_local_admin_auth";
+
+function readLocalAdminToken() {
+  try {
+    const raw = localStorage.getItem(LOCAL_ADMIN_AUTH_KEY);
+    if (!raw) return "";
+    return JSON.parse(raw)?.token || "";
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Clerk Token Integration
  * We inject Clerk token dynamically from React
@@ -44,7 +56,10 @@ export const setApiTokenGetter = (fn) => {
 api.interceptors.request.use(
   async (config) => {
     try {
-      if (getTokenFn) {
+      const localAdminToken = readLocalAdminToken();
+      if (localAdminToken) {
+        config.headers["X-Admin-Token"] = localAdminToken;
+      } else if (getTokenFn) {
         const token = await getTokenFn();
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;

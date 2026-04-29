@@ -1966,7 +1966,7 @@ const EMPTY={personal:{fullName:"",email:"",phone:"",dob:"",gender:"Male",addres
 function mapProfileToForm(me={}) {
   const p=safeObj(me.studentProfile); const preferred=safeObj(p.preferred);
   return {
-    personal:{ fullName:p.personal?.fullName||me.name||"", email:p.personal?.email||me.email||"", phone:p.personal?.phone||me.phone||"", dob:p.personal?.dob||"", gender:p.personal?.gender||"Male", address:p.personal?.address||"", city:p.personal?.city||"", state:p.personal?.state||"", location:p.personal?.location||me.location||"", linkedin:p.personal?.linkedin||me.linkedin||"", portfolio:p.personal?.portfolio||me.portfolio||"", github:p.personal?.github||"", twitter:p.personal?.twitter||"", instagram:p.personal?.instagram||"", youtube:p.personal?.youtube||"", website:p.personal?.website||"", designation:p.personal?.designation||"Student", about:p.personal?.about||"", coverPhoto:p.personal?.coverPhoto||"", avatarUrl:p.personal?.avatarUrl||"" },
+    personal:{ fullName:p.personal?.fullName||me.name||"", email:p.personal?.email||me.email||"", phone:p.personal?.phone||me.phone||"", dob:p.personal?.dob||"", gender:p.personal?.gender||"Male", address:p.personal?.address||"", city:p.personal?.city||"", state:p.personal?.state||"", location:p.personal?.location||me.location||"", linkedin:p.personal?.linkedin||me.linkedin||"", portfolio:p.personal?.portfolio||me.portfolio||"", github:p.personal?.github||"", twitter:p.personal?.twitter||"", instagram:p.personal?.instagram||"", youtube:p.personal?.youtube||"", website:p.personal?.website||"", designation:p.personal?.designation||"Student", about:p.personal?.about||"", coverPhoto:p.personal?.coverPhoto||"", avatarUrl:p.personal?.avatarUrl||p.personal?.profileImageUrl||me.avatarUrl||me.avatar||me.profilePhoto||me.profileImageUrl||me.imageUrl||"" },
     education:safeArr(p.education).map((e,i)=>({id:e.id||`ed_${i}`,degree:e.degree||"",college:e.college||"",year:e.year||"",branch:e.branch||"",score:e.score||"",board:e.board||"",universityRollNo:e.universityRollNo||"",achievements:e.achievements||""})),
     skills:safeArr(p.skills).map((s,i)=>typeof s==="string"?{id:`sk_${i}`,name:s}:{id:s.id||`sk_${i}`,name:s.name||s.skill||""}),
     fresher:p.fresher!==undefined?!!p.fresher:true,
@@ -2616,6 +2616,7 @@ export default function Profile() {
       const payload={
         name:form.personal.fullName,phone:form.personal.phone,
         location:form.personal.location,linkedin:form.personal.linkedin,portfolio:form.personal.portfolio,
+        avatarUrl:form.personal.avatarUrl,profileImageUrl:form.personal.avatarUrl,imageUrl:form.personal.avatarUrl,
         studentProfile:{
           personal:form.personal,
           education:safeArr(form.education).map(({id,...r})=>r),

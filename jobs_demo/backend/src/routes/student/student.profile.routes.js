@@ -30,6 +30,7 @@ import {
   uploadResumeHandler,
   uploadAvatarHandler,
   getFollowSuggestionsHandler,
+  getRecentUsersHandler,
   followUserHandler,
   getAppliedJobsHandler,
   withdrawApplicationHandler,
@@ -96,6 +97,7 @@ router.put   ("/profile/me",                          updateMe);
 router.post  ("/profile/upload-resume",               uploadResumeMW.single("file"), uploadResumeHandler);
 router.post  ("/profile/upload-avatar",               uploadImageMW.single("file"),  uploadAvatarHandler);
 router.get   ("/profile/follow-suggestions",          getFollowSuggestionsHandler);
+router.get   ("/profile/recent-users",                getRecentUsersHandler);
 router.post  ("/profile/follow/:targetUserId",        followUserHandler);
 router.get   ("/profile/applied-jobs",                getAppliedJobsHandler);
 router.delete("/profile/applied-jobs/:applicationId", withdrawApplicationHandler);

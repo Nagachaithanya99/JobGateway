@@ -143,6 +143,7 @@ export default function JobCard({
   const jobId = String(job?._id || job?.id || "");
   const title = job?.title || "Job";
   const company = job?.companyName || job?.company?.name || "Company";
+  const companyLogo = job?.companyLogo || job?.logoUrl || job?.company?.logoUrl || "";
   const location = job?.location || [job?.city, job?.state].filter(Boolean).join(", ") || "Location not provided";
   const hierarchy = [job?.stream, job?.category, job?.subCategory].filter(Boolean).join(" / ");
   const summary = summarize(job?.overview || job?.description);
@@ -162,8 +163,12 @@ export default function JobCard({
   return (
     <article className="flex h-full flex-col rounded-[20px] border border-slate-200/70 bg-white/80 p-4 shadow-[0_10px_25px_rgba(15,23,42,0.06)]">
       <div className="flex min-w-0 gap-3">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[14px] bg-gradient-to-b from-orange-400 to-orange-500 text-[17px] font-extrabold text-white shadow-sm">
-          {initials(company) || "JG"}
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[14px] bg-gradient-to-b from-orange-400 to-orange-500 text-[17px] font-extrabold text-white shadow-sm">
+          {companyLogo ? (
+            <img src={companyLogo} alt="" className="h-full w-full object-cover" />
+          ) : (
+            initials(company) || "JG"
+          )}
         </div>
 
         <div className="min-w-0 flex-1">

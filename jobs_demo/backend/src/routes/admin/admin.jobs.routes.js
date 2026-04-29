@@ -4,6 +4,7 @@ import {
   adminCreateJob,
   adminListJobs,
   adminGetJobById,
+  adminUpdateJob,
   adminUpdateJobStatus,
   adminDeleteJob,
 } from "../../controllers/admin/admin.jobs.controller.js";
@@ -19,6 +20,7 @@ router.use(requireAdminClerk);
 router.get("/jobs", adminListJobs);
 router.post("/jobs", adminCreateJob);
 router.get("/jobs/:id", adminGetJobById);
+router.put("/jobs/:id", adminUpdateJob);
 router.patch("/jobs/:id/status", adminUpdateJobStatus);
 router.delete("/jobs/:id", adminDeleteJob);
 

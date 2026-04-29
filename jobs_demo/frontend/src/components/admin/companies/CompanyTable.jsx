@@ -13,11 +13,20 @@ function metricTone(value) {
   return "low";
 }
 
+function accountStatus(row) {
+  if (row?.isActive === true) return "active";
+  if (row?.isActive === false) return "suspended";
+
+  const explicitStatus = String(row?.accountStatus || row?.status || "").trim().toLowerCase();
+  if (explicitStatus === "active" || explicitStatus === "true" || explicitStatus === "1") return "active";
+  if (explicitStatus === "pending") return "pending";
+  return "suspended";
+}
+
 export default function CompanyTable({
   rows,
   loading,
   onView,
-  onEdit,
   onToggleStatus,
   onDelete,
 }) {
@@ -60,11 +69,19 @@ export default function CompanyTable({
                 >
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-3">
-                      <img
-                        src={companyAvatar(row)}
-                        alt={row.name}
-                        className="h-10 w-10 rounded-full border border-slate-200 object-cover"
-                      />
+                      <button
+                        type="button"
+                        onClick={() => onView(row)}
+                        title={`Open ${row.name || "company"} profile`}
+                        aria-label={`Open ${row.name || "company"} profile`}
+                        className="rounded-full transition hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
+                      >
+                        <img
+                          src={companyAvatar(row)}
+                          alt=""
+                          className="h-10 w-10 rounded-full border border-slate-200 object-cover"
+                        />
+                      </button>
                       <div>
                         <p className="font-semibold text-[#1F2937]">{row.name}</p>
                         <p className="text-xs text-slate-500">{row.websiteLabel || row.tagline || row.website || "-"}</p>
@@ -85,13 +102,12 @@ export default function CompanyTable({
                     <StatusBadge value={row.plan?.status || "active"} type="planStatus" />
                   </td>
                   <td className="px-5 py-4">
-                    <StatusBadge value={row.status || "active"} type="account" />
+                    <StatusBadge value={accountStatus(row)} type="account" />
                   </td>
                   <td className="px-5 py-4">
                     <ActionMenu
                       row={row}
                       onView={() => onView(row)}
-                      onEdit={() => onEdit(row)}
                       onToggleStatus={() => onToggleStatus(row)}
                       onDelete={() => onDelete(row)}
                     />
@@ -113,11 +129,19 @@ export default function CompanyTable({
         {rows.map((row) => (
           <div key={row.id} className="rounded-xl border border-slate-200 p-3">
             <div className="flex items-center gap-3">
-              <img
-                src={companyAvatar(row)}
-                alt={row.name}
-                className="h-10 w-10 rounded-full border border-slate-200 object-cover"
-              />
+              <button
+                type="button"
+                onClick={() => onView(row)}
+                title={`Open ${row.name || "company"} profile`}
+                aria-label={`Open ${row.name || "company"} profile`}
+                className="shrink-0 rounded-full transition hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
+              >
+                <img
+                  src={companyAvatar(row)}
+                  alt=""
+                  className="h-10 w-10 rounded-full border border-slate-200 object-cover"
+                />
+              </button>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold text-[#1F2937]">{row.name}</p>
                 <p className="truncate text-xs text-slate-500">{row.email}</p>
@@ -134,14 +158,13 @@ export default function CompanyTable({
             <div className="mt-3 flex flex-wrap gap-2">
               <StatusBadge value={row.plan?.name || "starter"} type="planType" />
               <StatusBadge value={row.plan?.status || "active"} type="planStatus" />
-              <StatusBadge value={row.status || "active"} type="account" />
+              <StatusBadge value={accountStatus(row)} type="account" />
             </div>
 
             <div className="mt-3">
               <ActionMenu
                 row={row}
                 onView={() => onView(row)}
-                onEdit={() => onEdit(row)}
                 onToggleStatus={() => onToggleStatus(row)}
                 onDelete={() => onDelete(row)}
               />

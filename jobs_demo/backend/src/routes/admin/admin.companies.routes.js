@@ -2,6 +2,7 @@
 import { Router } from "express";
 import {
   adminCreateCompany,
+  adminDeleteCompany,
   adminGetCompanyDetails,
   adminListCompanies,
   adminUpdateCompanyStatus,
@@ -13,5 +14,6 @@ router.get("/companies", adminListCompanies);
 router.post("/companies", adminCreateCompany);
 router.get("/companies/:id", adminGetCompanyDetails);
 router.patch("/companies/:id/status", adminUpdateCompanyStatus);
+router.delete("/companies/:id", adminDeleteCompany);
 
 export default router;

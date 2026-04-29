@@ -17,6 +17,9 @@ import {
 import { showSweetToast } from "../../utils/sweetAlert.js";
 import {
   admitCompanyCandidate,
+  companyLeaveInterview,
+  companyInterviewAdminMonitorAnswer,
+  companyInterviewAdminMonitorCandidate,
   companyInterviewChat,
   companyInterviewCode,
   companyInterviewQuestion,
@@ -31,17 +34,36 @@ import {
 } from "../../services/interviewsService.js";
 import {
   optimizeSpeechStream,
+  optimizeVideoSenderForInterview,
   optimizeVideoStream,
+  INTERVIEW_CAMERA_VIDEO_CONSTRAINTS,
   SPEECH_AUDIO_CONSTRAINTS,
-  ULTRA_HD_VIDEO_CONSTRAINTS,
+  toAbsoluteMediaUrl,
 } from "../../utils/media.js";
 import { getApiOrigin } from "../../utils/apiBaseUrl.js";
 import useVirtualBackground from "../../hooks/useVirtualBackground.js";
-import VirtualBackgroundPicker from "../../components/interview/VirtualBackgroundPicker.jsx";
 
 const ICE_CONFIG = {
   iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }],
 };
+
+const TOOL_PANEL_POSITION_KEY = "jobgateway_company_interview_tool_panel_position";
+
+function readToolPanelPosition() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(TOOL_PANEL_POSITION_KEY) || "null");
+    if (Number.isFinite(parsed?.y)) {
+      return {
+        x: Number.isFinite(parsed?.x) ? parsed.x : null,
+        y: parsed.y,
+      };
+    }
+  } catch {
+    // ignore storage failures
+  }
+
+  return { x: null, y: 56 };
+}
 
 function candidateKey(c) {
   const rawIdx = Number(c?.sdpMLineIndex);
@@ -98,6 +120,13 @@ function Pill({ label, value }) {
   );
 }
 
+function normalizeExternalUrl(url) {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  return `https://${value.replace(/^\/+/, "")}`;
+}
+
 export default function InterviewWorkspace() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -120,10 +149,14 @@ export default function InterviewWorkspace() {
   const [focusLocal, setFocusLocal] = useState(false);
   const [joined, setJoined] = useState(false);
   const [activeTool, setActiveTool] = useState("chat");
+  const [toolPanelPosition, setToolPanelPosition] = useState(readToolPanelPosition);
+  const toolPanelDragRef = useRef(null);
   const [chatText, setChatText] = useState("");
   const [questionText, setQuestionText] = useState("");
   const [codeInput, setCodeInput] = useState("");
   const [codeNote, setCodeNote] = useState("");
+  const [codeLanguage, setCodeLanguage] = useState("javascript");
+  const [codeOutputView, setCodeOutputView] = useState("console");
   const [codeDirty, setCodeDirty] = useState(false);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
@@ -133,20 +166,23 @@ export default function InterviewWorkspace() {
   const remoteStreamRef = useRef(null);
   const remoteScreenStreamRef = useRef(null);
   const peerRef = useRef(null);
+  const adminMonitorPeerRef = useRef(null);
+  const adminMonitorVideoSenderRef = useRef(null);
   const socketRef = useRef(null);
   const appliedStudentCandidatesRef = useRef(new Set());
   const pendingStudentCandidatesRef = useRef([]);
   const appliedAnswerSdpRef = useRef("");
+  const appliedAdminMonitorCandidatesRef = useRef(new Set());
+  const pendingAdminMonitorCandidatesRef = useRef([]);
+  const appliedAdminMonitorOfferSdpRef = useRef("");
   const suppressQuestionDraftSyncRef = useRef(false);
   const suppressCodeSyncRef = useRef(false);
   const {
-    backgroundOptions,
     bindStream: bindVirtualBackgroundStream,
     bindVideoSender,
+    removeSender,
     getOutgoingVideoTrack,
     reset: resetVirtualBackground,
-    selectedBackground,
-    setSelectedBackground,
     syncVideoEnabled,
   } = useVirtualBackground(localVideoRef);
   const [scorecard, setScorecard] = useState({
@@ -158,6 +194,60 @@ export default function InterviewWorkspace() {
     overall: 0,
   });
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(TOOL_PANEL_POSITION_KEY, JSON.stringify(toolPanelPosition));
+    } catch {
+      // ignore storage failures
+    }
+  }, [toolPanelPosition]);
+
+  const startToolPanelDrag = useCallback((event) => {
+    const shell = videoShellRef.current;
+    if (!shell) return;
+    const pointer = event.touches?.[0] || event;
+    const shellRect = shell.getBoundingClientRect();
+    const panelEl = event.currentTarget.closest("[data-interview-tool-panel]");
+    const panelRect = panelEl?.getBoundingClientRect();
+    const originX = panelRect ? panelRect.left - shellRect.left : (toolPanelPosition.x ?? 12);
+    const originY = panelRect ? panelRect.top - shellRect.top : toolPanelPosition.y;
+
+    toolPanelDragRef.current = {
+      startX: pointer.clientX,
+      startY: pointer.clientY,
+      originX,
+      originY,
+    };
+
+    const move = (moveEvent) => {
+      if (!toolPanelDragRef.current) return;
+      const nextPointer = moveEvent.touches?.[0] || moveEvent;
+      const panelWidth = panelEl?.offsetWidth || 390;
+      const panelHeight = panelEl?.offsetHeight || 150;
+      const maxX = Math.max(12, shell.clientWidth - panelWidth - 12);
+      const maxY = Math.max(12, shell.clientHeight - panelHeight - 12);
+      const nextX = toolPanelDragRef.current.originX + (nextPointer.clientX - toolPanelDragRef.current.startX);
+      const nextY = toolPanelDragRef.current.originY + (nextPointer.clientY - toolPanelDragRef.current.startY);
+      setToolPanelPosition({
+        x: Math.min(maxX, Math.max(12, nextX)),
+        y: Math.min(maxY, Math.max(12, nextY)),
+      });
+    };
+
+    const stop = () => {
+      toolPanelDragRef.current = null;
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", stop);
+      window.removeEventListener("touchmove", move);
+      window.removeEventListener("touchend", stop);
+    };
+
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", stop);
+    window.addEventListener("touchmove", move, { passive: true });
+    window.addEventListener("touchend", stop);
+  }, [toolPanelPosition]);
+
   const load = useCallback(async () => {
     try {
       const res = await getCompanyInterviewWorkspace(id);
@@ -165,6 +255,8 @@ export default function InterviewWorkspace() {
       setItem(next);
       if (next?.collaboration?.code && !codeDirty) {
         suppressCodeSyncRef.current = true;
+        setCodeLanguage(String(next.collaboration.code.language || "javascript"));
+        setCodeOutputView(String(next.collaboration.code.outputMode || "console"));
         setCodeInput(String(next.collaboration.code.content || ""));
         setCodeNote(String(next.collaboration.code.note || ""));
       }
@@ -176,10 +268,22 @@ export default function InterviewWorkspace() {
   }, [id, codeDirty]);
 
   useEffect(() => {
-    load();
-    const timer = setInterval(load, 1500);
-    return () => clearInterval(timer);
-  }, [load]);
+    let cancelled = false;
+    let timer = null;
+    const refreshMs = joined || remoteReady || remoteScreenReady ? 5000 : 2500;
+
+    const run = async () => {
+      await load();
+      if (cancelled) return;
+      timer = setTimeout(run, refreshMs);
+    };
+
+    run();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [joined, load, remoteReady, remoteScreenReady]);
 
   const applyStudentCandidate = useCallback(async (candidateLike) => {
     const pc = peerRef.current;
@@ -226,6 +330,110 @@ export default function InterviewWorkspace() {
       console.debug("company setRemoteDescription retry:", e?.message || e);
     }
   }, [applyStudentCandidate]);
+
+  const closeAdminMonitorConnection = useCallback(() => {
+    if (adminMonitorVideoSenderRef.current) {
+      removeSender(adminMonitorVideoSenderRef.current);
+      adminMonitorVideoSenderRef.current = null;
+    }
+    if (adminMonitorPeerRef.current) {
+      adminMonitorPeerRef.current.onicecandidate = null;
+      adminMonitorPeerRef.current.onconnectionstatechange = null;
+      try {
+        adminMonitorPeerRef.current.close();
+      } catch {
+        // ignore close races
+      }
+      adminMonitorPeerRef.current = null;
+    }
+    appliedAdminMonitorCandidatesRef.current = new Set();
+    pendingAdminMonitorCandidatesRef.current = [];
+    appliedAdminMonitorOfferSdpRef.current = "";
+  }, [removeSender]);
+
+  const ensureAdminMonitorPeer = useCallback(async () => {
+    if (adminMonitorPeerRef.current) return adminMonitorPeerRef.current;
+    const localStream = streamRef.current;
+    if (!localStream) return null;
+
+    const peer = new RTCPeerConnection(ICE_CONFIG);
+    adminMonitorPeerRef.current = peer;
+    const audioTracks = localStream.getAudioTracks();
+    const outgoingVideoTrack = await getOutgoingVideoTrack(localStream);
+    const outgoingStream = new MediaStream([...audioTracks, ...(outgoingVideoTrack ? [outgoingVideoTrack] : [])]);
+
+    audioTracks.forEach((track) => peer.addTrack(track, outgoingStream));
+    if (outgoingVideoTrack) {
+      const videoSender = peer.addTrack(outgoingVideoTrack, outgoingStream);
+      adminMonitorVideoSenderRef.current = videoSender;
+      await bindVideoSender(videoSender);
+      await optimizeVideoSenderForInterview(videoSender);
+    }
+
+    peer.onicecandidate = async (event) => {
+      if (!event.candidate) return;
+      try {
+        await companyInterviewAdminMonitorCandidate(id, event.candidate.toJSON());
+      } catch {
+        // ignore intermittent signaling writes
+      }
+    };
+
+    peer.onconnectionstatechange = () => {
+      if (["failed", "closed"].includes(peer.connectionState)) {
+        closeAdminMonitorConnection();
+      }
+    };
+
+    return peer;
+  }, [bindVideoSender, closeAdminMonitorConnection, getOutgoingVideoTrack, id]);
+
+  const applyAdminMonitorCandidate = useCallback(async (candidateLike) => {
+    const peer = adminMonitorPeerRef.current;
+    if (!peer || !candidateLike?.candidate) return;
+    const key = candidateKey(candidateLike);
+    if (appliedAdminMonitorCandidatesRef.current.has(key)) return;
+
+    if (!peer.remoteDescription) {
+      if (!pendingAdminMonitorCandidatesRef.current.find((row) => candidateKey(row) === key)) {
+        pendingAdminMonitorCandidatesRef.current.push(candidateLike);
+      }
+      return;
+    }
+
+    try {
+      await peer.addIceCandidate(new RTCIceCandidate(buildIceCandidateInit(candidateLike)));
+      appliedAdminMonitorCandidatesRef.current.add(key);
+    } catch {
+      if (!pendingAdminMonitorCandidatesRef.current.find((row) => candidateKey(row) === key)) {
+        pendingAdminMonitorCandidatesRef.current.push(candidateLike);
+      }
+    }
+  }, []);
+
+  const applyAdminMonitorOffer = useCallback(async (offerLike) => {
+    const offerSdp = normalizeRemoteSdp(offerLike?.sdp);
+    if (!offerSdp || !/^v=0(?:\r?\n|$)/.test(offerSdp)) return;
+    if (appliedAdminMonitorOfferSdpRef.current === offerSdp) return;
+    const peer = await ensureAdminMonitorPeer();
+    if (!peer || peer.signalingState !== "stable") return;
+
+    try {
+      await peer.setRemoteDescription(new RTCSessionDescription({ type: offerLike?.type || "offer", sdp: offerSdp }));
+      appliedAdminMonitorOfferSdpRef.current = offerSdp;
+      const answer = await peer.createAnswer();
+      await peer.setLocalDescription(answer);
+      await companyInterviewAdminMonitorAnswer(id, { type: answer.type, sdp: answer.sdp });
+
+      const pending = [...pendingAdminMonitorCandidatesRef.current];
+      pendingAdminMonitorCandidatesRef.current = [];
+      for (const candidate of pending) {
+        await applyAdminMonitorCandidate(candidate);
+      }
+    } catch (e) {
+      console.debug("company admin monitor retry:", e?.message || e);
+    }
+  }, [applyAdminMonitorCandidate, ensureAdminMonitorPeer, id]);
 
   useEffect(() => {
     if (!id) return undefined;
@@ -313,6 +521,67 @@ export default function InterviewWorkspace() {
               },
             };
           });
+        } else if (payload.event === "admin_monitor_offer" && payload?.data?.target === "company") {
+          const offer = payload?.data?.offer || null;
+          if (!offer?.sdp) return;
+          if (streamRef.current) {
+            void applyAdminMonitorOffer(offer);
+          }
+          setItem((prev) => {
+            if (!prev) return prev;
+            const rtc = ((prev.collaboration || {}).webrtc || {});
+            const monitor = (rtc.adminMonitor || {});
+            return {
+              ...prev,
+              collaboration: {
+                ...(prev.collaboration || {}),
+                webrtc: {
+                  ...rtc,
+                  adminMonitor: {
+                    company: {
+                      ...(monitor.company || {}),
+                      sessionId: payload?.data?.sessionId || monitor?.company?.sessionId || "",
+                      offer,
+                    },
+                    student: monitor.student || {},
+                  },
+                },
+              },
+            };
+          });
+        } else if (
+          payload.event === "admin_monitor_candidate"
+          && payload?.data?.from === "admin"
+          && payload?.data?.target === "company"
+        ) {
+          const candidate = payload?.data?.candidate;
+          if (!candidate?.candidate) return;
+          if (streamRef.current) {
+            void applyAdminMonitorCandidate(candidate);
+          }
+          setItem((prev) => {
+            if (!prev) return prev;
+            const rtc = ((prev.collaboration || {}).webrtc || {});
+            const monitor = (rtc.adminMonitor || {});
+            const current = monitor.company || {};
+            const list = Array.isArray(current.adminCandidates) ? current.adminCandidates : [];
+            return {
+              ...prev,
+              collaboration: {
+                ...(prev.collaboration || {}),
+                webrtc: {
+                  ...rtc,
+                  adminMonitor: {
+                    company: {
+                      ...current,
+                      adminCandidates: [...list, candidate].slice(-150),
+                    },
+                    student: monitor.student || {},
+                  },
+                },
+              },
+            };
+          });
         } else if (payload.event === "collab_chat") {
           const row = payload?.data || null;
           if (!row?.text) return;
@@ -363,6 +632,7 @@ export default function InterviewWorkspace() {
         } else if (payload.event === "collab_code") {
           const code = payload?.data || null;
           suppressCodeSyncRef.current = true;
+          setCodeLanguage(String(code?.language || "javascript"));
           setCodeInput(String(code?.content || ""));
           setCodeNote(String(code?.note || ""));
           setCodeDirty(false);
@@ -378,6 +648,35 @@ export default function InterviewWorkspace() {
                   content: String(code?.content || ""),
                   note: String(code?.note || ""),
                   lastUpdatedBy: String(code?.lastUpdatedBy || "student"),
+                  outputMode: String(code?.outputMode || "console"),
+                  output: String(code?.output || ""),
+                  error: String(code?.error || ""),
+                  serverOutput: String(code?.serverOutput || ""),
+                  serverError: String(code?.serverError || ""),
+                  previewHtml: String(code?.previewHtml || ""),
+                  updatedAt: code?.updatedAt || new Date().toISOString(),
+                },
+              },
+            };
+          });
+        } else if (payload.event === "collab_code_result") {
+          const code = payload?.data || null;
+          if (!code) return;
+          setCodeOutputView(String(code?.outputMode || "console"));
+          setItem((prev) => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              collaboration: {
+                ...(prev.collaboration || {}),
+                code: {
+                  ...((prev.collaboration || {}).code || {}),
+                  outputMode: String(code?.outputMode || "console"),
+                  output: String(code?.output || ""),
+                  error: String(code?.error || ""),
+                  serverOutput: String(code?.serverOutput || ""),
+                  serverError: String(code?.serverError || ""),
+                  previewHtml: String(code?.previewHtml || ""),
                   updatedAt: code?.updatedAt || new Date().toISOString(),
                 },
               },
@@ -400,7 +699,7 @@ export default function InterviewWorkspace() {
         socketRef.current = null;
       }
     };
-  }, [id, applyRemoteAnswer, applyStudentCandidate]);
+  }, [id, applyAdminMonitorCandidate, applyAdminMonitorOffer, applyRemoteAnswer, applyStudentCandidate]);
 
   useEffect(() => {
     if (!id) return undefined;
@@ -435,17 +734,17 @@ export default function InterviewWorkspace() {
       return undefined;
     }
     const timer = setTimeout(() => {
-      companyInterviewCode(id, { language: "javascript", content: codeInput, note: codeNote }).catch(() => {});
+      companyInterviewCode(id, { language: codeLanguage, content: codeInput, note: codeNote }).catch(() => {});
     }, 500);
     return () => clearTimeout(timer);
-  }, [id, codeInput, codeNote]);
+  }, [id, codeInput, codeNote, codeLanguage]);
 
   const ensureLocalMedia = useCallback(async () => {
     try {
       setCameraErr("");
       if (streamRef.current) return streamRef.current;
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: ULTRA_HD_VIDEO_CONSTRAINTS,
+        video: INTERVIEW_CAMERA_VIDEO_CONSTRAINTS,
         audio: SPEECH_AUDIO_CONSTRAINTS,
       });
       await optimizeVideoStream(stream);
@@ -462,6 +761,7 @@ export default function InterviewWorkspace() {
   }, [bindVirtualBackgroundStream]);
 
   const leaveMeeting = useCallback(() => {
+    closeAdminMonitorConnection();
     if (peerRef.current) {
       peerRef.current.ontrack = null;
       peerRef.current.onicecandidate = null;
@@ -491,7 +791,7 @@ export default function InterviewWorkspace() {
     setRemoteReady(false);
     setRemoteScreenReady(false);
     setJoined(false);
-  }, [resetVirtualBackground]);
+  }, [closeAdminMonitorConnection, resetVirtualBackground]);
 
   const joinMeeting = useCallback(async () => {
     try {
@@ -508,6 +808,7 @@ export default function InterviewWorkspace() {
       if (outgoingVideoTrack) {
         const videoSender = pc.addTrack(outgoingVideoTrack, outgoingStream);
         await bindVideoSender(videoSender);
+        await optimizeVideoSenderForInterview(videoSender);
       }
       pc.addTransceiver("video", { direction: "recvonly" });
 
@@ -622,6 +923,29 @@ export default function InterviewWorkspace() {
   }, [item, applyRemoteAnswer, applyStudentCandidate]);
 
   useEffect(() => {
+    if (!item || !joined || !streamRef.current) return;
+    const companyMonitor = item?.collaboration?.webrtc?.adminMonitor?.company || {};
+    const offer = companyMonitor?.offer || null;
+    const adminCandidates = Array.isArray(companyMonitor?.adminCandidates) ? companyMonitor.adminCandidates : [];
+
+    const syncAdminMonitor = async () => {
+      try {
+        if (offer?.sdp) {
+          await applyAdminMonitorOffer(offer);
+        }
+        for (const candidate of adminCandidates) {
+          if (!candidate?.candidate) continue;
+          await applyAdminMonitorCandidate(candidate);
+        }
+      } catch (e) {
+        console.debug("company admin monitor sync retry:", e?.message || e);
+      }
+    };
+
+    syncAdminMonitor();
+  }, [item, joined, applyAdminMonitorCandidate, applyAdminMonitorOffer]);
+
+  useEffect(() => {
     if (!item) return;
     if (searchParams.get("autocam") === "1") joinMeeting();
   }, [item, searchParams, joinMeeting]);
@@ -651,15 +975,45 @@ export default function InterviewWorkspace() {
     }
   };
 
-  const endInterviewNow = async () => {
+  const isMeetingJoined =
+    joined
+    || Boolean(peerRef.current)
+    || Boolean(streamRef.current)
+    || remoteReady
+    || remoteScreenReady;
+
+  const exitMeeting = async () => {
     try {
-      const res = await endCompanyInterview(id, { decision, scorecard, notes: note });
+      const res = await companyLeaveInterview(id);
       setItem(res?.interview || item);
-      setMsg("Interview ended and moved to review");
+    } catch (e) {
+      setMsg(e?.response?.data?.message || "Unable to exit meeting");
+    } finally {
       leaveMeeting();
+    }
+  };
+
+  const finishInterviewAndClose = async (destination = "/company/interviews") => {
+    try {
+      const terminalStatuses = ["Review Ready", "Completed", "Cancelled", "No Show"];
+      const res = terminalStatuses.includes(String(item?.status || ""))
+        ? { interview: item }
+        : await endCompanyInterview(id, { decision, scorecard, notes: note });
+      const nextInterview = res?.interview || item;
+      setItem(nextInterview);
+      leaveMeeting();
+      nav(destination, { replace: true });
     } catch (e) {
       setMsg(e?.response?.data?.message || "Unable to end interview");
     }
+  };
+
+  const endInterviewNow = async () => {
+    await finishInterviewAndClose("/company/interviews");
+  };
+
+  const goBackToHub = async () => {
+    await finishInterviewAndClose("/company/interviews");
   };
 
   const toggleCamera = async () => {
@@ -735,7 +1089,7 @@ export default function InterviewWorkspace() {
 
   const saveCode = async () => {
     try {
-      const res = await companyInterviewCode(id, { language: "javascript", content: codeInput, note: codeNote });
+      const res = await companyInterviewCode(id, { language: codeLanguage, content: codeInput, note: codeNote });
       setItem(res?.interview || item);
       setCodeDirty(false);
       setMsg("Code synced to student");
@@ -746,9 +1100,9 @@ export default function InterviewWorkspace() {
 
   const runCode = async () => {
     try {
-      await companyInterviewCode(id, { language: "javascript", content: codeInput, note: codeNote });
+      await companyInterviewCode(id, { language: codeLanguage, content: codeInput, note: codeNote });
       setCodeDirty(false);
-      const res = await companyRunInterviewCode(id);
+      const res = await companyRunInterviewCode(id, codeOutputView);
       setItem(res?.interview || item);
     } catch (e) {
       setMsg(e?.response?.data?.message || "Unable to run code");
@@ -758,13 +1112,25 @@ export default function InterviewWorkspace() {
   const chatRows = useMemo(() => item?.collaboration?.chat || [], [item]);
   const questionRows = useMemo(() => item?.collaboration?.questions || [], [item]);
   const codeState = item?.collaboration?.code || {};
+  const studentProfile = item?.studentProfileCard || {};
+  const studentSkills = Array.isArray(studentProfile?.topSkills) ? studentProfile.topSkills : [];
+  const educationHighlights = Array.isArray(studentProfile?.educationHighlights) ? studentProfile.educationHighlights : [];
+  const experienceHighlights = Array.isArray(studentProfile?.experienceHighlights) ? studentProfile.experienceHighlights : [];
+  const preferredLocations = Array.isArray(studentProfile?.preferredLocations) ? studentProfile.preferredLocations : [];
+  const studentResumeUrl = studentProfile?.resumeUrl ? toAbsoluteMediaUrl(studentProfile.resumeUrl) : "";
+  const linkedinUrl = normalizeExternalUrl(studentProfile?.linkedin);
+  const portfolioUrl = normalizeExternalUrl(studentProfile?.portfolio);
+  const githubUrl = normalizeExternalUrl(studentProfile?.github);
   const liveQuestionText = String(item?.collaboration?.liveQuestionDraft?.text || "").trim()
     || String(questionRows[questionRows.length - 1]?.text || "").trim();
-  const liveCodePreview = String(codeInput || codeState?.content || "")
+  const sharedCodeValue = String(codeInput || codeState?.content || "");
+  const liveCodePreview = sharedCodeValue
     .split("\n")
     .slice(0, 2)
     .join("\n")
     .trim();
+  const liveChatRows = chatRows.slice(-6);
+  const liveQuestionRows = questionRows.slice(-5);
   const screenAsMain = remoteScreenReady;
 
   if (loading) return <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">Loading workspace...</div>;
@@ -781,13 +1147,13 @@ export default function InterviewWorkspace() {
           <div className="flex gap-2">
             <button onClick={endRound} className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-semibold text-[#2563EB]">End Round</button>
             <button onClick={endInterviewNow} className="rounded-lg bg-red-600 px-3 py-2 text-sm font-semibold text-white">End Interview</button>
-            <button onClick={() => nav("/company/interviews")} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">Back to Hub</button>
+            <button onClick={goBackToHub} className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700">Back to Hub</button>
           </div>
         </div>
       </header>
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-[280px_minmax(0,1fr)_360px]">
-        <aside className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
+        <aside className="space-y-3 rounded-xl border border-slate-200 bg-white p-3 lg:max-h-[calc(100vh-120px)] lg:overflow-auto">
           <Pill label="Status" value={item.status} />
           <Pill label="Round" value={item.currentRound || item.stage} />
           <Pill label="Timer" value={`${item.duration || "30 mins"}`} />
@@ -798,6 +1164,108 @@ export default function InterviewWorkspace() {
           <button disabled={item.status === "Live"} onClick={admit} className="w-full rounded-lg border border-green-200 px-3 py-2 text-sm font-semibold text-green-700 disabled:opacity-50">
             Admit Candidate
           </button>
+          <section className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 gap-2.5">
+                {studentProfile?.avatarUrl ? (
+                  <img src={studentProfile.avatarUrl} alt={studentProfile?.name || item.candidate || "Student"} className="h-10 w-10 rounded-full border border-slate-200 object-cover" />
+                ) : null}
+                <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Student Profile</p>
+                <h2 className="mt-1 truncate text-sm font-bold text-slate-900">{studentProfile?.name || item.candidate}</h2>
+                {studentProfile?.summary ? (
+                  <p className="mt-1 text-xs leading-5 text-slate-600">{studentProfile.summary}</p>
+                ) : null}
+                </div>
+              </div>
+              <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-[#2563EB]">
+                {Number(studentProfile?.profileCompletion || 0)}%
+              </span>
+            </div>
+
+            <div className="mt-3 space-y-2 text-xs text-slate-600">
+              <div>
+                <span className="font-semibold text-slate-900">Email:</span> {studentProfile?.email || item.email || "-"}
+              </div>
+              <div>
+                <span className="font-semibold text-slate-900">Phone:</span> {studentProfile?.phone || "-"}
+              </div>
+              <div>
+                <span className="font-semibold text-slate-900">Location:</span> {studentProfile?.location || "-"}
+              </div>
+              <div>
+                <span className="font-semibold text-slate-900">Preferred Role:</span> {studentProfile?.preferredRole || "-"}
+              </div>
+              <div>
+                <span className="font-semibold text-slate-900">Work Mode:</span> {studentProfile?.workMode || "-"}
+              </div>
+              <div>
+                <span className="font-semibold text-slate-900">Preferred Cities:</span> {preferredLocations.length ? preferredLocations.join(", ") : "-"}
+              </div>
+            </div>
+
+            {studentSkills.length ? (
+              <div className="mt-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Top Skills</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {studentSkills.map((skill) => (
+                    <span key={skill} className="rounded-full border border-blue-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-[#2563EB]">
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {educationHighlights.length ? (
+              <div className="mt-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Education</p>
+                <div className="mt-2 space-y-2">
+                  {educationHighlights.map((row) => (
+                    <div key={row} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                      {row}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            {experienceHighlights.length ? (
+              <div className="mt-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Experience</p>
+                <div className="mt-2 space-y-2">
+                  {experienceHighlights.map((row) => (
+                    <div key={row} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+                      {row}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              {studentResumeUrl ? (
+                <a href={studentResumeUrl} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+                  Open Resume
+                </a>
+              ) : null}
+              {linkedinUrl ? (
+                <a href={linkedinUrl} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+                  LinkedIn
+                </a>
+              ) : null}
+              {portfolioUrl ? (
+                <a href={portfolioUrl} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+                  Portfolio
+                </a>
+              ) : null}
+              {githubUrl ? (
+                <a href={githubUrl} target="_blank" rel="noreferrer" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">
+                  GitHub
+                </a>
+              ) : null}
+            </div>
+          </section>
         </aside>
 
         <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-3">
@@ -807,11 +1275,6 @@ export default function InterviewWorkspace() {
           </div>
 
           <div ref={videoShellRef} className="relative h-[420px] overflow-hidden rounded-xl border border-slate-300 bg-black">
-            <VirtualBackgroundPicker
-              options={backgroundOptions}
-              value={selectedBackground}
-              onChange={setSelectedBackground}
-            />
             <video
               ref={remoteVideoRef}
               autoPlay
@@ -858,7 +1321,100 @@ export default function InterviewWorkspace() {
             >
               {focusLocal ? (screenAsMain ? "Show Screen Large" : "Show Candidate Large") : "Show My Video Large"}
             </button>
-            <div className="absolute bottom-3 left-3 z-30 max-w-[70%] rounded-md bg-black/50 px-2 py-1 text-[11px] text-white">
+            <div
+              data-interview-tool-panel
+              className="absolute z-30 w-[min(390px,calc(100%-24px))] rounded-2xl border border-white/15 bg-slate-950/75 text-white shadow-2xl backdrop-blur"
+              style={toolPanelPosition.x == null ? { right: 12, top: toolPanelPosition.y } : { left: toolPanelPosition.x, top: toolPanelPosition.y }}
+            >
+              <div
+                className="flex cursor-move flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3 py-3"
+                onMouseDown={startToolPanelDrag}
+                onTouchStart={startToolPanelDrag}
+              >
+                <div className="flex gap-2">
+                  <button onClick={() => setActiveTool("chat")} className={`rounded-full px-3 py-1 text-[11px] font-semibold ${activeTool === "chat" ? "bg-blue-500 text-white" : "bg-white/10 text-slate-200"}`}>Chat</button>
+                  <button onClick={() => setActiveTool("questions")} className={`rounded-full px-3 py-1 text-[11px] font-semibold ${activeTool === "questions" ? "bg-blue-500 text-white" : "bg-white/10 text-slate-200"}`}>Question</button>
+                  <button onClick={() => setActiveTool("coding")} className={`rounded-full px-3 py-1 text-[11px] font-semibold ${activeTool === "coding" ? "bg-blue-500 text-white" : "bg-white/10 text-slate-200"}`}>Code</button>
+                </div>
+                {activeTool === "coding" ? (
+                  <div className="flex gap-1">
+                    <button onClick={() => setCodeOutputView("console")} className={`rounded-full px-3 py-1 text-[11px] font-semibold ${codeOutputView === "console" ? "bg-emerald-500 text-white" : "bg-white/10 text-slate-200"}`}>Normal Output</button>
+                    <button onClick={() => setCodeOutputView("server")} className={`rounded-full px-3 py-1 text-[11px] font-semibold ${codeOutputView === "server" ? "bg-emerald-500 text-white" : "bg-white/10 text-slate-200"}`}>Server Output</button>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="max-h-[310px] overflow-auto px-3 py-3">
+                {activeTool === "chat" ? (
+                  <div className="space-y-2">
+                    {liveChatRows.length ? liveChatRows.map((row, index) => (
+                      <div key={`${row.createdAt || index}_${row.text || ""}`} className="rounded-xl bg-white/8 px-3 py-2 text-sm leading-6">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-200">{row.senderRole}</p>
+                        <p className="mt-1 whitespace-pre-wrap text-slate-100">{row.text}</p>
+                      </div>
+                    )) : <p className="text-sm text-slate-300">No chat yet.</p>}
+                  </div>
+                ) : null}
+
+                {activeTool === "questions" ? (
+                  <div className="space-y-2">
+                    {liveQuestionText ? (
+                      <div className="rounded-xl border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-sm leading-6 text-amber-50">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-200">Live Draft</p>
+                        <p className="mt-1 whitespace-pre-wrap">{liveQuestionText}</p>
+                      </div>
+                    ) : null}
+                    {liveQuestionRows.length ? liveQuestionRows.map((row, index) => (
+                      <div key={`${row.createdAt || index}_${row.text || ""}`} className="rounded-xl bg-white/8 px-3 py-2 text-sm leading-6">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-200">{row.senderRole}</p>
+                        <p className="mt-1 whitespace-pre-wrap text-slate-100">{row.text}</p>
+                      </div>
+                    )) : <p className="text-sm text-slate-300">No questions yet.</p>}
+                  </div>
+                ) : null}
+
+                {activeTool === "coding" ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl bg-white/8 p-3">
+                      <div className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-200">
+                        <span>{codeLanguage}</span>
+                        <span>{codeState?.lastUpdatedBy || "shared"}</span>
+                      </div>
+                      <pre className="mt-2 max-h-32 overflow-auto whitespace-pre-wrap rounded-lg bg-black/35 p-3 text-[11px] leading-5 text-slate-100">
+                        {sharedCodeValue || "// Shared code appears here"}
+                      </pre>
+                    </div>
+
+                    {codeOutputView === "console" ? (
+                      <div className="rounded-xl bg-white/8 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200">Normal Output</p>
+                        <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap rounded-lg bg-black/35 p-3 text-[11px] leading-5 text-slate-100">
+                          {codeState?.output || codeState?.error || "Run code to see output."}
+                        </pre>
+                      </div>
+                    ) : (
+                      <div className="rounded-xl bg-white/8 p-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-200">Server Output</p>
+                        {codeState?.previewHtml ? (
+                          <iframe
+                            title="Interview code preview"
+                            srcDoc={codeState.previewHtml}
+                            sandbox="allow-scripts"
+                            className="mt-2 h-44 w-full rounded-lg border border-white/10 bg-white"
+                          />
+                        ) : null}
+                        <div className="mt-2 space-y-2 text-xs leading-5 text-slate-200">
+                          {codeState?.serverOutput ? <p>{codeState.serverOutput}</p> : null}
+                          {codeState?.serverError ? <p className="text-rose-200">{codeState.serverError}</p> : null}
+                          {!codeState?.previewHtml && !codeState?.serverOutput && !codeState?.serverError ? <p>Run server output to see browser preview details.</p> : null}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+            <div className="absolute bottom-3 left-3 z-30 max-w-[55%] rounded-md bg-black/50 px-2 py-1 text-[11px] text-white">
               {liveQuestionText ? <p className="truncate"><b>Q:</b> {liveQuestionText}</p> : null}
               {liveCodePreview ? <p className="mt-1 truncate"><b>Code:</b> {liveCodePreview}</p> : null}
             </div>
@@ -872,7 +1428,7 @@ export default function InterviewWorkspace() {
               <button onClick={toggleScreenShare} className={`grid h-9 w-9 place-items-center rounded-full ${sharing ? "bg-green-600" : "bg-slate-700"}`} title={sharing ? "Stop screen share" : "Share screen"}>
                 <FiMonitor />
               </button>
-              <button onClick={joined ? leaveMeeting : joinMeeting} className="grid h-9 w-9 place-items-center rounded-full bg-red-600" title={joined ? "Leave meeting" : "Join meeting"}>
+              <button onClick={isMeetingJoined ? exitMeeting : joinMeeting} className="grid h-9 w-9 place-items-center rounded-full bg-red-600" title={isMeetingJoined ? "Exit meeting" : "Join meeting"}>
                 <FiPhoneOff />
               </button>
               <button onClick={toggleFullscreen} className="grid h-9 w-9 place-items-center rounded-full bg-slate-700" title="Toggle fullscreen">
@@ -883,8 +1439,8 @@ export default function InterviewWorkspace() {
 
           <div className="grid grid-cols-1 gap-2 rounded-xl border border-slate-200 bg-white p-2 md:grid-cols-[190px_minmax(0,1fr)]">
             <div className="space-y-2">
-              <button onClick={joined ? leaveMeeting : joinMeeting} className="w-full rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-[#2563EB]">
-                {joined ? "Leave Meeting" : "Join Meeting"}
+              <button onClick={isMeetingJoined ? exitMeeting : joinMeeting} className="w-full rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-[#2563EB]">
+                {isMeetingJoined ? "Exit Meeting" : "Join Meeting"}
               </button>
               <button onClick={toggleCamera} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700">
                 {cameraOn ? "Stop Camera" : "Start Camera"}
@@ -960,16 +1516,35 @@ export default function InterviewWorkspace() {
 
             {activeTool === "coding" ? (
               <div className="mt-3">
-                <textarea value={codeInput} onChange={(e) => { setCodeInput(e.target.value); setCodeDirty(true); }} rows={8} className="w-full rounded-lg border border-slate-200 px-2 py-2 font-mono text-xs" placeholder="// Shared JavaScript code" />
+                <div className="flex flex-wrap gap-2">
+                  <select value={codeLanguage} onChange={(e) => { setCodeLanguage(e.target.value); setCodeDirty(true); }} className="h-9 rounded-lg border border-slate-200 px-3 text-sm">
+                    <option value="javascript">JavaScript</option>
+                    <option value="html">HTML / Browser Preview</option>
+                  </select>
+                  <button onClick={() => setCodeOutputView("console")} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${codeOutputView === "console" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 text-slate-700"}`}>Normal Output</button>
+                  <button onClick={() => setCodeOutputView("server")} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${codeOutputView === "server" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 text-slate-700"}`}>Server Output</button>
+                </div>
+                <textarea value={codeInput} onChange={(e) => { setCodeInput(e.target.value); setCodeDirty(true); }} rows={8} className="mt-2 w-full rounded-lg border border-slate-200 px-2 py-2 font-mono text-xs" placeholder={codeLanguage === "html" ? "<div>Hello candidate</div>" : "// Shared JavaScript code"} />
                 <input value={codeNote} onChange={(e) => { setCodeNote(e.target.value); setCodeDirty(true); }} className="mt-2 h-9 w-full rounded-lg border border-slate-200 px-2 text-sm" placeholder="Code note/instruction..." />
                 <div className="mt-2 flex gap-2">
                   <button onClick={saveCode} className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-semibold text-[#2563EB]">Sync</button>
                   <button onClick={runCode} className="rounded-lg border border-green-200 px-3 py-1.5 text-xs font-semibold text-green-700">Run</button>
                 </div>
                 <div className="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs">
-                  <p><b>Output:</b></p>
-                  <pre className="whitespace-pre-wrap">{codeState.output || "-"}</pre>
-                  {codeState.error ? <p className="text-red-600"><b>Error:</b> {codeState.error}</p> : null}
+                  <p><b>{codeOutputView === "console" ? "Output" : "Server Output"}:</b></p>
+                  {codeOutputView === "console" ? (
+                    <>
+                      <pre className="whitespace-pre-wrap">{codeState.output || "-"}</pre>
+                      {codeState.error ? <p className="text-red-600"><b>Error:</b> {codeState.error}</p> : null}
+                    </>
+                  ) : (
+                    <>
+                      {codeState.previewHtml ? <iframe title="Company code output preview" srcDoc={codeState.previewHtml} sandbox="allow-scripts" className="mt-2 h-40 w-full rounded-lg border border-slate-200 bg-white" /> : null}
+                      {codeState.serverOutput ? <p className="mt-2 whitespace-pre-wrap text-slate-700">{codeState.serverOutput}</p> : null}
+                      {codeState.serverError ? <p className="mt-2 whitespace-pre-wrap text-red-600"><b>Error:</b> {codeState.serverError}</p> : null}
+                      {!codeState.previewHtml && !codeState.serverOutput && !codeState.serverError ? <p>-</p> : null}
+                    </>
+                  )}
                 </div>
               </div>
             ) : null}

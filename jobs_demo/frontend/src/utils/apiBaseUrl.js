@@ -1,12 +1,21 @@
 const DEFAULT_BACKEND_ORIGIN = "http://localhost:5000";
 const DEFAULT_API_BASE_URL = `${DEFAULT_BACKEND_ORIGIN}/api`;
 
+function hasExplicitApiBaseUrl(env) {
+  return Boolean(String(env?.VITE_API_BASE_URL || env?.VITE_API_URL || "").trim());
+}
+
+function isLocalBrowserHost() {
+  if (typeof window === "undefined") return true;
+  const host = String(window.location?.hostname || "").toLowerCase();
+  return host === "localhost" || host === "127.0.0.1";
+}
+
 function getRawApiBaseUrl(env) {
-  return String(
-    env?.VITE_API_BASE_URL ||
-      env?.VITE_API_URL ||
-      DEFAULT_API_BASE_URL,
-  ).trim();
+  const explicitUrl = String(env?.VITE_API_BASE_URL || env?.VITE_API_URL || "").trim();
+  if (explicitUrl) return explicitUrl;
+  if (isLocalBrowserHost()) return DEFAULT_API_BASE_URL;
+  return "/api";
 }
 
 function getResolutionBase() {
@@ -38,6 +47,9 @@ export function getApiBaseUrl(env = import.meta.env) {
 
 export function getApiOrigin(env = import.meta.env) {
   try {
+    if (!hasExplicitApiBaseUrl(env) && !isLocalBrowserHost() && typeof window !== "undefined") {
+      return window.location.origin;
+    }
     return new URL(getApiBaseUrl(env), getResolutionBase()).origin;
   } catch {
     return DEFAULT_BACKEND_ORIGIN;

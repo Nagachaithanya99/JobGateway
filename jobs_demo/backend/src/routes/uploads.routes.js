@@ -4,10 +4,12 @@ import syncUser from "../middleware/syncUser.js";
 import {
   uploadAdMedia,
   uploadAdMediaFromUrl,
+  uploadCompanyLogo,
   uploadContentImage,
   uploadMessageAttachment,
   uploadResume,
   uploadSocialMedia,
+  uploadStudentAvatar,
 } from "../controllers/upload.controller.js";
 import socialActorOnly from "../middleware/socialActorOnly.js";
 
@@ -81,6 +83,46 @@ router.post(
     });
   },
   uploadContentImage
+);
+
+router.post(
+  "/company-logo",
+  syncUser("company"),
+  (req, res, next) => {
+    upload.single("file")(req, res, (err) => {
+      if (!err) return next();
+
+      if (err instanceof multer.MulterError) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(400).json({ message: "File size must be 5MB or less" });
+        }
+        return res.status(400).json({ message: err.message || "Invalid file upload" });
+      }
+
+      return next(err);
+    });
+  },
+  uploadCompanyLogo
+);
+
+router.post(
+  "/student-avatar",
+  syncUser("student"),
+  (req, res, next) => {
+    upload.single("file")(req, res, (err) => {
+      if (!err) return next();
+
+      if (err instanceof multer.MulterError) {
+        if (err.code === "LIMIT_FILE_SIZE") {
+          return res.status(400).json({ message: "File size must be 5MB or less" });
+        }
+        return res.status(400).json({ message: err.message || "Invalid file upload" });
+      }
+
+      return next(err);
+    });
+  },
+  uploadStudentAvatar
 );
 
 router.post(

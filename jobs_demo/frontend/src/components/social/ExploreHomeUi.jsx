@@ -263,7 +263,7 @@ export function ExploreNotificationsList({
               {!item.readAt ? (
                 <button
                   type="button"
-                  onClick={() => onMarkRead?.(item.id)}
+                  onClick={() => onMarkRead?.((item.items || []).map((entry) => entry?.id).filter(Boolean))}
                   className="inline-flex h-10 items-center rounded-full border border-black/10 px-3 text-xs font-bold text-slate-600 transition hover:bg-slate-50"
                 >
                   Mark read
@@ -326,7 +326,7 @@ function StoryCircleMedia({ item }) {
 }
 
 export function StoryStrip({ viewer, items = [], onOpenStory, onCreateStory }) {
-  const hasOwnStory = items.some((item) => item.author?.isSelf);
+  const hasOwnStory = items.some((item) => item?.author?.isSelf);
   const displayItems =
     hasOwnStory || !viewer
       ? items
@@ -367,7 +367,7 @@ export function StoryStrip({ viewer, items = [], onOpenStory, onCreateStory }) {
 
       <div className="flex gap-5 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {displayItems.map((item) => {
-          const isSelf = Boolean(item.author?.isSelf);
+          const isSelf = Boolean(item?.author?.isSelf);
           const hasStory = Boolean(item.items?.length);
           const hasUnseen = Boolean(item.viewerState?.hasUnseen);
           const ringClass = hasStory
@@ -391,7 +391,7 @@ export function StoryStrip({ viewer, items = [], onOpenStory, onCreateStory }) {
                   </span>
                 </span>
                 <span className="mt-2 block truncate text-[13px] font-semibold text-slate-700">
-                  {isSelf ? "Your story" : item.author?.name || "Story"}
+                  {isSelf ? "Your story" : item?.author?.name || "Story"}
                 </span>
               </button>
 
@@ -460,8 +460,8 @@ export function HomeFeedPostCard({
         </div>
         <div className="flex items-center gap-2">
           {!safetyHidden && post.author?.canFollow ? (
-            <button type="button" disabled={busy[`follow-${post.author.id}`]} onClick={onFollow} className="text-sm font-extrabold text-[#2563eb]">
-              {busy[`follow-${post.author.id}`] ? "..." : post.author?.isFollowed ? "Following" : "Follow"}
+            <button type="button" disabled={busy[`follow-${post.author?.id}`]} onClick={onFollow} className="text-sm font-extrabold text-[#2563eb]">
+              {busy[`follow-${post.author?.id}`] ? "..." : post.author?.isFollowed ? "Following" : "Follow"}
             </button>
           ) : null}
           <div ref={menuRef} className="relative">
@@ -564,7 +564,7 @@ export function HomeFeedPostCard({
               <FiSend />
             </button>
             {!safetyHidden && post.author?.canMessage ? (
-              <button type="button" disabled={busy[`message-${post.author.id}`]} onClick={onMessage}>
+              <button type="button" disabled={busy[`message-${post.author?.id}`]} onClick={onMessage}>
                 <FiMessageSquare />
               </button>
             ) : null}

@@ -5,6 +5,9 @@ import Application from "../../models/Application.js";
 import Interview from "../../models/Interview.js";
 import MessageThread from "../../models/MessageThread.js";
 import Message from "../../models/Message.js";
+import { ensureSubscription } from "../../services/paymentActivation.js";
+
+const UNLIMITED_JOB_LIMIT = 999999;
 
 async function getCompanyFromClerk(req) {
   if (req.user?.role === "company" && req.user?.isActive !== false) {
@@ -66,6 +69,99 @@ function normalizeHierarchyValue(value, otherValue) {
   return raw;
 }
 
+function sanitizeApplicantProfileRequirement(value) {
+  const raw = String(value || "both").toLowerCase();
+  if (raw === "resume" || raw === "student_profile" || raw === "both") return raw;
+  return "both";
+}
+
+function isSubscriptionActiveNow(subscription) {
+  if (!subscription) return false;
+  if (String(subscription.status || "").toLowerCase() !== "active") return false;
+  if (!subscription.start || !subscription.end) return false;
+  const now = Date.now();
+  return now >= new Date(subscription.start).getTime() && now <= new Date(subscription.end).getTime();
+}
+
+async function syncCompanyJobsUsed(companyId) {
+  const [subscription, activeJobs] = await Promise.all([
+    ensureSubscription(companyId),
+    Job.countDocuments({ company: companyId, status: "Active" }),
+  ]);
+
+  if (Number(subscription.jobsUsed ?? 0) !== Number(activeJobs || 0)) {
+    subscription.jobsUsed = Number(activeJobs || 0);
+    await subscription.save();
+  }
+
+  return {
+    subscription,
+    activeJobs: Number(activeJobs || 0),
+  };
+}
+
+async function getCompanyPostingAccess(companyId) {
+  const { subscription, activeJobs } = await syncCompanyJobsUsed(companyId);
+
+  if (
+    String(subscription.status || "").toLowerCase() === "active" &&
+    subscription.end &&
+    Date.now() > new Date(subscription.end).getTime()
+  ) {
+    subscription.status = "inactive";
+    await subscription.save();
+  }
+
+  const jobsLimit = Number(subscription.jobsLimit ?? 0);
+  const isUnlimited = jobsLimit >= UNLIMITED_JOB_LIMIT;
+  const subscriptionActive = isSubscriptionActiveNow(subscription);
+
+  if (!subscriptionActive) {
+    return {
+      allowed: false,
+      code: "SUBSCRIPTION_REQUIRED",
+      message: "Buy a subscription to post jobs.",
+      subscription,
+      jobsLimit,
+      jobsUsed: activeJobs,
+    };
+  }
+
+  if (!isUnlimited && activeJobs >= jobsLimit) {
+    return {
+      allowed: false,
+      code: "JOB_LIMIT_REACHED",
+      message: "Your job posting limit is over. Upgrade your subscription to post more jobs.",
+      subscription,
+      jobsLimit,
+      jobsUsed: activeJobs,
+    };
+  }
+
+  return {
+    allowed: true,
+    subscription,
+    jobsLimit,
+    jobsUsed: activeJobs,
+  };
+}
+
+function buildPostingAccessPayload(access) {
+  return {
+    code: access.code,
+    message: access.message,
+    subscription: {
+      planName: access.subscription?.planName || "Starter",
+      status: String(access.subscription?.status || "inactive").toLowerCase(),
+      startDate: access.subscription?.start || null,
+      endDate: access.subscription?.end || null,
+      jobsLimit: Number(access.jobsLimit ?? 0),
+      jobsUsed: Number(access.jobsUsed ?? 0),
+      upgradeRequired: access.code === "JOB_LIMIT_REACHED",
+    },
+  };
+}
+
 export async function companyCreateJob(req, res) {
   try {
     const companyUser = await getCompanyFromClerk(req);
@@ -73,6 +169,13 @@ export async function companyCreateJob(req, res) {
 
     const data = req.body || {};
     const status = sanitizeStatus(data.status);
+
+    if (status === "Active") {
+      const access = await getCompanyPostingAccess(companyUser._id);
+      if (!access.allowed) {
+        return res.status(403).json(buildPostingAccessPayload(access));
+      }
+    }
 
     if (!data.title?.trim()) {
       return res.status(400).json({ message: "Job title is required" });
@@ -108,6 +211,7 @@ export async function companyCreateJob(req, res) {
       skills: normalizeSkills(data.skills),
       requireResume: data.requireResume !== false,
       requireProfile100: !!data.requireProfile100,
+      applicantProfileRequirement: sanitizeApplicantProfileRequirement(data.applicantProfileRequirement),
       oneClickApply: data.oneClickApply !== false,
       allowWhatsapp: !!data.allowWhatsapp,
       allowCall: !!data.allowCall,
@@ -125,6 +229,8 @@ export async function companyCreateJob(req, res) {
       boostPlanName: data.boostDays || "",
       status,
     });
+
+    await syncCompanyJobsUsed(companyUser._id);
 
     return res.status(201).json({
       message: status === "Draft" ? "Draft saved" : "Job created successfully",
@@ -219,6 +325,8 @@ export async function companyUpdateJob(req, res) {
 
     const { id } = req.params;
     const data = req.body || {};
+    const existingJob = await Job.findOne({ _id: id, company: companyUser._id }).lean();
+    if (!existingJob) return res.status(404).json({ message: "Job not found" });
 
     const update = {};
 
@@ -243,10 +351,8 @@ export async function companyUpdateJob(req, res) {
       const city = typeof data.city === "string" ? data.city : undefined;
       const state = typeof data.state === "string" ? data.state : undefined;
       if (city !== undefined || state !== undefined) {
-        const base = await Job.findOne({ _id: id, company: companyUser._id }).lean();
-        if (!base) return res.status(404).json({ message: "Job not found" });
-        const finalCity = city !== undefined ? city : base.city;
-        const finalState = state !== undefined ? state : base.state;
+        const finalCity = city !== undefined ? city : existingJob.city;
+        const finalState = state !== undefined ? state : existingJob.state;
         update.location = [finalCity, finalState].filter(Boolean).join(", ");
       }
     }
@@ -265,6 +371,9 @@ export async function companyUpdateJob(req, res) {
     if (data.skills !== undefined) update.skills = normalizeSkills(data.skills);
     if (typeof data.requireResume === "boolean") update.requireResume = data.requireResume;
     if (typeof data.requireProfile100 === "boolean") update.requireProfile100 = data.requireProfile100;
+    if (typeof data.applicantProfileRequirement === "string") {
+      update.applicantProfileRequirement = sanitizeApplicantProfileRequirement(data.applicantProfileRequirement);
+    }
     if (typeof data.oneClickApply === "boolean") update.oneClickApply = data.oneClickApply;
     if (typeof data.allowWhatsapp === "boolean") update.allowWhatsapp = data.allowWhatsapp;
     if (typeof data.allowCall === "boolean") update.allowCall = data.allowCall;
@@ -280,7 +389,15 @@ export async function companyUpdateJob(req, res) {
     if (typeof data.allowInterviewSuggestions === "boolean") update.allowInterviewSuggestions = data.allowInterviewSuggestions;
     if (typeof data.boostJob === "boolean") update.boostActive = data.boostJob;
     if (typeof data.boostDays === "string") update.boostPlanName = data.boostDays;
-    if (data.status !== undefined) update.status = sanitizeStatus(data.status);
+    if (data.status !== undefined) {
+      update.status = sanitizeStatus(data.status);
+      if (update.status === "Active" && existingJob.status !== "Active") {
+        const access = await getCompanyPostingAccess(companyUser._id);
+        if (!access.allowed) {
+          return res.status(403).json(buildPostingAccessPayload(access));
+        }
+      }
+    }
 
     const job = await Job.findOneAndUpdate(
       { _id: id, company: companyUser._id },
@@ -288,7 +405,7 @@ export async function companyUpdateJob(req, res) {
       { returnDocument: "after" }
     ).lean();
 
-    if (!job) return res.status(404).json({ message: "Job not found" });
+    await syncCompanyJobsUsed(companyUser._id);
 
     return res.json({ ok: true, job });
   } catch (err) {
@@ -327,6 +444,8 @@ export async function companyDeleteJob(req, res) {
     if (!jobResult?.deletedCount) {
       return res.status(404).json({ message: "Job not found" });
     }
+
+    await syncCompanyJobsUsed(companyUser._id);
 
     return res.json({
       ok: true,
@@ -386,6 +505,8 @@ export async function companyCloseJob(req, res) {
     if (!job) {
       return res.status(404).json({ message: "Job not found" });
     }
+
+    await syncCompanyJobsUsed(companyUser._id);
 
     return res.json({
       message: "Job closed successfully",

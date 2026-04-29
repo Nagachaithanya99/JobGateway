@@ -322,6 +322,13 @@ export default function Jobs() {
   const onQuickApply = async (jobId) => {
     try {
       if (!jobId) return;
+      const selectedJob = items.find((item) => String(item?._id || item?.id || "") === String(jobId)) || {};
+      const applicantProfileRequirement = String(selectedJob.applicantProfileRequirement || "both").toLowerCase();
+      const needsStudentProfile =
+        selectedJob.requireProfile100 ||
+        applicantProfileRequirement === "student_profile" ||
+        applicantProfileRequirement === "both";
+
       if (!isAuthed || role !== "student") {
         redirectToLogin();
         return;
@@ -336,8 +343,8 @@ export default function Jobs() {
         return;
       }
 
-      const completion = await ensureLatestCompletion();
-      if (completion < 100) {
+      const completion = needsStudentProfile ? await ensureLatestCompletion() : profileCompletion;
+      if (needsStudentProfile && completion < 100) {
         openPopup({
           variant: "warning",
           badge: "Complete Profile",
@@ -386,6 +393,18 @@ export default function Jobs() {
           message: "Your profile needs to be fully completed before this application can be submitted.",
           details: [`Current profile completion: ${completion}%`],
           primaryLabel: "Complete Profile",
+          primaryHref: "/student/profile",
+          secondaryLabel: "Close",
+        });
+        return;
+      }
+      if (e?.response?.data?.resumeRequired) {
+        openPopup({
+          variant: "warning",
+          badge: "Resume Required",
+          title: "Upload your resume before applying",
+          message: "This company requires a resume for this application.",
+          primaryLabel: "Upload Resume",
           primaryHref: "/student/profile",
           secondaryLabel: "Close",
         });

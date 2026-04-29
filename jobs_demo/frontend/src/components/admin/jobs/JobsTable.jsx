@@ -117,7 +117,9 @@ export default function JobsTable({
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-2">
                       <ActionBtn title="View Job" onClick={() => onOpen(job)} icon={<FiEye />} />
-                      <ActionBtn title="Edit Job" tone="orange" onClick={() => onEdit(job)} icon={<FiEdit2 />} />
+                      {onEdit ? (
+                        <ActionBtn title="Edit Job" tone="orange" onClick={() => onEdit(job)} icon={<FiEdit2 />} />
+                      ) : null}
                       <ActionBtn
                         title={isActive ? "Disable Job" : "Enable Job"}
                         tone="red"
@@ -174,7 +176,9 @@ export default function JobsTable({
 
                   <div className="mt-3 flex justify-end gap-2">
                     <ActionBtn title="View Job" onClick={() => onOpen(job)} icon={<FiEye />} />
-                    <ActionBtn title="Edit Job" tone="orange" onClick={() => onEdit(job)} icon={<FiEdit2 />} />
+                    {onEdit ? (
+                      <ActionBtn title="Edit Job" tone="orange" onClick={() => onEdit(job)} icon={<FiEdit2 />} />
+                    ) : null}
                     <ActionBtn
                       title={isActive ? "Disable Job" : "Enable Job"}
                       tone="red"

@@ -77,6 +77,32 @@ function activeLabel(value, timeAgo) {
   return text === "Now" ? "Active now" : `Active ${text} ago`;
 }
 
+function participantStatusSummary(thread, timeAgo) {
+  const participant = thread?.participant;
+  if (participant?.isOnline) {
+    return { label: "Online", online: true };
+  }
+
+  const lastSeenValue = participant?.lastSeenAt || thread?.updatedAt || null;
+  if (!lastSeenValue) {
+    return { label: "Offline", online: false };
+  }
+
+  const text = timeAgo?.(lastSeenValue) || "recently";
+  if (text === "Now") {
+    return { label: "Online", online: true };
+  }
+
+  return { label: `Last seen ${text} ago`, online: false };
+}
+
+function participantPresenceLabel(thread, timeAgo) {
+  const participant = thread?.participant;
+  if (thread?.type === "request_received") return "Sent you a message request";
+  if (thread?.type === "request_sent") return "Waiting for acceptance";
+  return participantStatusSummary(thread, timeAgo).label || activeLabel(thread?.updatedAt, timeAgo);
+}
+
 function formatDateDivider(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -192,76 +218,11 @@ function ThreadMenu({ muted, pinned, unread, onToggleUnread, onTogglePin, onTogg
   );
 }
 
-function HeaderMenu({
-  canReport,
-  muted,
-  onSendAccount,
-  onReport,
-  onToggleMute,
-  onOpenDetails,
-  onSelectMessages,
-  onDeleteChat,
-}) {
-  return (
-    <div className="absolute right-0 top-12 z-20 min-w-[240px] rounded-[22px] border border-slate-200 bg-white py-2 shadow-[0_18px_48px_rgba(15,23,42,0.16)]">
-      <button
-        type="button"
-        onClick={onSendAccount}
-        className="flex w-full items-center justify-between px-5 py-3 text-left text-[15px] font-medium text-slate-800 hover:bg-slate-50"
-      >
-        <span>Send account</span>
-        <FiSend />
-      </button>
-      <button
-        type="button"
-        onClick={onSelectMessages}
-        className="flex w-full items-center justify-between px-5 py-3 text-left text-[15px] font-medium text-slate-800 hover:bg-slate-50"
-      >
-        <span>Select messages</span>
-        <FiCheck />
-      </button>
-      <button
-        type="button"
-        onClick={onToggleMute}
-        className="flex w-full items-center justify-between px-5 py-3 text-left text-[15px] font-medium text-slate-800 hover:bg-slate-50"
-      >
-        <span>{muted ? "Unmute messages" : "Mute messages"}</span>
-        {muted ? <FiBellOff /> : <FiBell />}
-      </button>
-      <button
-        type="button"
-        onClick={onOpenDetails}
-        className="flex w-full items-center justify-between px-5 py-3 text-left text-[15px] font-medium text-slate-800 hover:bg-slate-50"
-      >
-        <span>View profile details</span>
-        <FiInfo />
-      </button>
-      {canReport ? (
-        <button
-          type="button"
-          onClick={onReport}
-          className="flex w-full items-center justify-between px-5 py-3 text-left text-[15px] font-medium text-[#d97706] hover:bg-amber-50"
-        >
-          <span>Report</span>
-          <FiFlag />
-        </button>
-      ) : null}
-      <button
-        type="button"
-        onClick={onDeleteChat}
-        className="flex w-full items-center justify-between px-5 py-3 text-left text-[15px] font-medium text-rose-500 hover:bg-rose-50"
-      >
-        <span>Delete chat</span>
-        <FiTrash2 />
-      </button>
-    </div>
-  );
-}
-
-function ThreadRow({ thread, active, timeAgo, muted, pinned, unread, onClick, onToggleUnread, onTogglePin, onToggleMute, onHide }) {
+function ThreadRow({ thread, active, timeAgo, muted, pinned, unread, onClick, onOpenProfile, onToggleUnread, onTogglePin, onToggleMute, onHide }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const menuRef = useRef(null);
+  const participantStatus = participantStatusSummary(thread, timeAgo);
 
   useEffect(() => {
     if (!menuOpen && !reactionPickerOpen) return undefined;
@@ -277,11 +238,21 @@ function ThreadRow({ thread, active, timeAgo, muted, pinned, unread, onClick, on
 
   return (
     <div className={`group relative flex items-center gap-3 px-6 py-3 transition ${active ? "bg-[#f4f6f8]" : "hover:bg-[#fafafa]"}`}>
-      <button type="button" onClick={onClick} className="flex min-w-0 flex-1 items-center gap-4 text-left">
-        <div className="relative shrink-0">
-          <Avatar name={thread.participant?.name} avatarUrl={thread.participant?.avatarUrl} />
-          {thread.unread || unread ? <span className="absolute -right-0.5 bottom-1 h-3 w-3 rounded-full bg-[#4f46e5]" /> : null}
-        </div>
+      <button
+        type="button"
+        onClick={() => onOpenProfile?.(thread)}
+        className="relative shrink-0 rounded-full"
+        aria-label={`Open ${thread.participant?.name || "profile"} profile`}
+      >
+        <Avatar name={thread.participant?.name} avatarUrl={thread.participant?.avatarUrl} />
+        {participantStatus.online ? <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-green-500" /> : null}
+        {thread.unread || unread ? <span className="absolute -right-0.5 bottom-1 h-3 w-3 rounded-full bg-[#4f46e5]" /> : null}
+      </button>
+      <button
+        type="button"
+        onClick={() => onClick?.(thread)}
+        className="flex min-w-0 flex-1 text-left"
+      >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="truncate text-[16px] font-semibold text-slate-900">{thread.participant?.name || "Explore member"}</p>
@@ -291,6 +262,10 @@ function ThreadRow({ thread, active, timeAgo, muted, pinned, unread, onClick, on
           <p className="mt-1 truncate text-[14px] text-slate-600">
             {thread.preview || thread.participant?.headline || "Explore chat"} <span className="text-slate-400">{"\u00B7"} {bubbleTime(thread.updatedAt, timeAgo)}</span>
           </p>
+          <div className="mt-1 flex items-center gap-2 text-[12px] text-slate-500">
+            {participantStatus.online ? <span className="h-2 w-2 rounded-full bg-green-500" /> : null}
+            <span className="truncate">{participantStatus.label}</span>
+          </div>
         </div>
       </button>
       <div ref={menuRef} className="relative">
@@ -467,10 +442,116 @@ function MessageBubble({
   );
 }
 
+function ThreadDetailsBody({
+  thread,
+  timeAgo,
+  threadMuted,
+  onToggleMute,
+  onReport,
+  onDeleteChat,
+  onSelectMessages,
+}) {
+  const participantStatus = participantStatusSummary(thread, timeAgo);
+
+  if (!thread) return null;
+
+  return (
+    <>
+      <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
+        <div className="relative shrink-0">
+          <Avatar name={thread?.participant?.name} avatarUrl={thread?.participant?.avatarUrl} />
+          {participantStatus.online ? <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-green-500" /> : null}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="text-[24px] font-black text-slate-900">{thread?.participant?.name || "Explore member"}</p>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-600">
+              {thread?.participant?.badge || thread?.participant?.role || "Profile"}
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[14px] text-slate-500">
+            {participantStatus.online ? <span className="h-2.5 w-2.5 rounded-full bg-green-500" /> : null}
+            <span>{participantStatus.label}</span>
+          </div>
+          <p className="mt-3 text-[15px] font-medium text-slate-700">{thread?.participant?.headline || "Explore member"}</p>
+          <p className="mt-3 text-[14px] leading-7 text-slate-500">
+            {thread?.participant?.intro || "No profile intro available yet."}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-8 grid gap-4 sm:grid-cols-2">
+        <div className="rounded-[24px] border border-[#edf1f5] bg-[#f8fafc] p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Location</p>
+          <p className="mt-2 text-[15px] font-medium text-slate-800">{thread?.participant?.location || "Not shared yet"}</p>
+        </div>
+        <div className="rounded-[24px] border border-[#edf1f5] bg-[#f8fafc] p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Website</p>
+          {thread?.participant?.website ? (
+            <a
+              href={thread.participant.website}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-2 block truncate text-[15px] font-medium text-[#0f766e] underline-offset-4 hover:underline"
+            >
+              {thread.participant.website}
+            </a>
+          ) : (
+            <p className="mt-2 text-[15px] font-medium text-slate-800">Not added</p>
+          )}
+        </div>
+        <div className="rounded-[24px] border border-[#edf1f5] bg-[#f8fafc] p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Profile Strength</p>
+          <p className="mt-2 text-[15px] font-medium text-slate-800">{Number(thread?.participant?.profileStrength || 0)}%</p>
+          <div className="mt-3 h-2 rounded-full bg-slate-200">
+            <div
+              className="h-2 rounded-full bg-[linear-gradient(90deg,#0f766e_0%,#14b8a6_100%)]"
+              style={{ width: `${Math.max(0, Math.min(100, Number(thread?.participant?.profileStrength || 0)))}%` }}
+            />
+          </div>
+        </div>
+        <div className="rounded-[24px] border border-[#edf1f5] bg-[#f8fafc] p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              {threadMuted ? <FiBellOff className="text-[20px] text-slate-600" /> : <FiBell className="text-[20px] text-slate-600" />}
+              <span className="text-[16px] font-medium text-slate-900">Mute messages</span>
+            </div>
+            <button type="button" onClick={onToggleMute} className={`relative inline-flex h-8 w-14 rounded-full ${threadMuted ? "bg-[#0f766e]" : "bg-slate-300"}`}>
+              <span className={`absolute top-1 h-6 w-6 rounded-full bg-white transition ${threadMuted ? "left-7" : "left-1"}`} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-8">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Focus Tags</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {(thread?.participant?.focusTags || []).length ? (
+            thread.participant.focusTags.map((tag) => (
+              <span key={tag} className="rounded-full bg-[#ecfeff] px-3 py-1.5 text-sm font-medium text-[#0f766e]">
+                {tag}
+              </span>
+            ))
+          ) : (
+            <span className="text-[14px] text-slate-500">No focus tags added.</span>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-10 flex flex-wrap gap-3 border-t border-[#eef2f6] pt-8">
+        <button type="button" onClick={onReport} className="rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700">Report</button>
+        <button type="button" onClick={onDeleteChat} className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600">Delete chat</button>
+        <button type="button" onClick={onSelectMessages} className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Select messages</button>
+      </div>
+    </>
+  );
+}
+
 export default function ExploreMessagesUi({
   viewer,
   threads = [],
   activeThread,
+  selectedThreadId = "",
   messages = [],
   draft = "",
   attachmentPreview = "",
@@ -507,9 +588,8 @@ export default function ExploreMessagesUi({
   const [selectionMode, setSelectionMode] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
-  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
+  const [displayThread, setDisplayThread] = useState(activeThread || null);
   const [typingUser, setTypingUser] = useState(false);
-  const [onlineUsers, setOnlineUsers] = useState({});
   const [recording, setRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [prefs, setPrefs] = useState(() => loadPrefs());
@@ -517,7 +597,6 @@ export default function ExploreMessagesUi({
   const conversationScrollRef = useRef(null);
   const fileInputRef = useRef(null);
   const typingTimerRef = useRef(null);
-  const headerMenuRef = useRef(null);
   const recorderRef = useRef(null);
   const recorderChunksRef = useRef([]);
   const recordStreamRef = useRef(null);
@@ -529,6 +608,8 @@ export default function ExploreMessagesUi({
   const pendingInitialThreadScrollRef = useRef(false);
   const sendRecordingAfterStopRef = useRef(false);
   const pendingVoiceSendRef = useRef(false);
+  const externalThreadId = String(selectedThreadId || activeThread?.id || "");
+  const currentThreadId = String(displayThread?.id || externalThreadId || "");
 
   useEffect(() => {
     savePrefs(prefs);
@@ -536,7 +617,7 @@ export default function ExploreMessagesUi({
 
   useEffect(() => {
     setSelectionMode(false);
-  }, [activeThread?.id]);
+  }, [currentThreadId]);
 
   useEffect(() => {
     if (!selectedMessageIds.length) setSelectionMode(false);
@@ -544,8 +625,7 @@ export default function ExploreMessagesUi({
 
   useEffect(() => {
     setEmojiOpen(false);
-    setHeaderMenuOpen(false);
-  }, [activeThread?.id]);
+  }, [currentThreadId]);
 
   useEffect(() => {
     const node = conversationScrollRef.current;
@@ -559,10 +639,10 @@ export default function ExploreMessagesUi({
     handleScroll();
     node.addEventListener("scroll", handleScroll);
     return () => node.removeEventListener("scroll", handleScroll);
-  }, [activeThread?.id, loadingThread]);
+  }, [currentThreadId, loadingThread]);
 
   useEffect(() => {
-    const nextThreadId = String(activeThread?.id || "");
+    const nextThreadId = currentThreadId;
     const lastMessageId = String(messages[messages.length - 1]?.id || "");
     const previousSnapshot = previousMessageSnapshotRef.current;
 
@@ -597,7 +677,7 @@ export default function ExploreMessagesUi({
     window.requestAnimationFrame(() => {
       scrollConversationToBottom(conversationScrollRef.current, "smooth");
     });
-  }, [activeThread?.id, messages]);
+  }, [currentThreadId, messages]);
 
   useEffect(
     () => () => {
@@ -611,22 +691,6 @@ export default function ExploreMessagesUi({
     },
     []
   );
-
-  useEffect(() => {
-    if (!headerMenuOpen) return undefined;
-    const handlePointerDown = (event) => {
-      if (!headerMenuRef.current?.contains(event.target)) {
-        setHeaderMenuOpen(false);
-      }
-    };
-    window.addEventListener("pointerdown", handlePointerDown);
-    return () => window.removeEventListener("pointerdown", handlePointerDown);
-  }, [headerMenuOpen]);
-
-  useEffect(() => {
-    if (!activeThread?.id) return;
-    setOnlineUsers((prev) => ({ ...prev, [activeThread.id]: true }));
-  }, [activeThread?.id]);
 
   useEffect(() => {
     if (
@@ -656,12 +720,68 @@ export default function ExploreMessagesUi({
       });
   }, [prefs.hiddenThreadIds, prefs.pinnedThreadIds, searchQuery, threads]);
 
+  useEffect(() => {
+    if (!externalThreadId) {
+      setDisplayThread(activeThread || null);
+      return;
+    }
+
+    const matchedThread =
+      visibleThreads.find((thread) => String(thread.id || "") === externalThreadId) ||
+      threads.find((thread) => String(thread.id || "") === externalThreadId) ||
+      (String(activeThread?.id || "") === externalThreadId ? activeThread : null) ||
+      null;
+
+    if (matchedThread) {
+      setDisplayThread((prev) => {
+        const sameId = String(prev?.id || "") === String(matchedThread.id || "");
+        const sameName = String(prev?.participant?.name || "") === String(matchedThread.participant?.name || "");
+        const sameHeadline = String(prev?.participant?.headline || "") === String(matchedThread.participant?.headline || "");
+        const sameAvatar = String(prev?.participant?.avatarUrl || "") === String(matchedThread.participant?.avatarUrl || "");
+        return sameId && sameName && sameHeadline && sameAvatar ? prev : matchedThread;
+      });
+    }
+  }, [externalThreadId, visibleThreads, threads, activeThread]);
+
+  const activeThreadId = currentThreadId;
+  const resolvedActiveThread = useMemo(() => {
+    if (!activeThreadId) {
+      return displayThread || activeThread || null;
+    }
+    if (String(displayThread?.id || "") === activeThreadId) {
+      return displayThread;
+    }
+    if (String(activeThread?.id || "") === activeThreadId) {
+      return activeThread;
+    }
+    return (
+      visibleThreads.find((thread) => String(thread.id || "") === activeThreadId) ||
+      threads.find((thread) => String(thread.id || "") === activeThreadId) ||
+      null
+    );
+  }, [activeThreadId, visibleThreads, threads, activeThread, displayThread]);
   const latestIncomingMessage = useMemo(() => [...messages].reverse().find((message) => message.canReport && !message.deleted && message.sender !== "system") || null, [messages]);
-  const latestOwnMessage = useMemo(() => [...messages].reverse().find((message) => message.canDelete && !message.deleted && message.sender === "self") || null, [messages]);
-  const threadMuted = activeThread ? prefs.mutedThreadIds.includes(activeThread.id) : false;
+  const threadMuted = resolvedActiveThread ? prefs.mutedThreadIds.includes(resolvedActiveThread.id) : false;
 
   const updatePrefs = (updater) => setPrefs((prev) => updater(prev));
   const togglePrefId = (key, id) => updatePrefs((prev) => ({ ...prev, [key]: prev[key].includes(id) ? prev[key].filter((item) => item !== id) : [...prev[key], id] }));
+  const handleSelectThread = (thread) => {
+  if (!thread) return;
+
+  // ✅ call parent function
+  onSelectThread?.(thread);
+};
+  const selectThread = (thread) => {
+    if (!thread) return;
+    setDisplayThread(thread);
+    onSelectThread?.(thread);
+  };
+  const openThreadProfile = (thread) => {
+    if (!thread) return;
+    setDisplayThread(thread);
+    onSelectThread?.(thread);
+    setDetailsOpen(true);
+  };
   const appendEmoji = (emoji) => {
     onDraftChange?.(`${String(draft || "")}${emoji}`);
     setEmojiOpen(false);
@@ -763,7 +883,7 @@ export default function ExploreMessagesUi({
 
   return (
     <div className="h-[calc(100vh-130px)] min-h-[640px] w-full overflow-hidden rounded-[24px] border border-[#dfe5ec] bg-white shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
-      <div className={`grid h-full ${detailsOpen ? "xl:grid-cols-[330px_minmax(0,1fr)_300px]" : "xl:grid-cols-[330px_minmax(0,1fr)]"}`}>
+      <div className="grid h-full xl:grid-cols-[330px_minmax(0,1fr)]">
         <aside className="w-full border-r border-[#e8edf2] bg-white xl:w-[330px]">
           <div className="border-b border-[#eef2f6] px-6 py-6">
             <div className="flex items-center justify-between">
@@ -792,89 +912,83 @@ export default function ExploreMessagesUi({
                 <ThreadRow
                   key={thread.id}
                   thread={thread}
-                  active={thread.id === activeThread?.id}
+                  active={String(thread.id || "") === activeThreadId}
                   timeAgo={timeAgo}
                   muted={prefs.mutedThreadIds.includes(thread.id)}
                   pinned={prefs.pinnedThreadIds.includes(thread.id)}
                   unread={prefs.unreadThreadIds.includes(thread.id)}
-                  onClick={() => onSelectThread?.(thread)}
+                  onClick={() => selectThread(thread)}
+                  onOpenProfile={() => openThreadProfile(thread)}
                   onToggleUnread={() => togglePrefId("unreadThreadIds", thread.id)}
                   onTogglePin={() => togglePrefId("pinnedThreadIds", thread.id)}
                   onToggleMute={() => togglePrefId("mutedThreadIds", thread.id)}
-                  onHide={() => updatePrefs((prev) => ({ ...prev, hiddenThreadIds: [...prev.hiddenThreadIds, thread.id] }))}
+                  onHide={() =>
+                    updatePrefs((prev) => ({
+                      ...prev,
+                      hiddenThreadIds: [...prev.hiddenThreadIds, thread.id],
+                    }))
+                  }
                 />
               ))
             ) : <div className="px-6 py-14 text-center text-sm text-slate-500">No Explore chats found.</div>}
           </div>
         </aside>
         <section className="flex min-h-[760px] flex-col bg-white">
-          {activeThread ? (
+          {resolvedActiveThread ? (
             <>
-              <div className="flex items-center justify-between border-b border-[#eef2f6] px-6 py-5">
-                <button
-                  type="button"
-                  onClick={() => setDetailsOpen(true)}
-                  className="flex min-w-0 items-center gap-3 text-left"
-                >
-                  <div className="relative">
-                    <Avatar name={activeThread.participant?.name} avatarUrl={activeThread.participant?.avatarUrl} />
-                    {onlineUsers[activeThread?.id] ? <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-green-500" /> : null}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="truncate text-[22px] font-semibold text-slate-900">{activeThread.participant?.name || "Explore member"}</p>
-                    <p className="truncate text-[15px] text-slate-500">
-                      {activeThread.type === "request_received"
-                        ? "Sent you a message request"
-                        : activeThread.type === "request_sent"
-                          ? "Waiting for acceptance"
-                          : activeLabel(activeThread.updatedAt, timeAgo)}
-                    </p>
-                    <p className="truncate text-[13px] text-slate-400">
-                      {activeThread.participant?.headline || "Explore profile"}
-                    </p>
-                  </div>
-                </button>
-                <div className="flex items-center gap-3 text-slate-900">
-                  <button type="button" onClick={() => setDetailsOpen((prev) => !prev)} className="text-[28px]" aria-label="Details"><FiInfo /></button>
-                  <div ref={headerMenuRef} className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setHeaderMenuOpen((prev) => !prev)}
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-full text-[24px] text-slate-700 transition hover:bg-slate-100"
-                      aria-label="More options"
-                    >
-                      <FiMoreHorizontal />
-                    </button>
-                    {headerMenuOpen ? (
-                      <HeaderMenu
-                        canReport={Boolean(latestIncomingMessage)}
-                        muted={threadMuted}
-                        onSendAccount={() => {
-                          onSendAccount?.();
-                          setHeaderMenuOpen(false);
-                        }}
-                        onReport={() => {
-                          if (latestIncomingMessage) onReportMessage?.(latestIncomingMessage);
-                          setHeaderMenuOpen(false);
-                        }}
-                        onToggleMute={() => {
-                          if (activeThread) togglePrefId("mutedThreadIds", activeThread.id);
-                          setHeaderMenuOpen(false);
-                        }}
-                        onOpenDetails={() => {
-                          setDetailsOpen(true);
-                          setHeaderMenuOpen(false);
-                        }}
-                        onSelectMessages={() => {
-                          startSelectionMode();
-                          setHeaderMenuOpen(false);
-                        }}
-                        onDeleteChat={() => {
-                          onDeleteChat?.();
-                          setHeaderMenuOpen(false);
-                        }}
-                      />
-                    ) : null}
+              <div className="border-b border-[#eef2f6] bg-[#fcfdfd] px-6 py-5">
+                <div className="rounded-[26px] border border-[#e7eef3] bg-[linear-gradient(135deg,#f8fffe_0%,#eff8ff_100%)] px-5 py-4 shadow-[0_14px_40px_rgba(15,23,42,0.06)]">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onSendAccount?.()}
+                        className="inline-flex items-center gap-2 rounded-full border border-[#d8e3ea] bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                      >
+                        <FiSend />
+                        Share account
+                      </button>
+                      <button
+                        type="button"
+                        onClick={startSelectionMode}
+                        className="inline-flex items-center gap-2 rounded-full border border-[#d8e3ea] bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                      >
+                        <FiCheck />
+                        Select
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => resolvedActiveThread && togglePrefId("mutedThreadIds", resolvedActiveThread.id)}
+                        className="inline-flex items-center gap-2 rounded-full border border-[#d8e3ea] bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                      >
+                        {threadMuted ? <FiBellOff /> : <FiBell />}
+                        {threadMuted ? "Unmute" : "Mute"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDetailsOpen((prev) => !prev)}
+                        className="inline-flex items-center gap-2 rounded-full bg-[#0f172a] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#111827]"
+                      >
+                        <FiInfo />
+                        Details
+                      </button>
+                      {latestIncomingMessage ? (
+                        <button
+                          type="button"
+                          onClick={() => onReportMessage?.(latestIncomingMessage)}
+                          className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-700 transition hover:bg-amber-100"
+                        >
+                          <FiFlag />
+                          Report
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => onDeleteChat?.()}
+                        className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-600 transition hover:bg-rose-100"
+                      >
+                        <FiTrash2 />
+                        Delete chat
+                      </button>
                   </div>
                 </div>
               </div>
@@ -901,15 +1015,15 @@ export default function ExploreMessagesUi({
                     ))}
                     <div ref={messagesEndRef}></div>
                   </div>
-                ) : activeThread.type === "request_sent" || activeThread.type === "request_received" ? (
+                ) : resolvedActiveThread.type === "request_sent" || resolvedActiveThread.type === "request_received" ? (
                   <div className="flex h-full items-center justify-center text-center">
                     <div>
                       <FiMessageCircle className="mx-auto text-[56px] text-slate-300" />
                       <p className="mt-4 text-[22px] font-semibold text-slate-900">
-                        {activeThread.type === "request_sent" ? "Request pending" : "Request received"}
+                        {resolvedActiveThread.type === "request_sent" ? "Request pending" : "Request received"}
                       </p>
                       <p className="mt-2 text-[15px] text-slate-500">
-                        {activeThread.type === "request_sent"
+                        {resolvedActiveThread.type === "request_sent"
                           ? "Wait until the user accepts your request."
                           : "Accept the request to start messaging."}
                       </p>
@@ -928,12 +1042,12 @@ export default function ExploreMessagesUi({
                 )}
               </div>
               <div className="border-t border-[#eef2f6] px-6 py-5">
-                {activeThread.canAccept ? (
+                {resolvedActiveThread.canAccept ? (
                   <div className="flex items-center justify-between rounded-[22px] bg-[#eff6ff] px-5 py-4">
                     <p className="text-[15px] font-medium text-slate-700">This user sent you a message request. Accept to start chatting.</p>
                     <button type="button" onClick={onAccept} className="rounded-full bg-[linear-gradient(135deg,#0f766e_0%,#14b8a6_100%)] px-5 py-2.5 text-sm font-semibold text-white">Accept request</button>
                   </div>
-                ) : activeThread.type === "request_sent" ? (
+                ) : resolvedActiveThread.type === "request_sent" ? (
                   <div className="rounded-[22px] bg-[#fff7ed] px-5 py-4 text-[15px] font-medium text-[#c2410c]">Your request is waiting for approval. You can message once the other user accepts it.</div>
                 ) : (
                   <div className="space-y-3">
@@ -1104,35 +1218,31 @@ export default function ExploreMessagesUi({
           )}
         </section>
         {detailsOpen ? (
-          <aside className="hidden border-l border-[#eef2f6] bg-white xl:flex xl:flex-col">
-            <div className="border-b border-[#eef2f6] px-6 py-6"><h3 className="text-[20px] font-semibold text-slate-900">Details</h3></div>
-            <div className="flex-1 overflow-y-auto px-6 py-6">
-              <div className="flex items-center justify-between rounded-[22px] border border-[#edf1f5] px-5 py-4">
-                <div className="flex items-center gap-3">
-                  {threadMuted ? <FiBellOff className="text-[20px] text-slate-600" /> : <FiBell className="text-[20px] text-slate-600" />}
-                  <span className="text-[16px] font-medium text-slate-900">Mute messages</span>
+          <div className="fixed inset-0 z-40 flex items-center justify-center p-4">
+            <button type="button" className="absolute inset-0 bg-slate-900/30" onClick={() => setDetailsOpen(false)} aria-label="Close profile" />
+            <div className="relative z-10 max-h-[calc(100vh-48px)] w-full max-w-[760px] overflow-y-auto rounded-[32px] border border-[#e2e8f0] bg-white shadow-[0_30px_90px_rgba(15,23,42,0.24)]">
+              <div className="flex items-center justify-between border-b border-[#eef2f6] px-6 py-5">
+                <div>
+                  <h3 className="text-[24px] font-black text-slate-900">Profile</h3>
+                  <p className="mt-1 text-sm text-slate-500">View the selected user details here.</p>
                 </div>
-                <button type="button" onClick={() => activeThread && togglePrefId("mutedThreadIds", activeThread.id)} className={`relative inline-flex h-8 w-14 rounded-full ${threadMuted ? "bg-[#0f766e]" : "bg-slate-300"}`}>
-                  <span className={`absolute top-1 h-6 w-6 rounded-full bg-white transition ${threadMuted ? "left-7" : "left-1"}`} />
+                <button type="button" onClick={() => setDetailsOpen(false)} className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200">
+                  <FiX />
                 </button>
               </div>
-              <div className="mt-8">
-                <p className="text-[14px] font-semibold text-slate-900">Members</p>
-                <div className="mt-4 flex items-center gap-4">
-                  <Avatar name={activeThread?.participant?.name} avatarUrl={activeThread?.participant?.avatarUrl} />
-                  <div>
-                    <p className="text-[18px] font-semibold text-slate-900">{activeThread?.participant?.name || "Explore member"}</p>
-                    <p className="text-[15px] text-slate-500">{activeThread?.participant?.headline || "Explore member"}</p>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-10 space-y-5 border-t border-[#eef2f6] pt-8">
-                <button type="button" onClick={() => latestIncomingMessage && onReportMessage?.(latestIncomingMessage)} disabled={!latestIncomingMessage} className="text-left text-[18px] font-medium text-rose-500 disabled:opacity-40">Report</button>
-                <button type="button" onClick={() => onDeleteChat?.()} className="text-left text-[18px] font-medium text-rose-500">Delete chat</button>
-                <button type="button" onClick={() => setSelectionMode(true)} className="text-left text-[18px] font-medium text-slate-700">Select messages</button>
+              <div className="px-6 py-6">
+                <ThreadDetailsBody
+                  thread={resolvedActiveThread}
+                  timeAgo={timeAgo}
+                  threadMuted={threadMuted}
+                  onToggleMute={() => resolvedActiveThread && togglePrefId("mutedThreadIds", resolvedActiveThread.id)}
+                  onReport={() => latestIncomingMessage && onReportMessage?.(latestIncomingMessage)}
+                  onDeleteChat={() => onDeleteChat?.()}
+                  onSelectMessages={() => setSelectionMode(true)}
+                />
               </div>
             </div>
-          </aside>
+          </div>
         ) : null}
       </div>
     </div>

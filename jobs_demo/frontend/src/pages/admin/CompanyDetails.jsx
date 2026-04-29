@@ -28,7 +28,13 @@ import {
   YAxis,
   Legend,
 } from "recharts";
-import { adminGetCompanyDetails, adminToggleCompanyStatus } from "../../services/adminService";
+import {
+  adminDeleteJob,
+  adminGetCompanyDetails,
+  adminToggleCompanyStatus,
+  adminToggleJobStatus,
+} from "../../services/adminService";
+import { showSweetConfirm, showSweetToast } from "../../utils/sweetAlert.js";
 
 function badgeClass(type, value) {
   const v = String(value || "").toLowerCase();
@@ -67,7 +73,6 @@ function Badge({ type, value }) {
     </span>
   );
 }
-
 function StatCard({ label, value, trend, icon }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-1 hover:shadow-md">
@@ -116,26 +121,35 @@ export default function CompanyDetails() {
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [company, setCompany] = useState(null);
   const [jobs, setJobs] = useState([]);
   const [applications, setApplications] = useState([]);
+  const [jobBusyId, setJobBusyId] = useState("");
 
   useEffect(() => {
     let active = true;
 
     async function load() {
       setLoading(true);
-      const result = await adminGetCompanyDetails(id);
-      if (!active) return;
+      setError("");
+      try {
+        const result = await adminGetCompanyDetails(id);
+        if (!active) return;
 
-      const c = result?.company || result || null;
-      const j = Array.isArray(result?.jobs) ? result.jobs : Array.isArray(c?.jobs) ? c.jobs : [];
-      const a = Array.isArray(result?.applicants) ? result.applicants : Array.isArray(c?.applicants) ? c.applicants : [];
+        const c = result?.company || result || null;
+        const j = Array.isArray(result?.jobs) ? result.jobs : Array.isArray(c?.jobs) ? c.jobs : [];
+        const a = Array.isArray(result?.applicants) ? result.applicants : Array.isArray(c?.applicants) ? c.applicants : [];
 
-      setCompany(c);
-      setJobs(j);
-      setApplications(a);
-      setLoading(false);
+        setCompany(c);
+        setJobs(j);
+        setApplications(a);
+      } catch (e) {
+        if (!active) return;
+        setError(e?.response?.data?.message || e?.message || "Failed to load company details.");
+      } finally {
+        if (active) setLoading(false);
+      }
     }
 
     load();
@@ -188,6 +202,89 @@ export default function CompanyDetails() {
     setCompany((prev) => ({ ...prev, status: nextStatus }));
   };
 
+  const handleViewJob = (jobId) => {
+    if (!jobId) return;
+    navigate(`/admin/jobs/${jobId}`);
+  };
+
+  const handleToggleJobStatus = async (job) => {
+    const jobId = job?.id || job?._id;
+    if (!jobId) return;
+
+    const currentStatus = String(job?.status || "").toLowerCase();
+    const nextStatus = currentStatus === "disabled" ? "active" : "disabled";
+    const jobTitle = job?.title || "this job";
+    const actionCopy =
+      nextStatus === "disabled"
+        ? {
+            title: "Suspend Job?",
+            text: `Suspend "${jobTitle}"? Students will not be able to apply until you activate it again.`,
+            confirmButtonText: "Yes, suspend",
+            success: `"${jobTitle}" suspended successfully.`,
+          }
+        : {
+            title: "Activate Job?",
+            text: `Activate "${jobTitle}"? Students will be able to apply again.`,
+            confirmButtonText: "Yes, activate",
+            success: `"${jobTitle}" activated successfully.`,
+          };
+
+    const ok = await showSweetConfirm({
+      title: actionCopy.title,
+      text: actionCopy.text,
+      confirmButtonText: actionCopy.confirmButtonText,
+      cancelButtonText: "Cancel",
+      tone: "warning",
+      focusCancel: true,
+    });
+    if (!ok) return;
+
+    setJobBusyId(jobId);
+    setError("");
+    try {
+      const result = await adminToggleJobStatus(jobId, nextStatus);
+      const savedStatus = String(result?.job?.status || nextStatus).toLowerCase();
+      setJobs((prev) => prev.map((item) => (item.id === jobId ? { ...item, status: savedStatus } : item)));
+      void showSweetToast(actionCopy.success, "success", { timer: 1600 });
+    } catch (e) {
+      const message = e?.response?.data?.message || e?.message || "Failed to update job status.";
+      setError(message);
+      void showSweetToast(message, "error", { timer: 1800 });
+    } finally {
+      setJobBusyId("");
+    }
+  };
+
+  const handleDeleteJob = async (job) => {
+    const jobId = job?.id || job?._id;
+    if (!jobId) return;
+
+    const jobTitle = job?.title || "this job";
+    const ok = await showSweetConfirm({
+      title: "Delete Job?",
+      text: `Delete "${jobTitle}"? This cannot be undone.`,
+      confirmButtonText: "Yes, delete",
+      cancelButtonText: "Cancel",
+      tone: "warning",
+      focusCancel: true,
+    });
+    if (!ok) return;
+
+    setJobBusyId(jobId);
+    setError("");
+    try {
+      await adminDeleteJob(jobId);
+      setJobs((prev) => prev.filter((item) => item.id !== jobId));
+      void showSweetToast(`"${jobTitle}" deleted successfully.`, "success", { timer: 1600 });
+    } catch (e) {
+      const message = e?.response?.data?.message || e?.message || "Failed to delete job.";
+      setError(message);
+      void showSweetToast(message, "error", { timer: 1800 });
+    } finally {
+      setJobBusyId("");
+    }
+  };
+
   return (
     <div className="space-y-6">
       <section className="flex flex-wrap items-center justify-between gap-3">
@@ -209,6 +306,12 @@ export default function CompanyDetails() {
         </div>
       </section>
 
+      {error ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+          {error}
+        </div>
+      ) : null}
+
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         {loading ? (
           <div className="h-24 animate-pulse rounded-xl bg-slate-100" />
@@ -218,7 +321,7 @@ export default function CompanyDetails() {
               <img src={avatarFor(company)} alt={company?.name} className="h-20 w-20 rounded-2xl border border-slate-200 object-cover" />
               <div>
                 <h1 className="text-2xl font-bold text-[#0F172A]">{company?.name}</h1>
-                <p className="mt-1 text-sm text-slate-600">{company?.category || "-"} • {company?.location || "-"}</p>
+                <p className="mt-1 text-sm text-slate-600">{company?.category || "-"} - {company?.location || "-"}</p>
                 <a href={company?.website || "#"} target="_blank" rel="noreferrer" className="mt-2 inline-flex text-sm font-medium text-[#2563EB] hover:underline">
                   {company?.website || "Website"}
                 </a>
@@ -339,9 +442,36 @@ export default function CompanyDetails() {
                   <td className="px-4 py-3 text-slate-600">{job.createdAt || "-"}</td>
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-2">
-                      <button className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-blue-200 text-[#2563EB] hover:bg-blue-50"><FiEye /></button>
-                      <button className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-orange-200 text-[#F97316] hover:bg-orange-50"><FiXCircle /></button>
-                      <button className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 text-red-600 hover:bg-red-50"><FiTrash2 /></button>
+                      <button
+                        type="button"
+                        aria-label={`View ${job.title}`}
+                        title="View job"
+                        onClick={() => handleViewJob(job.id)}
+                        disabled={jobBusyId === job.id}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-blue-200 text-[#2563EB] transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <FiEye />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={String(job.status || "").toLowerCase() === "disabled" ? `Activate ${job.title}` : `Suspend ${job.title}`}
+                        title={String(job.status || "").toLowerCase() === "disabled" ? "Activate job" : "Suspend job"}
+                        onClick={() => handleToggleJobStatus(job)}
+                        disabled={jobBusyId === job.id}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-orange-200 text-[#F97316] transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <FiXCircle />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Delete ${job.title}`}
+                        title="Delete job"
+                        onClick={() => handleDeleteJob(job)}
+                        disabled={jobBusyId === job.id}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <FiTrash2 />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -354,10 +484,36 @@ export default function CompanyDetails() {
           {jobs.map((job) => (
             <div key={job.id} className="rounded-xl border border-slate-200 p-3">
               <p className="font-semibold text-slate-800">{job.title}</p>
-              <p className="mt-1 text-xs text-slate-500">{job.category || job.stream} • {job.location}</p>
+              <p className="mt-1 text-xs text-slate-500">{job.category || job.stream} - {job.location}</p>
               <div className="mt-2 flex items-center justify-between">
                 <Badge type="job" value={job.status || "closed"} />
                 <span className="text-xs text-slate-600">Apps: {job.applications || 0}</span>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleViewJob(job.id)}
+                  disabled={jobBusyId === job.id}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-blue-200 text-[#2563EB] transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <FiEye />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleToggleJobStatus(job)}
+                  disabled={jobBusyId === job.id}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-orange-200 text-[#F97316] transition hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <FiXCircle />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteJob(job)}
+                  disabled={jobBusyId === job.id}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <FiTrash2 />
+                </button>
               </div>
             </div>
           ))}
@@ -459,4 +615,3 @@ export default function CompanyDetails() {
     </div>
   );
 }
-

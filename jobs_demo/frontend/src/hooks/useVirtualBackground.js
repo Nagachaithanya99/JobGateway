@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const ORIGINAL_BACKGROUND_ID = "none";
-const DEFAULT_BACKGROUND_ID = "emerald-matte";
+const DEFAULT_BACKGROUND_ID = ORIGINAL_BACKGROUND_ID;
 
 export const VIRTUAL_BACKGROUND_OPTIONS = [
   {
@@ -256,7 +256,7 @@ export default function useVirtualBackground(previewVideoRef) {
   const renderCanvasRef = useRef(null);
   const previewStreamRef = useRef(null);
   const processedTrackRef = useRef(null);
-  const senderRef = useRef(null);
+  const sendersRef = useRef(new Set());
   const rafRef = useRef(0);
   const startPromiseRef = useRef(null);
 
@@ -272,12 +272,27 @@ export default function useVirtualBackground(previewVideoRef) {
   }, [previewVideoRef]);
 
   const replaceSenderTrack = useCallback(async (track) => {
-    const sender = senderRef.current;
-    if (!sender || sender.track === track) return;
+    const senders = Array.from(sendersRef.current || []);
+    if (!senders.length) return;
+
+    await Promise.all(
+      senders.map(async (sender) => {
+        if (!sender || sender.track === track) return;
+        try {
+          await sender.replaceTrack(track || null);
+        } catch {
+          // ignore closed peer connection races
+        }
+      }),
+    );
+  }, []);
+
+  const removeSender = useCallback((sender) => {
+    if (!sender) return;
     try {
-      await sender.replaceTrack(track || null);
+      sendersRef.current.delete(sender);
     } catch {
-      // ignore closed peer connection races
+      // ignore unexpected sender cleanup issues
     }
   }, []);
 
@@ -429,12 +444,17 @@ export default function useVirtualBackground(previewVideoRef) {
   }, [bindStream, ensureProcessedTrack]);
 
   const bindVideoSender = useCallback(async (sender) => {
-    senderRef.current = sender || null;
+    if (!sender) return;
+    sendersRef.current.add(sender);
     const activeTrack = selectedBackgroundRef.current === ORIGINAL_BACKGROUND_ID
       ? sourceTrackRef.current
       : processedTrackRef.current || sourceTrackRef.current;
-    await replaceSenderTrack(activeTrack || null);
-  }, [replaceSenderTrack]);
+    try {
+      await sender.replaceTrack(activeTrack || null);
+    } catch {
+      removeSender(sender);
+    }
+  }, [removeSender]);
 
   const syncVideoEnabled = useCallback((enabled) => {
     if (processedTrackRef.current) {
@@ -443,7 +463,7 @@ export default function useVirtualBackground(previewVideoRef) {
   }, []);
 
   const reset = useCallback(() => {
-    senderRef.current = null;
+    sendersRef.current.clear();
     stopProcessing();
     sourceStreamRef.current = null;
     sourceTrackRef.current = null;
@@ -490,6 +510,7 @@ export default function useVirtualBackground(previewVideoRef) {
     backgroundOptions: VIRTUAL_BACKGROUND_OPTIONS,
     bindStream,
     bindVideoSender,
+    removeSender,
     getOutgoingVideoTrack,
     reset,
     selectedBackground,

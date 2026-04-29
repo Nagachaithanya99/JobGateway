@@ -1,5 +1,14 @@
 import mongoose from "mongoose";
 import Interview from "../../models/Interview.js";
+import { emitInterviewSignal } from "../../realtime/interviewSignaling.js";
+import {
+  createInterviewWebrtcState,
+  ensureInterviewWebrtcState,
+  getMonitorCandidateKey,
+  getMonitorRoleBucket,
+  normalizeIceCandidate,
+  normalizeWebRtcSdp,
+} from "../../utils/interviewWebrtc.js";
 
 const STATUS_ALLOWED = [
   "Scheduled",
@@ -29,6 +38,10 @@ function toTime12h(d) {
   return `${String(h).padStart(2, "0")}:${m} ${ampm}`;
 }
 
+function randomId(prefix) {
+  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function mapInterview(x) {
   const d = new Date(x.scheduledAt);
   return {
@@ -51,6 +64,14 @@ function mapInterview(x) {
     proctoring: x.proctoring || { riskLevel: "Low", alerts: [] },
     scorecard: x.scorecard || {},
     finalDecision: x.finalDecision || "",
+    collaboration: {
+      chat: Array.isArray(x?.collaboration?.chat) ? x.collaboration.chat : [],
+      questions: Array.isArray(x?.collaboration?.questions) ? x.collaboration.questions : [],
+      code: x?.collaboration?.code || { language: "javascript", content: "", note: "", output: "", error: "" },
+      screenShare: x?.collaboration?.screenShare || { active: false, by: "" },
+      liveQuestionDraft: x?.collaboration?.liveQuestionDraft || { text: "", by: "", updatedAt: null },
+      webrtc: ensureInterviewWebrtcState(x?.collaboration?.webrtc, x?.sessionId),
+    },
     createdAt: x.createdAt,
   };
 }
@@ -123,6 +144,8 @@ export async function adminStartInterview(req, res, next) {
 
     if (!interview.roomId) interview.roomId = `room_${Math.random().toString(36).slice(2, 10)}`;
     if (!interview.sessionId) interview.sessionId = `session_${Math.random().toString(36).slice(2, 10)}`;
+    interview.collaboration = interview.collaboration || {};
+    interview.collaboration.webrtc = createInterviewWebrtcState(String(interview.sessionId || ""));
     interview.status = interview.status === "Live" ? "Live" : "Waiting Room";
     interview.startedAt = interview.startedAt || new Date();
     await interview.save();
@@ -148,6 +171,123 @@ export async function adminEndInterview(req, res, next) {
     }
     await interview.save();
     return res.json({ ok: true, interview: mapInterview(interview) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function adminInterviewMonitorOffer(req, res, next) {
+  try {
+    const { id, targetRole } = req.params;
+    if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: "Invalid interview id" });
+
+    const roleBucket = getMonitorRoleBucket(targetRole);
+    const candidateKey = getMonitorCandidateKey(targetRole);
+    const { type = "offer", sdp = "" } = req.body || {};
+    const safeSdp = normalizeWebRtcSdp(sdp);
+    if (!safeSdp) return res.status(400).json({ message: "Offer SDP is required" });
+
+    const existing = await Interview.findById(id).select("_id sessionId collaboration.webrtc").lean();
+    if (!existing) return res.status(404).json({ message: "Interview not found" });
+
+    const rtc = ensureInterviewWebrtcState(existing?.collaboration?.webrtc, existing?.sessionId);
+    const sessionId = String(
+      rtc?.adminMonitor?.[roleBucket]?.sessionId
+      || rtc?.sessionId
+      || randomId("monitor")
+    );
+    const createdAt = new Date();
+
+    const interview = await Interview.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          "collaboration.webrtc.active": true,
+          [`collaboration.webrtc.adminMonitor.${roleBucket}.sessionId`]: sessionId,
+          [`collaboration.webrtc.adminMonitor.${roleBucket}.offer`]: {
+            type: String(type || "offer"),
+            sdp: safeSdp,
+            by: "admin",
+            createdAt,
+          },
+          [`collaboration.webrtc.adminMonitor.${roleBucket}.answer`]: {
+            type: "",
+            sdp: "",
+            by: "",
+            createdAt: null,
+          },
+          [`collaboration.webrtc.adminMonitor.${roleBucket}.adminCandidates`]: [],
+          [`collaboration.webrtc.adminMonitor.${roleBucket}.${candidateKey}`]: [],
+        },
+      },
+      { returnDocument: "after" }
+    );
+
+    emitInterviewSignal(
+      id,
+      "admin_monitor_offer",
+      {
+        target: roleBucket,
+        sessionId,
+        offer: {
+          type: String(type || "offer"),
+          sdp: safeSdp,
+          by: "admin",
+          createdAt: createdAt.toISOString(),
+        },
+      },
+      { excludeRole: "admin" }
+    );
+
+    return res.json({ ok: true, sessionId, interview: mapInterview(interview) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function adminInterviewMonitorCandidate(req, res, next) {
+  try {
+    const { id, targetRole } = req.params;
+    if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: "Invalid interview id" });
+
+    const roleBucket = getMonitorRoleBucket(targetRole);
+    const candidate = normalizeIceCandidate(req.body || {});
+    if (!candidate.candidate) return res.status(400).json({ message: "ICE candidate is required" });
+
+    const existing = await Interview.findById(id).select("_id sessionId collaboration.webrtc").lean();
+    if (!existing) return res.status(404).json({ message: "Interview not found" });
+
+    const rtc = ensureInterviewWebrtcState(existing?.collaboration?.webrtc, existing?.sessionId);
+    const sessionId = String(
+      rtc?.adminMonitor?.[roleBucket]?.sessionId
+      || rtc?.sessionId
+      || randomId("monitor")
+    );
+
+    await Interview.updateOne(
+      { _id: id },
+      {
+        $set: {
+          "collaboration.webrtc.active": true,
+          [`collaboration.webrtc.adminMonitor.${roleBucket}.sessionId`]: sessionId,
+        },
+        $push: {
+          [`collaboration.webrtc.adminMonitor.${roleBucket}.adminCandidates`]: {
+            $each: [candidate],
+            $slice: -150,
+          },
+        },
+      }
+    );
+
+    emitInterviewSignal(
+      id,
+      "admin_monitor_candidate",
+      { from: "admin", target: roleBucket, candidate },
+      { excludeRole: "admin" }
+    );
+
+    return res.json({ ok: true, sessionId });
   } catch (err) {
     next(err);
   }

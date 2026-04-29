@@ -5,6 +5,18 @@ import StudentNotification from "../../models/StudentNotification.js";
 import MessageThread from "../../models/MessageThread.js";
 import Message from "../../models/Message.js";
 import { emitInterviewSignal } from "../../realtime/interviewSignaling.js";
+import {
+  createInterviewWebrtcState,
+  ensureInterviewWebrtcState,
+  normalizeIceCandidate,
+  normalizeWebRtcSdp,
+} from "../../utils/interviewWebrtc.js";
+import {
+  buildPreviewUnsupportedHtml,
+  emptyInterviewCodeResult,
+  executeInterviewCode,
+  normalizeInterviewCodeLanguage,
+} from "../../utils/interviewCodeRunner.js";
 
 const MODE_ALLOWED = ["Online", "Onsite"];
 const STAGE_ALLOWED = ["HR", "Technical", "Managerial", "Final"];
@@ -20,6 +32,12 @@ const WORKFLOW_STATUS_ALLOWED = [
   "No Show",
   "Pending Confirmation",
 ];
+const SCHEDULED_BUCKET_STATUSES = ["Scheduled", "Rescheduled", "Waiting Room"];
+const UPCOMING_BUCKET_STATUSES = ["Scheduled", "Rescheduled"];
+const ONGOING_BUCKET_STATUSES = ["Live"];
+const COMPLETED_BUCKET_STATUSES = ["Completed", "Review Ready"];
+const CANCELLED_BUCKET_STATUSES = ["Cancelled", "No Show"];
+const ACTIVE_TODAY_STATUSES = [...SCHEDULED_BUCKET_STATUSES, ...ONGOING_BUCKET_STATUSES];
 
 function normalizeDurationMins(input, fallback = 30) {
   const n = Number(input);
@@ -73,66 +91,6 @@ function normalizeRoomId(value) {
   return raw.replace(/\s+/g, "-").slice(0, 80);
 }
 
-function normalizeWebRtcSdp(raw) {
-  let source = "";
-  if (raw && typeof raw === "object" && typeof raw.sdp === "string") {
-    source = raw.sdp;
-  } else {
-    source = String(raw || "").trim();
-    if (source.startsWith("{") && source.endsWith("}")) {
-      try {
-        const parsed = JSON.parse(source);
-        if (parsed && typeof parsed.sdp === "string") source = parsed.sdp;
-      } catch {
-        // keep original source
-      }
-    }
-  }
-
-  const sdp = String(source || "")
-    .replace(/\\r\\n/g, "\r\n")
-    .replace(/\\n/g, "\n")
-    .trim();
-  if (!sdp) return "";
-
-  const lines = sdp
-    .split(/\r?\n/)
-    .map((line) => String(line || "").trim())
-    .filter(Boolean);
-  const startIndex = lines.findIndex((line) => line.startsWith("v=0"));
-  if (startIndex < 0) return "";
-
-  const allowed = /^(v|o|s|t|a|m|c|b)=/;
-  const cleaned = lines.slice(startIndex).filter((line) => allowed.test(line));
-  if (!cleaned.length || !cleaned[0].startsWith("v=0")) return "";
-  if (!cleaned.some((line) => line.startsWith("m="))) return "";
-
-  const normalized = `${cleaned.join("\r\n")}\r\n`;
-  return normalized.slice(0, 200000);
-}
-
-function normalizeIceCandidate(input = {}) {
-  const parsedMLine = Number(input?.sdpMLineIndex);
-  const safeMLine = Number.isFinite(parsedMLine) ? parsedMLine : null;
-  return {
-    candidate: String(input?.candidate || "").slice(0, 4000),
-    sdpMid: String(input?.sdpMid || "").slice(0, 100),
-    sdpMLineIndex: safeMLine,
-    usernameFragment: String(input?.usernameFragment || "").slice(0, 100),
-    createdAt: new Date(),
-  };
-}
-
-function runJavascriptSnippet(code) {
-  const logs = [];
-  const mockConsole = {
-    log: (...args) => logs.push(args.map((x) => String(x)).join(" ")),
-  };
-  const fn = new Function("console", `"use strict";\n${String(code || "")}`);
-  fn(mockConsole);
-  return logs.join("\n") || "Code executed successfully.";
-}
-
 function computeStartWindow(scheduledAt) {
   const t = new Date(scheduledAt).getTime();
   return {
@@ -146,6 +104,185 @@ function isStartAllowedNow(scheduledAt) {
   return now >= startAllowedAt.getTime();
 }
 
+function safeStr(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function safeObj(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function safeArr(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const next = safeStr(value);
+    if (next) return next;
+  }
+  return "";
+}
+
+function toStringList(value) {
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item) => {
+        if (typeof item === "string") return item.split(/[\n,;/|]+/g);
+        if (item && typeof item === "object") {
+          return String(item.name || item.skill || item.title || "").split(/[\n,;/|]+/g);
+        }
+        return [];
+      })
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(/[\n,;/|]+/g)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function formatEducationHighlight(item) {
+  if (typeof item === "string") return item.trim();
+
+  const row = safeObj(item);
+  const degree = firstNonEmpty(row.degree, row.qualification, row.course, row.title, row.fieldOfStudy, row.branch);
+  const college = firstNonEmpty(row.college, row.institution, row.school, row.university);
+  const duration = firstNonEmpty(
+    row.duration,
+    row.year,
+    [safeStr(row.startYear), safeStr(row.endYear)].filter(Boolean).join(" - "),
+  );
+
+  return [degree, college, duration].filter(Boolean).join(" | ");
+}
+
+function formatExperienceHighlight(item) {
+  if (typeof item === "string") return item.trim();
+
+  const row = safeObj(item);
+  const role = firstNonEmpty(row.role, row.title, row.position, row.designation);
+  const company = firstNonEmpty(row.company, row.organization, row.employer);
+  const duration = firstNonEmpty(
+    row.duration,
+    [safeStr(row.startDate), safeStr(row.endDate)].filter(Boolean).join(" - "),
+  );
+
+  return [role, company, duration].filter(Boolean).join(" | ");
+}
+
+function calculateStudentProfileCompletion(student = {}, application = {}) {
+  const profile = safeObj(student.studentProfile);
+  const personal = safeObj(profile.personal);
+  const preferred = safeObj(profile.preferred);
+  const resume = safeObj(student.resume);
+  const resumePersonal = safeObj(resume.personal);
+  const skills = Array.from(
+    new Set([
+      ...toStringList(application.topSkills),
+      ...toStringList(profile.skills),
+      ...toStringList(resume.skills),
+    ]),
+  );
+  const education = safeArr(profile.education).length ? profile.education : safeArr(resume.education);
+  const experience = safeArr(profile.experience).length ? profile.experience : safeArr(resume.experience);
+  const preferredLocations = safeArr(preferred.locations).map((item) => safeStr(item)).filter(Boolean);
+
+  const checks = [
+    Boolean(
+      firstNonEmpty(student.name, personal.fullName, resumePersonal.name) &&
+        firstNonEmpty(student.email, personal.email, resumePersonal.email) &&
+        firstNonEmpty(student.phone, personal.phone, resumePersonal.phone),
+    ),
+    education.some((item) => Boolean(formatEducationHighlight(item))),
+    skills.length >= 2,
+    profile.fresher === true || experience.some((item) => Boolean(formatExperienceHighlight(item))),
+    Boolean(safeStr(student.resumeUrl) || safeStr(resume.summary)),
+    Boolean(firstNonEmpty(preferred.subCategory, preferred.subcategory, preferred.category, preferred.stream) && preferredLocations.length),
+  ];
+
+  const completed = checks.filter(Boolean).length;
+  return Math.round((completed / checks.length) * 100);
+}
+
+function buildStudentWorkspaceProfile(interview = {}) {
+  const student = safeObj(interview.student);
+  const application = safeObj(interview.application);
+  const profile = safeObj(student.studentProfile);
+  const personal = safeObj(profile.personal);
+  const preferred = safeObj(profile.preferred);
+  const resume = safeObj(student.resume);
+  const resumePersonal = safeObj(resume.personal);
+  const topSkills = Array.from(
+    new Set([
+      ...toStringList(application.topSkills),
+      ...toStringList(profile.skills),
+      ...toStringList(resume.skills),
+    ]),
+  ).slice(0, 10);
+  const educationHighlights = [
+    ...safeArr(profile.education).map(formatEducationHighlight),
+    ...safeArr(resume.education).map(formatEducationHighlight),
+  ]
+    .map((item) => safeStr(item))
+    .filter(Boolean)
+    .filter((item, index, array) => array.indexOf(item) === index)
+    .slice(0, 3);
+  const experienceHighlights = [
+    ...safeArr(profile.experience).map(formatExperienceHighlight),
+    ...safeArr(resume.experience).map(formatExperienceHighlight),
+  ]
+    .map((item) => safeStr(item))
+    .filter(Boolean)
+    .filter((item, index, array) => array.indexOf(item) === index)
+    .slice(0, 3);
+  const preferredLocations = safeArr(preferred.locations).map((item) => safeStr(item)).filter(Boolean).slice(0, 4);
+  const summary = firstNonEmpty(
+    resume.summary,
+    application.experienceText,
+    profile.fresher === true ? "Fresher profile" : "",
+  );
+
+  return {
+    name: firstNonEmpty(student.name, personal.fullName, resumePersonal.name, interview.candidateName),
+    avatarUrl: firstNonEmpty(
+      student.avatarUrl,
+      student.avatar,
+      student.profilePhoto,
+      student.profileImageUrl,
+      student.imageUrl,
+      personal.avatarUrl,
+      personal.profileImageUrl,
+    ),
+    email: firstNonEmpty(student.email, personal.email, resumePersonal.email),
+    phone: firstNonEmpty(student.phone, personal.phone, resumePersonal.phone),
+    location: firstNonEmpty(
+      student.location,
+      personal.location,
+      resumePersonal.location,
+      [safeStr(personal.city), safeStr(personal.state)].filter(Boolean).join(", "),
+    ),
+    linkedin: firstNonEmpty(student.linkedin, personal.linkedin, resumePersonal.linkedin),
+    portfolio: firstNonEmpty(student.portfolio, personal.portfolio, resumePersonal.portfolio),
+    github: firstNonEmpty(personal.github, resumePersonal.github),
+    resumeUrl: safeStr(student.resumeUrl),
+    summary,
+    topSkills,
+    educationHighlights,
+    experienceHighlights,
+    preferredRole: firstNonEmpty(preferred.subCategory, preferred.subcategory, preferred.category, preferred.stream),
+    preferredLocations,
+    workMode: firstNonEmpty(preferred.workMode),
+    profileCompletion: calculateStudentProfileCompletion(student, application),
+  };
+}
+
 function mapInterview(x) {
   const d = new Date(x?.scheduledAt || Date.now());
   const safeScheduledAt = Number.isNaN(d.getTime()) ? new Date() : d;
@@ -156,8 +293,8 @@ function mapInterview(x) {
   const durationMins = normalizeDurationMins(x.durationMins, 30);
   return {
     id: x._id,
-    applicationId: x.application || "",
-    jobId: x.job ? String(x.job) : "",
+    applicationId: x.application?._id ? String(x.application._id) : x.application ? String(x.application) : "",
+    jobId: x.job?._id ? String(x.job._id) : x.job ? String(x.job) : "",
     candidate: x.candidateName,
     email: x.student?.email || "",
     job: x.jobTitle,
@@ -201,20 +338,23 @@ function mapInterview(x) {
     proctoring: x.proctoring || { baselineCaptured: false, riskLevel: "Low", alerts: [] },
     scorecard: x.scorecard || {},
     finalDecision: x.finalDecision || "",
-    collaboration: x.collaboration || {
-      chat: [],
-      questions: [],
-      code: { language: "javascript", content: "", note: "", output: "", error: "" },
-      screenShare: { active: false, by: "" },
-      liveQuestionDraft: { text: "", by: "", updatedAt: null },
-      webrtc: {
-        active: false,
-        sessionId: "",
-        offer: { type: "", sdp: "", by: "", createdAt: null },
-        answer: { type: "", sdp: "", by: "", createdAt: null },
-        companyCandidates: [],
-        studentCandidates: [],
+    collaboration: {
+      chat: Array.isArray(x?.collaboration?.chat) ? x.collaboration.chat : [],
+      questions: Array.isArray(x?.collaboration?.questions) ? x.collaboration.questions : [],
+      code: x?.collaboration?.code || {
+        language: "javascript",
+        content: "",
+        note: "",
+        outputMode: "console",
+        output: "",
+        error: "",
+        serverOutput: "",
+        serverError: "",
+        previewHtml: "",
       },
+      screenShare: x?.collaboration?.screenShare || { active: false, by: "" },
+      liveQuestionDraft: x?.collaboration?.liveQuestionDraft || { text: "", by: "", updatedAt: null },
+      webrtc: ensureInterviewWebrtcState(x?.collaboration?.webrtc, x?.sessionId),
     },
     openJoinWindow,
     startAvailableAt: Number.isNaN(startAllowedAt.getTime()) ? new Date().toISOString() : startAllowedAt.toISOString(),
@@ -366,13 +506,13 @@ export async function listCompanyInterviews(req, res, next) {
     }
 
     if (tab === "scheduled") {
-      items = items.filter((x) => ["Scheduled", "Rescheduled"].includes(x.status));
+      items = items.filter((x) => SCHEDULED_BUCKET_STATUSES.includes(x.status));
     } else if (tab === "ongoing") {
-      items = items.filter((x) => ["Waiting Room", "Live"].includes(x.status));
+      items = items.filter((x) => ONGOING_BUCKET_STATUSES.includes(x.status));
     } else if (tab === "completed") {
-      items = items.filter((x) => ["Completed", "Review Ready"].includes(x.status));
+      items = items.filter((x) => COMPLETED_BUCKET_STATUSES.includes(x.status));
     } else if (tab === "cancelled") {
-      items = items.filter((x) => ["Cancelled", "No Show"].includes(x.status));
+      items = items.filter((x) => CANCELLED_BUCKET_STATUSES.includes(x.status));
     }
 
     if (String(flaggedOnly) === "1") {
@@ -392,12 +532,12 @@ export async function listCompanyInterviews(req, res, next) {
     const summary = {
       shortlistedCandidates: pendingCount,
       interviewPending: pendingCount,
-      scheduledToday: itemsRaw.filter((x) => toDateOnly(new Date(x.scheduledAt)) === todayYMD).length,
-      upcomingInterviews: itemsRaw.filter((x) =>
-        ["Scheduled", "Rescheduled", "Waiting Room"].includes(x.status)
+      scheduledToday: itemsRaw.filter(
+        (x) => toDateOnly(new Date(x.scheduledAt)) === todayYMD && ACTIVE_TODAY_STATUSES.includes(x.status)
       ).length,
-      ongoingNow: itemsRaw.filter((x) => ["Waiting Room", "Live"].includes(x.status)).length,
-      completedInterviews: itemsRaw.filter((x) => ["Completed", "Review Ready"].includes(x.status)).length,
+      upcomingInterviews: itemsRaw.filter((x) => UPCOMING_BUCKET_STATUSES.includes(x.status)).length,
+      ongoingNow: itemsRaw.filter((x) => ONGOING_BUCKET_STATUSES.includes(x.status)).length,
+      completedInterviews: itemsRaw.filter((x) => COMPLETED_BUCKET_STATUSES.includes(x.status)).length,
       flaggedInterviews: itemsRaw.filter(
         (x) => Array.isArray(x?.proctoring?.alerts) && x.proctoring.alerts.length
       ).length,
@@ -523,14 +663,8 @@ export async function createCompanyInterview(req, res, next) {
         questions: [],
         code: { language: "javascript", content: "", note: "", output: "", error: "" },
         screenShare: { active: false, by: "" },
-        webrtc: {
-          active: false,
-          sessionId: "",
-          offer: { type: "", sdp: "", by: "", createdAt: null },
-          answer: { type: "", sdp: "", by: "", createdAt: null },
-          companyCandidates: [],
-          studentCandidates: [],
-        },
+        liveQuestionDraft: { text: "", by: "", updatedAt: null },
+        webrtc: createInterviewWebrtcState(),
       },
       notes: [],
     });
@@ -750,11 +884,17 @@ export async function getCompanyInterviewWorkspace(req, res, next) {
 
     const { id } = req.params;
     const interview = await Interview.findOne({ _id: id, company: companyId })
-      .populate("student", "name email")
+      .populate("student", "name email phone location linkedin portfolio resumeUrl resume studentProfile avatarUrl avatar profilePhoto profileImageUrl imageUrl")
+      .populate("application", "topSkills experienceText")
       .lean();
     if (!interview) return res.status(404).json({ message: "Interview not found" });
 
-    return res.json({ interview: mapInterview(interview) });
+    return res.json({
+      interview: {
+        ...mapInterview(interview),
+        studentProfileCard: buildStudentWorkspaceProfile(interview),
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -785,14 +925,7 @@ export async function startCompanyInterview(req, res, next) {
     if (!interview.sessionId) interview.sessionId = randomId("session");
     if (interview.mode === "Online") interview.interviewLinks = interview.meetingLink ? [interview.meetingLink] : [];
     interview.collaboration = interview.collaboration || {};
-    interview.collaboration.webrtc = {
-      active: false,
-      sessionId: String(interview.sessionId || ""),
-      offer: { type: "", sdp: "", by: "", createdAt: null },
-      answer: { type: "", sdp: "", by: "", createdAt: null },
-      companyCandidates: [],
-      studentCandidates: [],
-    };
+    interview.collaboration.webrtc = createInterviewWebrtcState(String(interview.sessionId || ""));
     interview.status = interview.status === "Live" ? "Live" : "Waiting Room";
     if (!interview.startedAt) interview.startedAt = new Date();
     if (!interview.currentRound) interview.currentRound = interview.stage || "HR";
@@ -805,6 +938,39 @@ export async function startCompanyInterview(req, res, next) {
         "Interview is ready to join",
         `Your interview room is active now. Room ID: ${interview.roomId}. Click Join Meeting.`,
       );
+    }
+
+    return res.json({ ok: true, interview: mapInterview(interview) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/company/interviews/:id/leave
+export async function companyLeaveInterview(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+
+    const { id } = req.params;
+    const interview = await Interview.findOne({ _id: id, company: companyId });
+    if (!interview) return res.status(404).json({ message: "Interview not found" });
+
+    if (!["Completed", "Review Ready", "Cancelled", "No Show"].includes(interview.status)) {
+      if (interview.status === "Live") {
+        interview.status = "Waiting Room";
+      }
+
+      if (interview?.collaboration?.screenShare?.by === "company") {
+        interview.collaboration = interview.collaboration || {};
+        interview.collaboration.screenShare = {
+          ...(interview.collaboration.screenShare || {}),
+          active: false,
+          by: "",
+        };
+      }
+
+      await interview.save();
     }
 
     return res.json({ ok: true, interview: mapInterview(interview) });
@@ -1051,14 +1217,22 @@ export async function companyInterviewCode(req, res, next) {
     const { id } = req.params;
     const { language = "javascript", content = "", note = "" } = req.body || {};
     const updatedAt = new Date();
+    const normalizedLanguage = normalizeInterviewCodeLanguage(language);
+    const clearedResult = emptyInterviewCodeResult("console");
     const updated = await Interview.findOneAndUpdate(
       { _id: id, company: companyId },
       {
         $set: {
-          "collaboration.code.language": String(language || "javascript"),
+          "collaboration.code.language": normalizedLanguage,
           "collaboration.code.content": String(content || ""),
           "collaboration.code.note": String(note || ""),
           "collaboration.code.lastUpdatedBy": "company",
+          "collaboration.code.outputMode": clearedResult.outputMode,
+          "collaboration.code.output": "",
+          "collaboration.code.error": "",
+          "collaboration.code.serverOutput": "",
+          "collaboration.code.serverError": "",
+          "collaboration.code.previewHtml": "",
           "collaboration.code.updatedAt": updatedAt,
         },
       },
@@ -1069,10 +1243,16 @@ export async function companyInterviewCode(req, res, next) {
       id,
       "collab_code",
       {
-        language: String(language || "javascript"),
+        language: normalizedLanguage,
         content: String(content || ""),
         note: String(note || ""),
         lastUpdatedBy: "company",
+        outputMode: clearedResult.outputMode,
+        output: "",
+        error: "",
+        serverOutput: "",
+        serverError: "",
+        previewHtml: "",
         updatedAt: updatedAt.toISOString(),
       },
       { excludeRole: "company" }
@@ -1089,28 +1269,30 @@ export async function companyRunInterviewCode(req, res, next) {
     const companyId = req.user?._id;
     if (!companyId) return res.status(401).json({ message: "Unauthorized" });
     const { id } = req.params;
+    const { mode = "console" } = req.body || {};
     const interview = await Interview.findOne({ _id: id, company: companyId });
     if (!interview) return res.status(404).json({ message: "Interview not found" });
     const code = interview?.collaboration?.code?.content || "";
-    const language = String(interview?.collaboration?.code?.language || "javascript").toLowerCase();
-    let output = "";
-    let error = "";
-    try {
-      if (language !== "javascript") {
-        throw new Error("Only JavaScript execution is supported currently.");
-      }
-      output = runJavascriptSnippet(code);
-    } catch (e) {
-      error = e?.message || "Code execution failed";
-    }
+    const language = String(interview?.collaboration?.code?.language || "javascript");
+    const execution = executeInterviewCode({ language, content: code, mode });
     interview.collaboration = interview.collaboration || {};
     interview.collaboration.code = {
       ...(interview.collaboration.code || {}),
-      output,
-      error,
+      ...execution,
+      previewHtml: execution.previewHtml || buildPreviewUnsupportedHtml(execution.serverError || execution.serverOutput || "Preview not available."),
       updatedAt: new Date(),
     };
     await interview.save();
+    emitInterviewSignal(
+      id,
+      "collab_code_result",
+      {
+        ...execution,
+        previewHtml: execution.previewHtml || buildPreviewUnsupportedHtml(execution.serverError || execution.serverOutput || "Preview not available."),
+        updatedAt: interview.collaboration.code.updatedAt?.toISOString?.() || new Date().toISOString(),
+      },
+      {}
+    );
     return res.json({ ok: true, interview: mapInterview(interview) });
   } catch (err) {
     next(err);
@@ -1232,6 +1414,118 @@ export async function companyInterviewWebrtcCandidate(req, res, next) {
       id,
       "webrtc_candidate",
       { from: "company", candidate },
+      { excludeRole: "company" }
+    );
+
+    return res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/company/interviews/:id/admin-monitor/answer
+export async function companyInterviewAdminMonitorAnswer(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+    const { id } = req.params;
+    const { type = "answer", sdp = "" } = req.body || {};
+    const safeSdp = normalizeWebRtcSdp(sdp);
+    if (!safeSdp) return res.status(400).json({ message: "Answer SDP is required" });
+
+    const existing = await Interview.findOne({ _id: id, company: companyId })
+      .select("_id sessionId collaboration.webrtc")
+      .lean();
+    if (!existing) return res.status(404).json({ message: "Interview not found" });
+
+    const rtc = ensureInterviewWebrtcState(existing?.collaboration?.webrtc, existing?.sessionId);
+    const sessionId = String(
+      rtc?.adminMonitor?.company?.sessionId
+      || rtc?.sessionId
+      || randomId("monitor")
+    );
+    const createdAt = new Date();
+
+    const interview = await Interview.findOneAndUpdate(
+      { _id: id, company: companyId },
+      {
+        $set: {
+          "collaboration.webrtc.active": true,
+          "collaboration.webrtc.adminMonitor.company.sessionId": sessionId,
+          "collaboration.webrtc.adminMonitor.company.answer": {
+            type: String(type || "answer"),
+            sdp: safeSdp,
+            by: "company",
+            createdAt,
+          },
+        },
+      },
+      { returnDocument: "after" }
+    );
+
+    emitInterviewSignal(
+      id,
+      "admin_monitor_answer",
+      {
+        from: "company",
+        sessionId,
+        answer: {
+          type: String(type || "answer"),
+          sdp: safeSdp,
+          by: "company",
+          createdAt: createdAt.toISOString(),
+        },
+      },
+      { excludeRole: "company" }
+    );
+
+    return res.json({ ok: true, interview: mapInterview(interview) });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// POST /api/company/interviews/:id/admin-monitor/candidate
+export async function companyInterviewAdminMonitorCandidate(req, res, next) {
+  try {
+    const companyId = req.user?._id;
+    if (!companyId) return res.status(401).json({ message: "Unauthorized" });
+    const { id } = req.params;
+    const candidate = normalizeIceCandidate(req.body || {});
+    if (!candidate.candidate) return res.status(400).json({ message: "ICE candidate is required" });
+
+    const existing = await Interview.findOne({ _id: id, company: companyId })
+      .select("_id sessionId collaboration.webrtc")
+      .lean();
+    if (!existing) return res.status(404).json({ message: "Interview not found" });
+
+    const rtc = ensureInterviewWebrtcState(existing?.collaboration?.webrtc, existing?.sessionId);
+    const sessionId = String(
+      rtc?.adminMonitor?.company?.sessionId
+      || rtc?.sessionId
+      || randomId("monitor")
+    );
+
+    await Interview.updateOne(
+      { _id: id, company: companyId },
+      {
+        $set: {
+          "collaboration.webrtc.active": true,
+          "collaboration.webrtc.adminMonitor.company.sessionId": sessionId,
+        },
+        $push: {
+          "collaboration.webrtc.adminMonitor.company.companyCandidates": {
+            $each: [candidate],
+            $slice: -150,
+          },
+        },
+      }
+    );
+
+    emitInterviewSignal(
+      id,
+      "admin_monitor_candidate",
+      { from: "company", target: "company", candidate },
       { excludeRole: "company" }
     );
 

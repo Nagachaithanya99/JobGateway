@@ -27,7 +27,7 @@ const advertisementSchema = new mongoose.Schema(
     placement: { type: String, default: "student-home", trim: true },
     status: {
       type: String,
-      enum: ["pending", "active", "rejected", "archived"],
+      enum: ["pending", "active", "inactive", "rejected", "archived"],
       default: "active",
       index: true,
     },

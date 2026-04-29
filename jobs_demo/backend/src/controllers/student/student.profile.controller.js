@@ -45,21 +45,43 @@ export const updateMe = async (req, res) => {
     const clerkId = req.auth()?.userId;
     if (!clerkId) return res.status(401).json({ success: false, message: "Unauthorized" });
 
-    const { name, phone, location, linkedin, portfolio, studentProfile } = req.body;
+    const { name, phone, location, linkedin, portfolio, studentProfile, avatarUrl, profileImageUrl, imageUrl } = req.body;
+    const nextAvatar = avatarUrl || profileImageUrl || imageUrl || studentProfile?.personal?.avatarUrl || "";
+    const nextStudentProfile =
+      studentProfile && nextAvatar
+        ? {
+            ...studentProfile,
+            personal: {
+              ...(studentProfile.personal || {}),
+              avatarUrl: nextAvatar,
+              profileImageUrl: nextAvatar,
+            },
+          }
+        : studentProfile;
+    const setPatch = {
+      name,
+      phone,
+      location,
+      linkedin,
+      portfolio,
+      studentProfile: nextStudentProfile,
+      updatedAt: new Date(),
+    };
+    if (nextAvatar) {
+      setPatch.avatarUrl = nextAvatar;
+      setPatch.avatar = nextAvatar;
+      setPatch.profilePhoto = nextAvatar;
+      setPatch.profileImageUrl = nextAvatar;
+      setPatch.imageUrl = nextAvatar;
+      if (!nextStudentProfile) {
+        setPatch["studentProfile.personal.avatarUrl"] = nextAvatar;
+        setPatch["studentProfile.personal.profileImageUrl"] = nextAvatar;
+      }
+    }
 
     const user = await User.findOneAndUpdate(
       { clerkId },
-      {
-        $set: {
-          name,
-          phone,
-          location,
-          linkedin,
-          portfolio,
-          studentProfile,
-          updatedAt: new Date(),
-        },
-      },
+      { $set: setPatch },
       { new: true, runValidators: true, lean: true }
     );
 
@@ -145,7 +167,17 @@ export const uploadAvatarHandler = async (req, res) => {
 
     await User.findOneAndUpdate(
       { clerkId },
-      { $set: { "studentProfile.personal.avatarUrl": result.secure_url } }
+      {
+        $set: {
+          avatarUrl: result.secure_url,
+          avatar: result.secure_url,
+          profilePhoto: result.secure_url,
+          profileImageUrl: result.secure_url,
+          imageUrl: result.secure_url,
+          "studentProfile.personal.avatarUrl": result.secure_url,
+          "studentProfile.personal.profileImageUrl": result.secure_url,
+        },
+      }
     );
 
     return res.json({ success: true, data: { avatarUrl: result.secure_url } });
@@ -233,6 +265,45 @@ export const getFollowSuggestionsHandler = async (req, res) => {
     return res.json({ success: true, data: scored.slice(0, 5) });
   } catch (err) {
     console.error("[getFollowSuggestionsHandler]", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+export const getRecentUsersHandler = async (req, res) => {
+  try {
+    const clerkId = req.auth()?.userId;
+    if (!clerkId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const me = await User.findOne({ clerkId }).select("_id").lean();
+    const users = await User.find({
+      role: "student",
+      ...(me?._id ? { _id: { $ne: me._id } } : {}),
+    })
+      .sort({ updatedAt: -1, createdAt: -1 })
+      .select("name email updatedAt studentProfile.personal.designation studentProfile.personal.avatarUrl studentProfile.personal.profileImageUrl studentProfile.personal.city avatarUrl profileImageUrl imageUrl")
+      .limit(8)
+      .lean();
+
+    return res.json({
+      success: true,
+      data: users.map((user) => ({
+        _id: user._id,
+        name: user.name || user.email?.split("@")[0] || "Student",
+        email: user.email || "",
+        designation: user.studentProfile?.personal?.designation || "Student",
+        avatarUrl:
+          user.avatarUrl ||
+          user.profileImageUrl ||
+          user.imageUrl ||
+          user.studentProfile?.personal?.avatarUrl ||
+          user.studentProfile?.personal?.profileImageUrl ||
+          "",
+        city: user.studentProfile?.personal?.city || "",
+        lastSeen: user.updatedAt,
+      })),
+    });
+  } catch (err) {
+    console.error("[getRecentUsersHandler]", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 };

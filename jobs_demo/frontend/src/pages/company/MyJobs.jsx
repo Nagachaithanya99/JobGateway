@@ -2,6 +2,7 @@
 import { useNavigate } from "react-router-dom";
 import {
   FiBriefcase,
+  FiCalendar,
   FiCheckCircle,
   FiCopy,
   FiEdit2,
@@ -16,6 +17,7 @@ import {
 
 import Pagination from "../../components/common/Pagination.jsx";
 import Modal from "../../components/common/Modal.jsx";
+import ActionMenuPortal from "../../components/common/ActionMenuPortal.jsx";
 import { getJobTaxonomy, OTHER_OPTION } from "../../data/jobTaxonomy.js";
 import { showSweetConfirm, showSweetToast } from "../../utils/sweetAlert.js";
 import {
@@ -97,7 +99,7 @@ export default function MyJobs() {
   const navigate = useNavigate();
 
   const [view, setView] = useState("table");
-  const [openMenuId, setOpenMenuId] = useState(null);
+  const [menuState, setMenuState] = useState({ id: "", anchor: null });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [jobs, setJobs] = useState([]);
@@ -105,9 +107,6 @@ export default function MyJobs() {
 
   const [viewOpen, setViewOpen] = useState(false);
   const [viewJob, setViewJob] = useState(null);
-  const [editOpen, setEditOpen] = useState(false);
-  const [editForm, setEditForm] = useState({ id: "", title: "", city: "", state: "", workMode: "Hybrid", deadline: "", status: "Active" });
-  const [saving, setSaving] = useState(false);
 
   const [page, setPage] = useState(1);
   const pageSize = 10;
@@ -136,6 +135,10 @@ export default function MyJobs() {
 
   const actionToast = (msg) => {
     void showSweetToast(msg, "info", { timer: 1200 });
+  };
+
+  const closeMenu = () => {
+    setMenuState({ id: "", anchor: null });
   };
 
   async function fetchJobs(nextFilters = filters) {
@@ -275,7 +278,7 @@ export default function MyJobs() {
       console.error(e);
       actionToast(e?.response?.data?.message || "Failed to close job");
     } finally {
-      setOpenMenuId(null);
+      closeMenu();
     }
   };
 
@@ -289,7 +292,7 @@ export default function MyJobs() {
       console.error(e);
       actionToast(e?.response?.data?.message || "Failed to disable job");
     } finally {
-      setOpenMenuId(null);
+      closeMenu();
     }
   };
 
@@ -310,7 +313,7 @@ export default function MyJobs() {
       console.error(e);
       actionToast(e?.response?.data?.message || "Failed to delete job");
     } finally {
-      setOpenMenuId(null);
+      closeMenu();
     }
   };
 
@@ -339,44 +342,12 @@ export default function MyJobs() {
   };
 
   const openEdit = (job) => {
-    setEditForm({
-      id: job.id,
-      title: job.title || "",
-      city: job.city || "",
-      state: job.state || "",
-      workMode: job.mode === "Onsite" ? "On-site" : job.mode || "Hybrid",
-      deadline: job.deadline || "",
-      status: job.status || "Active",
-    });
-    setEditOpen(true);
-  };
-
-  const saveEdit = async () => {
-    if (!editForm.id) return;
-    setSaving(true);
-    try {
-      await updateCompanyJob(editForm.id, {
-        title: editForm.title,
-        city: editForm.city,
-        state: editForm.state,
-        workMode: editForm.workMode,
-        deadline: editForm.deadline,
-        status: editForm.status,
-      });
-      await fetchJobs();
-      setEditOpen(false);
-      actionToast("Job updated");
-    } catch (e) {
-      console.error(e);
-      actionToast(e?.response?.data?.message || "Failed to update job");
-    } finally {
-      setSaving(false);
-    }
+    navigate(`/company/post-job?edit=${encodeURIComponent(String(job?.id || ""))}`);
   };
 
   const onExport = () => {
-    const header = ["Title", "Stream", "Category", "Location", "Mode", "Posted", "Applications", "Shortlisted", "Status"];
-    const rows = filtered.map((j) => [j.title, j.stream, j.category, j.location, j.mode, j.postedDate, j.applications, j.shortlisted, j.status]);
+    const header = ["Title", "Stream", "Category", "Location", "Mode", "Posted", "Deadline", "Applications", "Shortlisted", "Status"];
+    const rows = filtered.map((j) => [j.title, j.stream, j.category, j.location, j.mode, j.postedDate, j.deadline || "-", j.applications, j.shortlisted, j.status]);
     const csv = [header, ...rows]
       .map((row) => row.map((v) => `"${String(v ?? "").replaceAll('"', '""')}"`).join(","))
       .join("\n");
@@ -390,10 +361,23 @@ export default function MyJobs() {
     URL.revokeObjectURL(url);
   };
 
-  const jobsUsed = Number(subscription?.jobsUsed || summary.active || 0);
-  const jobsLimit = Number(subscription?.jobsLimit || 1);
-  const appsUsed = Number(subscription?.applicationsUsed || summary.totalApplications || 0);
-  const appsLimit = Number(subscription?.applicationsLimit || 100);
+  const jobsUsed = Number(subscription?.jobsUsed ?? summary.active ?? 0);
+  const jobsLimit = Number(subscription?.jobsLimit ?? 0);
+  const appsUsed = Number(subscription?.applicationsUsed ?? summary.totalApplications ?? 0);
+  const appsLimit = Number(subscription?.applicationsLimit ?? 0);
+  const menuJob = jobs.find((job) => job.id === menuState.id) || null;
+
+  const openRowMenu = (event, job) => {
+    const anchor = event.currentTarget.getBoundingClientRect();
+    setMenuState((prev) =>
+      prev.id === job.id
+        ? { id: "", anchor: null }
+        : {
+            id: job.id,
+            anchor,
+          }
+    );
+  };
 
   return (
     <div className="space-y-5 pb-24 md:pb-6">
@@ -503,6 +487,11 @@ export default function MyJobs() {
             <p className="text-xs text-slate-500">{subscription?.planName || "Starter"} ({subscription?.status || "inactive"})</p>
             <UsageBar label="Jobs used" used={jobsUsed} limit={jobsLimit} color="blue" />
             <UsageBar label="Applications used" used={appsUsed} limit={appsLimit} color="orange" />
+            {String(subscription?.status || "").toLowerCase() !== "active" ? (
+              <p className="rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-semibold text-[#F97316]">
+                Buy a subscription to post jobs.
+              </p>
+            ) : null}
             <button type="button" onClick={() => navigate("/company/pricing")} className="w-full rounded-lg bg-[#F97316] px-3 py-2 text-sm font-semibold text-white hover:bg-orange-600">Upgrade Plan</button>
           </div>
         </Card>
@@ -529,10 +518,13 @@ export default function MyJobs() {
                   <thead>
                     <tr className="text-slate-500">
                       <th className="pb-2">Job Title</th>
+                      <th className="pb-2">Stream</th>
                       <th className="pb-2">Location</th>
                       <th className="pb-2">Work Mode</th>
                       <th className="pb-2">Posted Date</th>
+                      <th className="pb-2">Deadline</th>
                       <th className="pb-2">Applications</th>
+                      <th className="pb-2">Shortlisted</th>
                       <th className="pb-2">Status</th>
                       <th className="pb-2">Actions</th>
                     </tr>
@@ -541,10 +533,13 @@ export default function MyJobs() {
                     {paged.map((job) => (
                       <tr key={job.id} className="border-t border-slate-100 hover:bg-blue-50/40">
                         <td className="py-3 font-semibold text-[#0F172A]">{job.title}</td>
+                        <td className="py-3 text-slate-700">{job.stream || job.category || "-"}</td>
                         <td className="py-3 text-slate-700">{job.location}</td>
                         <td className="py-3 text-slate-700">{job.mode}</td>
                         <td className="py-3 text-slate-600">{job.postedDate}</td>
+                        <td className="py-3 text-slate-600">{job.deadline || "-"}</td>
                         <td className="py-3 font-semibold text-slate-700">{job.applications}</td>
+                        <td className="py-3 font-semibold text-slate-700">{job.shortlisted}</td>
                         <td className="py-3">
                           <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${STATUS_STYLES[job.status] || "border-slate-200 bg-slate-100 text-slate-600"}`}>{job.status}</span>
                         </td>
@@ -559,20 +554,26 @@ export default function MyJobs() {
                             >
                               <FiUsers />
                             </button>
+                            <button
+                              type="button"
+                              title="View Shortlisted"
+                              onClick={() => navigate(`/company/shortlisted?jobId=${encodeURIComponent(String(job.id || ""))}`)}
+                              className="rounded-md border border-green-200 px-2 py-1 text-xs font-semibold text-green-700 hover:bg-green-50"
+                            >
+                              <FiCheckCircle />
+                            </button>
                             <button type="button" title="Edit Job" onClick={() => openEdit(job)} className="rounded-md border border-orange-200 px-2 py-1 text-xs font-semibold text-[#F97316] hover:bg-orange-50"><FiEdit2 /></button>
                             <button type="button" title="Duplicate Job" onClick={() => onDuplicate(job)} className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"><FiCopy /></button>
                             <button type="button" title="Close Job" onClick={() => onCloseJob(job)} disabled={job.status === "Closed"} className={`rounded-md border px-2 py-1 text-xs font-semibold ${job.status === "Closed" ? "border-slate-200 text-slate-300 cursor-not-allowed" : "border-red-200 text-red-600 hover:bg-red-50"}`}><FiX /></button>
                             <button type="button" title="Boost Job" onClick={() => navigate("/company/boost-job")} className="rounded-md bg-[#F97316] px-2 py-1 text-xs font-semibold text-white hover:bg-orange-600"><FiTrendingUp /></button>
-
-                            <div className="relative">
-                              <button type="button" title="More" onClick={() => setOpenMenuId((v) => (v === job.id ? null : job.id))} className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"><FiMoreHorizontal /></button>
-                              {openMenuId === job.id ? (
-                                <div className="absolute right-0 top-8 z-20 w-44 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
-                                  <button type="button" onClick={() => onDisable(job)} className="block w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50">Disable Job</button>
-                                  <button type="button" onClick={() => onDelete(job)} className="block w-full px-3 py-2 text-left text-xs font-semibold text-red-600 hover:bg-red-50">Delete Job</button>
-                                </div>
-                              ) : null}
-                            </div>
+                            <button
+                              type="button"
+                              title="More"
+                              onClick={(event) => openRowMenu(event, job)}
+                              className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                            >
+                              <FiMoreHorizontal />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -591,21 +592,33 @@ export default function MyJobs() {
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <p className="font-semibold text-[#0F172A]">{job.title}</p>
-                    <p className="mt-1 inline-flex items-center gap-1 text-xs text-slate-600"><FiMapPin /> {job.location} • {job.mode}</p>
+                    <p className="mt-1 inline-flex items-center gap-1 text-xs text-slate-600"><FiMapPin /> {job.location} | {job.mode}</p>
+                    <p className="mt-1 text-xs text-slate-500">{job.stream || job.category || "General"} | Deadline {job.deadline || "-"}</p>
                   </div>
                   <span className={`rounded-full border px-2 py-0.5 text-xs font-semibold ${STATUS_STYLES[job.status] || "border-slate-200 bg-slate-100 text-slate-600"}`}>{job.status}</span>
                 </div>
 
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
                   <p>Applications: <span className="font-semibold text-slate-800">{job.applications}</span></p>
+                  <p>Shortlisted: <span className="font-semibold text-slate-800">{job.shortlisted}</span></p>
                   <p>Posted: {job.postedDate}</p>
+                  <p className="inline-flex items-center gap-1"><FiCalendar /> {job.deadline || "-"}</p>
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button type="button" onClick={() => openView(job)} className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-semibold text-[#2563EB] hover:bg-blue-50">View</button>
+                  <button type="button" onClick={() => navigate(`/company/candidates?jobId=${encodeURIComponent(String(job.id || ""))}`)} className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-semibold text-[#2563EB] hover:bg-blue-50">Applications</button>
+                  <button type="button" onClick={() => navigate(`/company/shortlisted?jobId=${encodeURIComponent(String(job.id || ""))}`)} className="rounded-lg border border-green-200 px-3 py-1.5 text-xs font-semibold text-green-700 hover:bg-green-50">Shortlisted</button>
                   <button type="button" onClick={() => openEdit(job)} className="rounded-lg border border-orange-200 px-3 py-1.5 text-xs font-semibold text-[#F97316] hover:bg-orange-50">Edit</button>
                   <button type="button" onClick={() => onCloseJob(job)} disabled={job.status === "Closed"} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${job.status === "Closed" ? "border-slate-200 text-slate-300 cursor-not-allowed" : "border-red-200 text-red-600 hover:bg-red-50"}`}>Close</button>
                   <button type="button" onClick={() => onDuplicate(job)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">Duplicate</button>
+                  <button
+                    type="button"
+                    onClick={(event) => openRowMenu(event, job)}
+                    className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    More
+                  </button>
                 </div>
               </Card>
             ))}
@@ -626,49 +639,45 @@ export default function MyJobs() {
       >
         {viewJob ? (
           <div className="space-y-3 text-sm text-slate-700">
+            <p><span className="font-semibold text-slate-900">Stream:</span> {viewJob.stream || "-"}</p>
+            <p><span className="font-semibold text-slate-900">Category:</span> {viewJob.category || "-"}</p>
             <p><span className="font-semibold text-slate-900">Location:</span> {viewJob.location}</p>
             <p><span className="font-semibold text-slate-900">Mode:</span> {viewJob.mode}</p>
             <p><span className="font-semibold text-slate-900">Status:</span> {viewJob.status}</p>
+            <p><span className="font-semibold text-slate-900">Deadline:</span> {viewJob.deadline || "-"}</p>
             <p><span className="font-semibold text-slate-900">Applications:</span> {viewJob.applications}</p>
             <p><span className="font-semibold text-slate-900">Shortlisted:</span> {viewJob.shortlisted}</p>
             <p><span className="font-semibold text-slate-900">Experience:</span> {viewJob.experience || "-"}</p>
             <p><span className="font-semibold text-slate-900">Salary:</span> {viewJob.salaryText}</p>
+            {viewJob.skills?.length ? (
+              <div>
+                <p className="font-semibold text-slate-900">Skills</p>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {viewJob.skills.map((skill, index) => (
+                    <span key={`${viewJob.id}_${skill}_${index}`} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs">
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <p><span className="font-semibold text-slate-900">Overview:</span> {viewJob.overview || "-"}</p>
             <p><span className="font-semibold text-slate-900">Requirements:</span> {viewJob.requirements || "-"}</p>
           </div>
         ) : null}
       </Modal>
 
-      <Modal
-        open={editOpen}
-        onClose={() => setEditOpen(false)}
-        title="Edit Job"
-        widthClass="max-w-xl"
-        footer={
-          <>
-            <button type="button" onClick={() => setEditOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
-            <button type="button" onClick={saveEdit} disabled={saving} className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">{saving ? "Saving..." : "Save"}</button>
-          </>
-        }
-      >
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <input value={editForm.title} onChange={(e) => setEditForm((p) => ({ ...p, title: e.target.value }))} placeholder="Title" className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300 sm:col-span-2" />
-          <input value={editForm.city} onChange={(e) => setEditForm((p) => ({ ...p, city: e.target.value }))} placeholder="City" className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300" />
-          <input value={editForm.state} onChange={(e) => setEditForm((p) => ({ ...p, state: e.target.value }))} placeholder="State" className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300" />
-          <select value={editForm.workMode} onChange={(e) => setEditForm((p) => ({ ...p, workMode: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300">
-            <option>On-site</option>
-            <option>Remote</option>
-            <option>Hybrid</option>
-          </select>
-          <input type="date" value={editForm.deadline} onChange={(e) => setEditForm((p) => ({ ...p, deadline: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300" />
-          <select value={editForm.status} onChange={(e) => setEditForm((p) => ({ ...p, status: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-blue-300 sm:col-span-2">
-            <option>Active</option>
-            <option>Draft</option>
-            <option>Closed</option>
-            <option>Disabled</option>
-          </select>
-        </div>
-      </Modal>
+      <ActionMenuPortal open={Boolean(menuState.id)} anchor={menuState.anchor} onClose={closeMenu}>
+        {menuJob ? (
+          <div className="py-1">
+            <button type="button" onClick={() => openEdit(menuJob)} className="block w-full px-3 py-2 text-left text-xs font-semibold text-[#F97316] hover:bg-orange-50">Edit Job</button>
+            <button type="button" onClick={() => navigate(`/company/candidates?jobId=${encodeURIComponent(String(menuJob.id || ""))}`)} className="block w-full px-3 py-2 text-left text-xs font-semibold text-[#2563EB] hover:bg-blue-50">Open Applications</button>
+            <button type="button" onClick={() => navigate(`/company/shortlisted?jobId=${encodeURIComponent(String(menuJob.id || ""))}`)} className="block w-full px-3 py-2 text-left text-xs font-semibold text-green-700 hover:bg-green-50">Open Shortlisted</button>
+            <button type="button" onClick={() => onDisable(menuJob)} className="block w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50">Disable Job</button>
+            <button type="button" onClick={() => onDelete(menuJob)} className="block w-full px-3 py-2 text-left text-xs font-semibold text-red-600 hover:bg-red-50">Delete Job</button>
+          </div>
+        ) : null}
+      </ActionMenuPortal>
 
     </div>
   );

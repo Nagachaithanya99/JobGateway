@@ -6,8 +6,13 @@ import Job from "../../models/Job.js";
 import Application from "../../models/Application.js";
 import Subscription from "../../models/Subscription.js";
 import crypto from "crypto";
+import mongoose from "mongoose";
 
 async function requireAdmin(req, res) {
+  if (req.user && String(req.user.role || "").toLowerCase() === "admin") {
+    return req.user;
+  }
+
   const clerkId = req.auth()?.userId;
   if (!clerkId) {
     res.status(401).json({ message: "Unauthorized" });
@@ -139,9 +144,22 @@ export const adminListCompanies = async (req, res, next) => {
         name: comp?.name || prof?.companyName || u.name || "Company",
         email: comp?.hrEmail || comp?.email || prof?.email || u.email || "",
         phone: comp?.hrPhone || comp?.phone || prof?.phone || u.phone || "",
+        logoUrl: comp?.logoUrl || "",
         location: comp?.location || comp?.address || prof?.address || u.location || "",
         category: comp?.category || prof?.category || "General",
+        industry: comp?.industry || "",
+        size: comp?.size || "",
+        founded: comp?.founded || "",
+        about: comp?.about || "",
+        mission: comp?.mission || "",
+        culture: comp?.culture || "",
+        perks: comp?.perks || "",
+        hiringProcess: comp?.hiringProcess || "",
+        studentMessage: comp?.studentMessage || "",
+        profileAudience: comp?.profileAudience || "both",
         status: statusVal,
+        statusLabel: statusVal === "active" ? "Active" : "Suspended",
+        isActive: statusVal === "active",
         website: comp?.website || prof?.website || "",
         address: comp?.address || prof?.address || "",
 
@@ -203,7 +221,7 @@ export const adminGetCompanyDetails = async (req, res, next) => {
 
     const { id } = req.params;
 
-    const user = await User.findOne({ _id: id, role: "company" }).lean();
+    const user = await User.findOne({ _id: id, role: "company", deletedAt: null }).lean();
     if (!user) return res.status(404).json({ message: "Company not found" });
 
     const prof = await CompanyProfile.findOne({ user: user._id }).lean();
@@ -259,11 +277,24 @@ export const adminGetCompanyDetails = async (req, res, next) => {
       category: comp?.category || prof?.category || "General",
       location: comp?.location || comp?.address || prof?.address || user.location || "",
       status: comp ? (comp.isActive === false ? "suspended" : "active") : (prof?.status || "active"),
+      statusLabel: (comp ? comp.isActive !== false : prof?.status !== "suspended") ? "Active" : "Suspended",
+      isActive: comp ? comp.isActive !== false : prof?.status !== "suspended",
       website: comp?.website || prof?.website || "",
       linkedin: comp?.linkedin || "",
+      logoUrl: comp?.logoUrl || "",
       email: comp?.hrEmail || comp?.email || prof?.email || user.email || "",
       phone: comp?.hrPhone || comp?.phone || prof?.phone || user.phone || "",
       address: comp?.address || prof?.address || "",
+      industry: comp?.industry || "",
+      size: comp?.size || "",
+      founded: comp?.founded || "",
+      about: comp?.about || "",
+      mission: comp?.mission || "",
+      culture: comp?.culture || "",
+      perks: comp?.perks || "",
+      hiringProcess: comp?.hiringProcess || "",
+      studentMessage: comp?.studentMessage || "",
+      profileAudience: comp?.profileAudience || "both",
       hrName: prof?.hrName || "",
       hrPhone: comp?.hrPhone || prof?.hrPhone || "",
       hrEmail: comp?.hrEmail || prof?.hrEmail || "",
@@ -305,7 +336,7 @@ export const adminUpdateCompanyStatus = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid status" });
     }
 
-    const user = await User.findOne({ _id: id, role: "company" });
+    const user = await User.findOne({ _id: id, role: "company", deletedAt: null });
     if (!user) return res.status(404).json({ message: "Company not found" });
 
     // update CompanyProfile.status (source of truth for UI)
@@ -332,6 +363,62 @@ export const adminUpdateCompanyStatus = async (req, res, next) => {
       ok: true,
       companyId: String(user._id),
       status: prof?.status || nextStatus,
+    });
+  } catch (e) {
+    next(e);
+  }
+};
+
+/**
+ * DELETE /api/admin/companies/:id
+ * Soft delete company user and deactivate related company records.
+ */
+export const adminDeleteCompany = async (req, res, next) => {
+  try {
+    const me = await requireAdmin(req, res);
+    if (!me) return;
+
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) {
+      return res.status(400).json({ message: "Invalid company id" });
+    }
+
+    const deletedAt = new Date();
+
+    const user = await User.findOneAndUpdate(
+      { _id: id, role: "company", deletedAt: null },
+      { $set: { deletedAt, isActive: false } },
+      { returnDocument: "after" }
+    ).lean();
+
+    if (!user) return res.status(404).json({ message: "Company not found" });
+
+    const [jobsUpdate, subscriptionsUpdate] = await Promise.all([
+      Job.updateMany(
+        { company: user._id, status: "Active" },
+        { $set: { status: "Disabled", boostActive: false } }
+      ),
+      Subscription.updateMany(
+        { company: user._id, status: "active" },
+        { $set: { status: "inactive" } }
+      ),
+      Company.findOneAndUpdate(
+        { ownerUserId: user._id },
+        { $set: { isActive: false } },
+        { returnDocument: "after" }
+      ),
+      CompanyProfile.findOneAndUpdate(
+        { user: user._id },
+        { $set: { status: "suspended" } },
+        { returnDocument: "after" }
+      ),
+    ]);
+
+    return res.json({
+      ok: true,
+      id: String(user._id),
+      disabledJobs: jobsUpdate.modifiedCount || 0,
+      inactiveSubscriptions: subscriptionsUpdate.modifiedCount || 0,
     });
   } catch (e) {
     next(e);

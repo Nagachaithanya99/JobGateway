@@ -6,6 +6,8 @@ import {
   FiClock,
   FiCopy,
   FiFilter,
+  FiGrid,
+  FiList,
   FiPlayCircle,
   FiSearch,
   FiUserCheck,
@@ -13,6 +15,7 @@ import {
 import { showSweetToast } from "../../utils/sweetAlert.js";
 import { getCompanyApplications } from "../../services/companyService.js";
 import {
+  admitCompanyCandidate,
   createCompanyInterview,
   getCompanyInterviews,
   startCompanyInterview,
@@ -20,12 +23,57 @@ import {
 
 const TABS = [
   { id: "pending", label: "Interview Pending" },
-  { id: "scheduled", label: "Scheduled" },
+  { id: "scheduled", label: "Scheduled / Waiting" },
   { id: "ongoing", label: "Ongoing" },
   { id: "completed", label: "Completed" },
   { id: "cancelled", label: "No-show / Cancelled" },
   { id: "all", label: "All" },
 ];
+const STATUS_BADGE_STYLES = {
+  Pending: "border-blue-200 bg-blue-50 text-[#2563EB]",
+  Scheduled: "border-amber-200 bg-amber-50 text-amber-700",
+  Rescheduled: "border-amber-200 bg-amber-50 text-amber-700",
+  "Waiting Room": "border-violet-200 bg-violet-50 text-violet-700",
+  Live: "border-green-200 bg-green-50 text-green-700",
+  Completed: "border-slate-200 bg-slate-100 text-slate-700",
+  "Review Ready": "border-cyan-200 bg-cyan-50 text-cyan-700",
+  Cancelled: "border-red-200 bg-red-50 text-red-700",
+  "No Show": "border-red-200 bg-red-50 text-red-700",
+};
+
+function parseInterviewDateTime(dateISO, timeText) {
+  const dateMatch = String(dateISO || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!dateMatch) return null;
+
+  const rawTime = String(timeText || "").trim().toUpperCase();
+  const twelveHourMatch = rawTime.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+  const twentyFourHourMatch = rawTime.match(/^(\d{1,2}):(\d{2})$/);
+
+  let hours = 0;
+  let minutes = 0;
+
+  if (twelveHourMatch) {
+    hours = Number(twelveHourMatch[1]) % 12;
+    minutes = Number(twelveHourMatch[2]);
+    if (twelveHourMatch[3] === "PM") hours += 12;
+  } else if (twentyFourHourMatch) {
+    hours = Number(twentyFourHourMatch[1]);
+    minutes = Number(twentyFourHourMatch[2]);
+  } else {
+    return null;
+  }
+
+  const candidate = new Date(
+    Number(dateMatch[1]),
+    Number(dateMatch[2]) - 1,
+    Number(dateMatch[3]),
+    hours,
+    minutes,
+    0,
+    0
+  );
+  return Number.isNaN(candidate.getTime()) ? null : candidate;
+}
 
 function isoDate(d) {
   const yyyy = d.getFullYear();
@@ -35,8 +83,8 @@ function isoDate(d) {
 }
 
 function toCountDown(dateISO, timeText) {
-  const target = new Date(`${dateISO} ${timeText}`);
-  if (Number.isNaN(target.getTime())) return "-";
+  const target = parseInterviewDateTime(dateISO, timeText);
+  if (!target) return "-";
   const diff = target.getTime() - Date.now();
   if (diff <= 0) return "Started";
   const mins = Math.floor(diff / 60000);
@@ -45,10 +93,24 @@ function toCountDown(dateISO, timeText) {
   return `Starts in ${hrs}h ${mins % 60}m`;
 }
 
+function getRowReadiness(row) {
+  if (row?.readiness) return row.readiness;
+  return row?.candidateReadiness?.online ? "Online" : "Offline";
+}
+
+function getRowRisk(row) {
+  return row?.risk || row?.proctoring?.riskLevel || "-";
+}
+
+function getStatusBadgeClass(status) {
+  return STATUS_BADGE_STYLES[status] || "border-slate-200 bg-slate-50 text-slate-700";
+}
+
 export default function Interviews() {
   const nav = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState("pending");
+  const [view, setView] = useState("table");
   const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({
     round: "",
@@ -228,8 +290,26 @@ export default function Interviews() {
     }
   };
 
-  const onStartInterview = async (row) => {
+  const onOpenInterview = async (row) => {
     try {
+      if (row.status === "Live") {
+        nav(`/company/interviews/${row.id}/workspace`);
+        return;
+      }
+
+      if (row.status === "Waiting Room") {
+        if (row.candidateReadiness?.online) {
+          const res = await admitCompanyCandidate(row.id);
+          const interviewId = res?.interview?.id || row.id;
+          setMsg("Candidate admitted to the live interview");
+          nav(`/company/interviews/${interviewId}/workspace`);
+          return;
+        }
+
+        nav(`/company/interviews/${row.id}/workspace`);
+        return;
+      }
+
       if (!row.openJoinWindow) {
         setMsg(`Start available at ${new Date(row.startAvailableAt).toLocaleString()}`);
         return;
@@ -238,7 +318,7 @@ export default function Interviews() {
       const interviewId = res?.interview?.id || row.id;
       nav(`/company/interviews/${interviewId}/workspace?autocam=1`);
     } catch (e) {
-      setMsg(e?.response?.data?.message || "Unable to start interview");
+      setMsg(e?.response?.data?.message || "Unable to open interview");
     }
   };
 
@@ -249,11 +329,30 @@ export default function Interviews() {
     setMsg("Interview link copied");
   };
 
+  const getPrimaryActionLabel = (row) => {
+    if (row.status === "Waiting Room") {
+      return row.candidateReadiness?.online ? "Admit Candidate" : "Open Waiting Room";
+    }
+    if (row.status === "Live") return "Join Live";
+    if (["Scheduled", "Rescheduled"].includes(row.status)) return "Start Interview";
+    if (["Review Ready", "Completed"].includes(row.status)) return "View Replay";
+    return "";
+  };
+
   return (
     <div className="space-y-5 pb-16">
-      <header>
-        <h1 className="text-2xl font-bold text-[#0F172A]">Interview Management Hub</h1>
-        <p className="text-sm text-slate-500">Manage pending, scheduled, ongoing and completed interviews in one place.</p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-[#0F172A]">Interview Management Hub</h1>
+          <p className="text-sm text-slate-500">Manage pending, scheduled, ongoing and completed interviews in one place.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={() => nav("/company/shortlisted")} className="rounded-xl border border-blue-200 px-4 py-2 text-sm font-semibold text-[#2563EB] hover:bg-blue-50">Open Shortlisted</button>
+          <div className="hidden gap-2 md:flex">
+            <button onClick={() => setView("table")} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${view === "table" ? "border-blue-200 bg-blue-50 text-[#2563EB]" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}><span className="inline-flex items-center gap-1"><FiList /> Table</span></button>
+            <button onClick={() => setView("cards")} className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${view === "cards" ? "border-blue-200 bg-blue-50 text-[#2563EB]" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}><span className="inline-flex items-center gap-1"><FiGrid /> Cards</span></button>
+          </div>
+        </div>
       </header>
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -302,6 +401,10 @@ export default function Interviews() {
           <input type="date" value={filters.from} onChange={(e) => setFilters((f) => ({ ...f, from: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm" />
           <input type="date" value={filters.to} onChange={(e) => setFilters((f) => ({ ...f, to: e.target.value }))} className="h-10 rounded-lg border border-slate-200 px-3 text-sm" />
         </div>
+        <div className="mt-3 flex gap-2 md:hidden">
+          <button onClick={() => setView("table")} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${view === "table" ? "border-blue-200 bg-blue-50 text-[#2563EB]" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Table</button>
+          <button onClick={() => setView("cards")} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${view === "cards" ? "border-blue-200 bg-blue-50 text-[#2563EB]" : "border-slate-200 text-slate-700 hover:bg-slate-50"}`}>Cards</button>
+        </div>
       </section>
 
       <section className="flex flex-wrap gap-2">
@@ -316,70 +419,123 @@ export default function Interviews() {
         ))}
       </section>
 
-      <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-        <table className="w-full min-w-[1150px] text-sm">
-          <thead className="bg-slate-50 text-left text-xs text-slate-600">
-            <tr>
-              <th className="px-3 py-3">Candidate</th>
-              <th className="px-3 py-3">Job Role</th>
-              <th className="px-3 py-3">Round</th>
-              <th className="px-3 py-3">Status</th>
-              <th className="px-3 py-3">Interview Date</th>
-              <th className="px-3 py-3">Countdown</th>
-              <th className="px-3 py-3">Readiness</th>
-              <th className="px-3 py-3">Risk</th>
-              <th className="px-3 py-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={9} className="px-3 py-10 text-center text-slate-500">Loading...</td></tr>
-            ) : null}
-            {!loading && !rows.length ? (
-              <tr><td colSpan={9} className="px-3 py-10 text-center text-slate-500">No records found.</td></tr>
-            ) : null}
-            {!loading && rows.filter(Boolean).map((row) => {
-              const readiness = row.candidateReadiness?.online ? "Online" : "Offline";
-              const risk = row.proctoring?.riskLevel || "-";
-              return (
-                <tr key={row.id} className="border-t border-slate-100">
-                  <td className="px-3 py-3 font-semibold text-[#0F172A]">{row.candidate}</td>
-                  <td className="px-3 py-3">{row.job}</td>
-                  <td className="px-3 py-3">{row.currentRound || row.stage || "-"}</td>
-                  <td className="px-3 py-3">
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold">{row.status}</span>
-                  </td>
-                  <td className="px-3 py-3">{row.date} {row.time}</td>
-                  <td className="px-3 py-3 text-xs text-slate-600">{row.date !== "-" ? toCountDown(row.date, row.time) : "-"}</td>
-                  <td className="px-3 py-3">{readiness}</td>
-                  <td className="px-3 py-3">{risk}</td>
-                  <td className="px-3 py-3">
-                    <div className="flex flex-wrap gap-1">
-                      {row.status === "Pending" ? (
-                        <button onClick={() => openSchedule(row)} className="rounded-lg border border-blue-200 px-2 py-1 text-xs font-semibold text-[#2563EB]">Schedule</button>
-                      ) : null}
-                      {["Scheduled", "Rescheduled", "Waiting Room"].includes(row.status) ? (
-                        <button onClick={() => onStartInterview(row)} className="rounded-lg border border-green-200 px-2 py-1 text-xs font-semibold text-green-700">
-                          {row.status === "Waiting Room" ? "Continue Interview" : "Start Interview"}
-                        </button>
-                      ) : null}
-                      {row.status === "Live" ? (
-                        <button onClick={() => nav(`/company/interviews/${row.id}/workspace`)} className="rounded-lg border border-green-200 px-2 py-1 text-xs font-semibold text-green-700">Join / Continue</button>
-                      ) : null}
-                      {["Review Ready", "Completed"].includes(row.status) ? (
-                        <button onClick={() => nav(`/company/interviews/${row.id}/workspace`)} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700">View Replay</button>
-                      ) : null}
-                      {row.meetingLink ? (
-                        <button onClick={() => copyLink(row)} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"><FiCopy /></button>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </section>
+      {view === "table" ? (
+        <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+          <table className="w-full min-w-[1150px] text-sm">
+            <thead className="bg-slate-50 text-left text-xs text-slate-600">
+              <tr>
+                <th className="px-3 py-3">Candidate</th>
+                <th className="px-3 py-3">Job Role</th>
+                <th className="px-3 py-3">Round</th>
+                <th className="px-3 py-3">Status</th>
+                <th className="px-3 py-3">Interview Date</th>
+                <th className="px-3 py-3">Countdown</th>
+                <th className="px-3 py-3">Readiness</th>
+                <th className="px-3 py-3">Risk</th>
+                <th className="px-3 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={9} className="px-3 py-10 text-center text-slate-500">Loading...</td></tr>
+              ) : null}
+              {!loading && !rows.length ? (
+                <tr><td colSpan={9} className="px-3 py-10 text-center text-slate-500">No records found.</td></tr>
+              ) : null}
+              {!loading && rows.filter(Boolean).map((row) => {
+                const readiness = getRowReadiness(row);
+                const risk = getRowRisk(row);
+                return (
+                  <tr key={row.id} className="border-t border-slate-100">
+                    <td className="px-3 py-3 font-semibold text-[#0F172A]">{row.candidate}</td>
+                    <td className="px-3 py-3">{row.job}</td>
+                    <td className="px-3 py-3">{row.currentRound || row.stage || "-"}</td>
+                    <td className="px-3 py-3">
+                      <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClass(row.status)}`}>{row.status}</span>
+                    </td>
+                    <td className="px-3 py-3">{row.date} {row.time}</td>
+                    <td className="px-3 py-3 text-xs text-slate-600">{row.date !== "-" ? toCountDown(row.date, row.time) : "-"}</td>
+                    <td className="px-3 py-3">{readiness}</td>
+                    <td className="px-3 py-3">{risk}</td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-1">
+                        {row.status === "Pending" ? (
+                          <button onClick={() => openSchedule(row)} className="rounded-lg border border-blue-200 px-2 py-1 text-xs font-semibold text-[#2563EB]">Schedule</button>
+                        ) : null}
+                        {["Scheduled", "Rescheduled", "Waiting Room"].includes(row.status) ? (
+                          <button onClick={() => onOpenInterview(row)} className="rounded-lg border border-green-200 px-2 py-1 text-xs font-semibold text-green-700">
+                            {getPrimaryActionLabel(row)}
+                          </button>
+                        ) : null}
+                        {row.status === "Live" ? (
+                          <button onClick={() => onOpenInterview(row)} className="rounded-lg border border-green-200 px-2 py-1 text-xs font-semibold text-green-700">{getPrimaryActionLabel(row)}</button>
+                        ) : null}
+                        {["Review Ready", "Completed"].includes(row.status) ? (
+                          <button onClick={() => nav(`/company/interviews/${row.id}/workspace`)} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700">{getPrimaryActionLabel(row)}</button>
+                        ) : null}
+                        {row.meetingLink ? (
+                          <button onClick={() => copyLink(row)} className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700"><FiCopy /></button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </section>
+      ) : (
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {loading ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">Loading interviews...</div>
+          ) : null}
+          {!loading && !rows.length ? (
+            <div className="rounded-xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">No records found.</div>
+          ) : null}
+          {!loading && rows.filter(Boolean).map((row) => {
+            const readiness = getRowReadiness(row);
+            const risk = getRowRisk(row);
+            return (
+              <article key={`card_${row.id}`} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-base font-semibold text-[#0F172A]">{row.candidate}</p>
+                    <p className="mt-1 text-sm text-slate-600">{row.job}</p>
+                  </div>
+                  <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${getStatusBadgeClass(row.status)}`}>{row.status}</span>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                  <p>Round: <span className="font-semibold text-slate-800">{row.currentRound || row.stage || "-"}</span></p>
+                  <p>Date: <span className="font-semibold text-slate-800">{row.date !== "-" ? `${row.date} ${row.time}` : "-"}</span></p>
+                  <p>Countdown: <span className="font-semibold text-slate-800">{row.date !== "-" ? toCountDown(row.date, row.time) : "-"}</span></p>
+                  <p>Readiness: <span className="font-semibold text-slate-800">{readiness}</span></p>
+                  <p>Risk: <span className="font-semibold text-slate-800">{risk}</span></p>
+                  <p>Mode: <span className="font-semibold text-slate-800">{row.mode || "-"}</span></p>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {row.status === "Pending" ? (
+                    <button onClick={() => openSchedule(row)} className="rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-semibold text-[#2563EB]">Schedule</button>
+                  ) : null}
+                  {["Scheduled", "Rescheduled", "Waiting Room"].includes(row.status) ? (
+                    <button onClick={() => onOpenInterview(row)} className="rounded-lg border border-green-200 px-3 py-1.5 text-xs font-semibold text-green-700">
+                      {getPrimaryActionLabel(row)}
+                    </button>
+                  ) : null}
+                  {row.status === "Live" ? (
+                    <button onClick={() => onOpenInterview(row)} className="rounded-lg border border-green-200 px-3 py-1.5 text-xs font-semibold text-green-700">{getPrimaryActionLabel(row)}</button>
+                  ) : null}
+                  {["Review Ready", "Completed"].includes(row.status) ? (
+                    <button onClick={() => nav(`/company/interviews/${row.id}/workspace`)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700">{getPrimaryActionLabel(row)}</button>
+                  ) : null}
+                  {row.meetingLink ? (
+                    <button onClick={() => copyLink(row)} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700"><span className="inline-flex items-center gap-1"><FiCopy /> Copy Link</span></button>
+                  ) : null}
+                </div>
+              </article>
+            );
+          })}
+        </section>
+      )}
 
       {schedule.open ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 p-4">

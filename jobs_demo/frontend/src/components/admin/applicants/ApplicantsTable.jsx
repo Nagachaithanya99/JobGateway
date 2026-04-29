@@ -1,11 +1,12 @@
 import { useMemo } from "react";
-import { FiDownload, FiEye, FiTrash2 } from "react-icons/fi";
+import { FiDownload, FiEye, FiFileText, FiTrash2 } from "react-icons/fi";
 
 function statusClass(status) {
   const s = String(status || "").toLowerCase();
   if (s === "shortlisted") return "bg-green-50 border-green-200 text-green-700";
   if (s === "hold") return "bg-amber-50 border-amber-200 text-amber-700";
   if (s === "rejected") return "bg-red-50 border-red-200 text-red-700";
+  if (s === "interview scheduled") return "bg-indigo-50 border-indigo-200 text-indigo-700";
   return "bg-blue-50 border-blue-200 text-[#2563EB]";
 }
 
@@ -54,7 +55,9 @@ export default function ApplicantsTable({
   onToggleSelectAll,
   onView,
   onDelete,
+  onOpenResume,
   onDownloadResume,
+  onAvatarClick,
 }) {
   const allSelected = useMemo(
     () => rows.length > 0 && rows.every((row) => selectedIds.includes(row.id)),
@@ -104,9 +107,22 @@ export default function ApplicantsTable({
 
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
-                      <Avatar applicant={row} />
+                      <button
+                        type="button"
+                        onClick={() => onAvatarClick?.(row)}
+                        className="rounded-full transition hover:scale-[1.03]"
+                        title={`Open ${row.student?.name || "student"} profile`}
+                      >
+                        <Avatar applicant={row} />
+                      </button>
                       <div>
-                        <p className="font-semibold text-slate-800">{row.student?.name}</p>
+                        <button
+                          type="button"
+                          onClick={() => onAvatarClick?.(row)}
+                          className="font-semibold text-slate-800 hover:text-[#2563EB]"
+                        >
+                          {row.student?.name}
+                        </button>
                         <p className="text-xs text-slate-500">{row.student?.email}</p>
                       </div>
                     </div>
@@ -126,14 +142,13 @@ export default function ApplicantsTable({
 
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <a
-                        href={row.student?.resumeUrl || "#"}
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => onOpenResume?.(row)}
                         className="text-xs font-semibold text-[#2563EB] hover:underline"
                       >
                         View Resume
-                      </a>
+                      </button>
                       <button
                         type="button"
                         title="Download Resume"
@@ -176,9 +191,22 @@ export default function ApplicantsTable({
                 onChange={(e) => onToggleSelect(row.id, e.target.checked)}
                 className="h-4 w-4 rounded border-slate-300 text-[#2563EB] focus:ring-[#2563EB]"
               />
-              <Avatar applicant={row} />
+              <button
+                type="button"
+                onClick={() => onAvatarClick?.(row)}
+                className="rounded-full transition hover:scale-[1.03]"
+                title={`Open ${row.student?.name || "student"} profile`}
+              >
+                <Avatar applicant={row} />
+              </button>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-slate-800">{row.student?.name}</p>
+                <button
+                  type="button"
+                  onClick={() => onAvatarClick?.(row)}
+                  className="truncate text-left text-sm font-semibold text-slate-800 hover:text-[#2563EB]"
+                >
+                  {row.student?.name}
+                </button>
                 <p className="truncate text-xs text-slate-500">{row.job?.title}</p>
                 <p className="truncate text-xs text-slate-500">{row.job?.companyName}</p>
               </div>
@@ -191,11 +219,22 @@ export default function ApplicantsTable({
               </span>
               <button
                 type="button"
-                onClick={() => onDownloadResume(row)}
+                onClick={() => onOpenResume?.(row)}
                 className="inline-flex items-center gap-1 rounded-lg border border-blue-200 px-2 py-1 text-xs font-semibold text-[#2563EB] hover:bg-blue-50"
               >
-                <FiDownload className="text-xs" /> Download Resume
+                <FiFileText className="text-xs" /> View Resume
               </button>
+            </div>
+
+            <div className="mt-2 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => onDownloadResume(row)}
+                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <FiDownload className="text-xs" /> Download
+              </button>
+              <ActionButton title="Delete" tone="redOutline" onClick={() => onDelete(row)} icon={<FiTrash2 />} />
             </div>
           </div>
         ))}

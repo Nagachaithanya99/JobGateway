@@ -54,7 +54,6 @@ export default function ExploreStoryViewer({
   onClose,
   onNavigate,
   onCreateStory,
-  onMessage,
   onLike,
   onReport,
   onShare,
@@ -77,6 +76,7 @@ export default function ExploreStoryViewer({
 }) {
   const activeGroup = groups[groupIndex] || null;
   const activeStory = activeGroup?.items?.[storyIndex] || null;
+  const activeAuthor = activeGroup?.author || activeStory?.author || null;
   const mediaUrl = useMemo(() => toAbsoluteMediaUrl(activeStory?.media?.url), [activeStory?.media?.url]);
   const storyMusic = activeStory?.music?.audioUrl ? activeStory.music : null;
   const storyMusicUrl = useMemo(() => toAbsoluteMediaUrl(storyMusic?.audioUrl), [storyMusic?.audioUrl]);
@@ -87,6 +87,7 @@ export default function ExploreStoryViewer({
   const typingTimerRef = useRef(null);
   const holdRef = useRef(false);
   const insightsPausedRef = useRef(false);
+  const pausedRef = useRef(false);
   const [progress, setProgress] = useState(0);
   const [storyMuted, setStoryMuted] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -115,10 +116,10 @@ export default function ExploreStoryViewer({
     groupIndex < groups.length - 1 ||
     storyIndex < Number(activeGroup?.items?.length || 0) - 1;
   const storyViews = Math.max(0, Number(activeStory?.metrics?.views || 0));
-  const authorPresenceLabel = activeGroup?.author?.isOnline
+  const authorPresenceLabel = activeAuthor?.isOnline
     ? "Online"
-    : activeGroup?.author?.lastSeenAt
-      ? `Active ${timeAgo?.(activeGroup.author.lastSeenAt) || "recently"} ago`
+    : activeAuthor?.lastSeenAt
+      ? `Active ${timeAgo?.(activeAuthor.lastSeenAt) || "recently"} ago`
       : `Active ${timeAgo?.(activeStory?.createdAt) || "recently"} ago`;
   const messageStatusLabel = messageBusy
     ? "Sending..."
@@ -127,7 +128,7 @@ export default function ExploreStoryViewer({
         : activeStory?.viewerState?.seen
           ? "Seen"
           : "Delivered";
-  const ownerViewingOwnStory = Boolean(activeGroup.author?.isSelf);
+  const ownerViewingOwnStory = Boolean(activeAuthor?.isSelf);
   const insightsMetrics = storyInsights?.storyId === activeStory?.id
     ? storyInsights.metrics || { views: storyViews, likes: Number(activeStory?.metrics?.likes || 0) }
     : { views: storyViews, likes: Number(activeStory?.metrics?.likes || 0) };
@@ -135,15 +136,44 @@ export default function ExploreStoryViewer({
     ? Array.isArray(storyInsights?.likes) ? storyInsights.likes : []
     : Array.isArray(storyInsights?.viewers) ? storyInsights.viewers : [];
 
+  function navigateRelative(direction) {
+    if (!activeGroup) return;
+
+    if (direction < 0) {
+      if (storyIndex > 0) {
+        onNavigate?.(groupIndex, storyIndex - 1);
+        return;
+      }
+      if (groupIndex > 0) {
+        const previousGroup = groups[groupIndex - 1];
+        const previousLastStory = Math.max(0, Number(previousGroup?.items?.length || 1) - 1);
+        onNavigate?.(groupIndex - 1, previousLastStory);
+      }
+      return;
+    }
+
+    if (storyIndex < Number(activeGroup?.items?.length || 0) - 1) {
+      onNavigate?.(groupIndex, storyIndex + 1);
+      return;
+    }
+    if (groupIndex < groups.length - 1) {
+      onNavigate?.(groupIndex + 1, 0);
+      return;
+    }
+    onClose?.();
+  }
+
   useEffect(() => {
     if (!open) return;
     setStoryMuted(false);
     setPaused(false);
+    pausedRef.current = false;
   }, [open]);
 
   useEffect(() => {
     setMenuOpen(false);
     setPaused(false);
+    pausedRef.current = false;
     setTyping(false);
     setScreenshotNotice("");
     insightsPausedRef.current = false;
@@ -177,9 +207,13 @@ export default function ExploreStoryViewer({
   }, [open, groupIndex, storyIndex]);
 
   useEffect(() => {
-    if (!open || activeGroup?.author?.isSelf) return;
+    if (!open || activeAuthor?.isSelf) return;
     messageInputRef.current?.focus();
-  }, [open, activeStory?.id, activeGroup?.author?.isSelf]);
+  }, [open, activeStory?.id, activeAuthor?.isSelf]);
+
+  useEffect(() => {
+    pausedRef.current = paused;
+  }, [paused]);
 
   useEffect(() => {
     const next = groups[groupIndex]?.items?.[storyIndex + 1];
@@ -194,33 +228,6 @@ export default function ExploreStoryViewer({
     const img = new Image();
     img.src = nextUrl;
   }, [groupIndex, storyIndex, groups]);
-
-  const navigateRelative = (direction) => {
-    if (!activeGroup) return;
-
-    if (direction < 0) {
-      if (storyIndex > 0) {
-        onNavigate?.(groupIndex, storyIndex - 1);
-        return;
-      }
-      if (groupIndex > 0) {
-        const previousGroup = groups[groupIndex - 1];
-        const previousLastStory = Math.max(0, Number(previousGroup?.items?.length || 1) - 1);
-        onNavigate?.(groupIndex - 1, previousLastStory);
-      }
-      return;
-    }
-
-    if (storyIndex < Number(activeGroup?.items?.length || 0) - 1) {
-      onNavigate?.(groupIndex, storyIndex + 1);
-      return;
-    }
-    if (groupIndex < groups.length - 1) {
-      onNavigate?.(groupIndex + 1, 0);
-      return;
-    }
-    onClose?.();
-  };
 
   useEffect(() => {
     if (!open || !activeStory) return undefined;
@@ -293,10 +300,17 @@ export default function ExploreStoryViewer({
       node.addEventListener("timeupdate", handleTimeUpdate);
       handleLoaded();
 
-      const startedAt = Date.now();
+      let elapsedMs = 0;
+      let lastTick = Date.now();
       const timer = window.setInterval(() => {
-        if (paused) return;
-        const nextProgress = Math.min(100, ((Date.now() - startedAt) / imageStoryDurationMs) * 100);
+        const now = Date.now();
+        if (pausedRef.current) {
+          lastTick = now;
+          return;
+        }
+        elapsedMs += now - lastTick;
+        lastTick = now;
+        const nextProgress = Math.min(100, (elapsedMs / imageStoryDurationMs) * 100);
         setProgress(nextProgress);
         if (nextProgress >= 100) {
           window.clearInterval(timer);
@@ -313,10 +327,17 @@ export default function ExploreStoryViewer({
     }
 
     const durationMs = imageStoryDurationMs;
-    const startedAt = Date.now();
+    let elapsedMs = 0;
+    let lastTick = Date.now();
     const timer = window.setInterval(() => {
-      if (paused) return;
-      const nextProgress = Math.min(100, ((Date.now() - startedAt) / durationMs) * 100);
+      const now = Date.now();
+      if (pausedRef.current) {
+        lastTick = now;
+        return;
+      }
+      elapsedMs += now - lastTick;
+      lastTick = now;
+      const nextProgress = Math.min(100, (elapsedMs / durationMs) * 100);
       setProgress(nextProgress);
       if (nextProgress >= 100) {
         window.clearInterval(timer);
@@ -325,7 +346,7 @@ export default function ExploreStoryViewer({
     }, 100);
 
     return () => window.clearInterval(timer);
-  }, [open, activeStory?.id, groupIndex, storyIndex, isVideo, hasImageMusic, imageMusicStart, imageMusicClipDuration, imageStoryDurationMs, storyMuted, paused]);
+  }, [open, activeStory?.id, groupIndex, storyIndex, isVideo, hasImageMusic, imageMusicStart, imageMusicClipDuration, imageStoryDurationMs]);
 
   useEffect(() => {
     if (!open) return;
@@ -378,7 +399,7 @@ export default function ExploreStoryViewer({
   const handleMessageKeyDown = (event) => {
     if (event.key !== "Enter" || event.shiftKey) return;
     event.preventDefault();
-    onMessageSend?.(activeGroup.author, activeStory);
+    onMessageSend?.(activeAuthor, activeStory);
   };
 
   const handleHoldStart = () => {
@@ -393,7 +414,7 @@ export default function ExploreStoryViewer({
 
   const handleMediaInteraction = () => {
     const now = Date.now();
-    if (now - lastTap < 300 && !activeGroup.author?.isSelf) {
+    if (now - lastTap < 300 && !activeAuthor?.isSelf) {
       onLike?.(activeStory);
     }
     setLastTap(now);
@@ -454,7 +475,7 @@ export default function ExploreStoryViewer({
 
                   {menuOpen ? (
                     <div className="absolute left-0 top-12 min-w-[190px] overflow-hidden rounded-[22px] border border-white/10 bg-[#0b0f15]/96 p-2.5 text-sm shadow-[0_24px_60px_rgba(0,0,0,0.42)] backdrop-blur-xl">
-                      {activeGroup.author?.isSelf ? (
+                      {activeAuthor?.isSelf ? (
                         <button
                           type="button"
                           onClick={() => {
@@ -493,13 +514,13 @@ export default function ExploreStoryViewer({
                           <span>{storyMuted ? "Turn Sound On" : "Mute Audio"}</span>
                         </button>
                       ) : null}
-                      {!activeGroup.author?.isSelf ? (
+                      {!activeAuthor?.isSelf ? (
                         <>
                           <button
                             type="button"
                             onClick={() => {
                               setMenuOpen(false);
-                              onSendAccount?.(activeGroup.author, activeStory);
+                              onSendAccount?.(activeAuthor, activeStory);
                             }}
                             className="mt-1 flex w-full items-center gap-3 rounded-[18px] px-3.5 py-3 text-left font-semibold text-white/92 transition hover:bg-white/10"
                           >
@@ -510,7 +531,7 @@ export default function ExploreStoryViewer({
                             type="button"
                             onClick={() => {
                               setMenuOpen(false);
-                              onMuteAuthor?.(activeGroup.author, activeStory);
+                              onMuteAuthor?.(activeAuthor, activeStory);
                             }}
                             className="mt-1 flex w-full items-center gap-3 rounded-[18px] px-3.5 py-3 text-left font-semibold text-white/92 transition hover:bg-white/10"
                           >
@@ -521,7 +542,7 @@ export default function ExploreStoryViewer({
                             type="button"
                             onClick={() => {
                               setMenuOpen(false);
-                              onHideStory?.(activeStory, activeGroup.author);
+                              onHideStory?.(activeStory, activeAuthor);
                             }}
                             className="mt-1 flex w-full items-center gap-3 rounded-[18px] px-3.5 py-3 text-left font-semibold text-white/92 transition hover:bg-white/10"
                           >
@@ -533,9 +554,9 @@ export default function ExploreStoryViewer({
                     </div>
                   ) : null}
                 </div>
-                <Avatar name={activeGroup.author?.name} avatarUrl={activeGroup.author?.avatarUrl} />
+                <Avatar name={activeAuthor?.name} avatarUrl={activeAuthor?.avatarUrl} />
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-black">{activeGroup.author?.name}</p>
+                  <p className="truncate text-sm font-black">{activeAuthor?.name || "Story"}</p>
                   <div className="mt-1 flex items-center gap-2 text-xs text-white/65">
                     <FiClock />
                     <span>{authorPresenceLabel}</span>
@@ -546,7 +567,7 @@ export default function ExploreStoryViewer({
               </div>
 
               <div className="flex shrink-0 items-center gap-2">
-                {activeGroup.author?.isSelf ? (
+                {activeAuthor?.isSelf ? (
                   <button
                     type="button"
                     onClick={onCreateStory}
@@ -607,7 +628,7 @@ export default function ExploreStoryViewer({
                     className="absolute inset-0 h-full w-full scale-110 object-cover opacity-45 blur-2xl"
                   />
                   <div className={`absolute inset-x-0 ${mediaStageInsetClass} flex items-center justify-center px-3 sm:px-4`}>
-                    <img src={mediaUrl} alt={activeGroup.author?.name || "Story"} className="h-full w-full rounded-[24px] object-contain shadow-[0_22px_70px_rgba(0,0,0,0.42)]" />
+                    <img src={mediaUrl} alt={activeAuthor?.name || "Story"} className="h-full w-full rounded-[24px] object-contain shadow-[0_22px_70px_rgba(0,0,0,0.42)]" />
                   </div>
                   {hasImageMusic ? <audio ref={imageMusicRef} src={storyMusicUrl} preload="metadata" /> : null}
                 </>
@@ -684,7 +705,7 @@ export default function ExploreStoryViewer({
               </p>
             ) : null}
 
-            {!activeGroup.author?.isSelf ? (
+            {!activeAuthor?.isSelf ? (
               <div className="mt-4 flex items-center gap-3">
                 <div className="flex min-w-0 flex-1 items-center gap-2 rounded-full border border-white/25 bg-[#090c11]/88 px-3 py-2.5 backdrop-blur">
                   <textarea
@@ -698,7 +719,7 @@ export default function ExploreStoryViewer({
                   />
                   <button
                     type="button"
-                    onClick={() => onMessageSend?.(activeGroup.author, activeStory)}
+                    onClick={() => onMessageSend?.(activeAuthor, activeStory)}
                     disabled={messageBusy || !String(messageDraft || "").trim()}
                     className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-black transition hover:bg-white/90 disabled:cursor-not-allowed disabled:opacity-55"
                     aria-label="Send story message"

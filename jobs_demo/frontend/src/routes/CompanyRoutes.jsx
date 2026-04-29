@@ -22,6 +22,7 @@ import AICandidateScoring from "../pages/company/AICandidateScoring.jsx";
 import Profile from "../pages/company/Profile.jsx";
 import Settings from "../pages/company/Settings.jsx";
 import CareerPulsePage from "../pages/shared/CareerPulsePage.jsx";
+import RequireJobPostingAccess from "../components/company/RequireJobPostingAccess.jsx";
 
 export default function CompanyRoutes() {
   return (
@@ -45,7 +46,14 @@ export default function CompanyRoutes() {
         <Route path="career-pulse" element={<Navigate to="/company/explore" replace />} />
         <Route path="pricing" element={<PricingPlans />} />
         <Route path="billing" element={<CompanyBilling />} />
-        <Route path="post-job" element={<PostJob />} />
+        <Route
+          path="post-job"
+          element={
+            <RequireJobPostingAccess>
+              <PostJob />
+            </RequireJobPostingAccess>
+          }
+        />
         <Route path="my-jobs" element={<MyJobs />} />
         <Route path="candidates" element={<AppliedCandidates />} />
         <Route path="shortlisted" element={<Shortlisted />} />

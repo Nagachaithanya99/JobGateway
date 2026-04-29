@@ -64,6 +64,7 @@ export async function updateCompanyProfileMe(req, res) {
       "size",
       "founded",
       "logoUrl",
+      "profileAudience",
 
       // contact
       "email",
@@ -78,6 +79,10 @@ export async function updateCompanyProfileMe(req, res) {
       // about
       "about",
       "mission",
+      "culture",
+      "perks",
+      "hiringProcess",
+      "studentMessage",
       "category",
 
     ];

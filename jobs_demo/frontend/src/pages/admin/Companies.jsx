@@ -1,19 +1,28 @@
 // frontend/src/pages/admin/Companies.jsx
 import { useEffect, useMemo, useState } from "react";
-import { FiActivity, FiBriefcase, FiCheckCircle, FiUsers } from "react-icons/fi";
+import { FiActivity, FiBriefcase, FiCheckCircle, FiGrid, FiList, FiUsers } from "react-icons/fi";
 
 import FilterBar from "../../components/admin/companies/FilterBar";
 import SummaryCard from "../../components/admin/companies/SummaryCard";
 import CompanyTable from "../../components/admin/companies/CompanyTable";
+import CompanyCardGrid from "../../components/admin/companies/CompanyCardGrid";
 import CompanyDetailsDrawer from "../../components/admin/companies/CompanyDetailsDrawer";
 import Modal from "../../components/common/Modal";
 
 import {
   adminCreateCompany,
+  adminDeleteCompany,
   adminGetCompanyDetails,
   adminListCompanies,
   adminToggleCompanyStatus,
 } from "../../services/adminService";
+import { showSweetConfirm, showSweetToast } from "../../utils/sweetAlert";
+
+function getAccountStatus(row) {
+  if (row?.isActive === true) return "active";
+  if (row?.isActive === false) return "suspended";
+  return String(row?.status || "").toLowerCase() === "active" ? "active" : "suspended";
+}
 
 export default function Companies() {
   const [loading, setLoading] = useState(true);
@@ -23,6 +32,7 @@ export default function Companies() {
   const [status, setStatus] = useState("all");
   const [planType, setPlanType] = useState("all");
   const [category, setCategory] = useState("all");
+  const [viewMode, setViewMode] = useState("table");
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedCompany, setSelectedCompany] = useState(null);
@@ -69,8 +79,8 @@ export default function Companies() {
 
   const summary = useMemo(() => {
     const total = list.length;
-    const active = list.filter((item) => String(item.status).toLowerCase() === "active").length;
-    const suspended = list.filter((item) => String(item.status).toLowerCase() === "suspended").length;
+    const active = list.filter((item) => getAccountStatus(item) === "active").length;
+    const suspended = list.filter((item) => getAccountStatus(item) === "suspended").length;
     const activePlans = list.filter((item) => String(item.plan?.status).toLowerCase() === "active").length;
     return { total, active, suspended, activePlans };
   }, [list]);
@@ -85,7 +95,7 @@ export default function Companies() {
         String(item.email || "").toLowerCase().includes(q) ||
         String(item.category || "").toLowerCase().includes(q);
 
-      const matchStatus = status === "all" || String(item.status).toLowerCase() === status;
+      const matchStatus = status === "all" || getAccountStatus(item) === status;
       const matchPlan = planType === "all" || String(item.plan?.name || "").toLowerCase() === planType;
       const matchCategory = category === "all" || item.category === category;
 
@@ -112,44 +122,110 @@ export default function Companies() {
     }
   };
 
-  const handleEdit = (row) => {
-    console.log("Edit company", row.id);
-  };
-
   const handleToggleStatus = async (row) => {
-    const next = String(row.status).toLowerCase() === "active" ? "suspended" : "active";
+    const next = getAccountStatus(row) === "active" ? "suspended" : "active";
+    const companyName = row?.name || "this company";
+    const actionCopy =
+      next === "suspended"
+        ? {
+            title: "Suspend Company?",
+            text: `Suspend "${companyName}"? This will block the company account until an admin activates it again.`,
+            confirmButtonText: "Yes, suspend",
+            success: `"${companyName}" suspended successfully.`,
+          }
+        : {
+            title: "Unsuspend Company?",
+            text: `Unsuspend "${companyName}"? This will restore company account access.`,
+            confirmButtonText: "Yes, unsuspend",
+            success: `"${companyName}" is active again.`,
+          };
+
+    const ok = await showSweetConfirm({
+      title: actionCopy.title,
+      text: actionCopy.text,
+      confirmButtonText: actionCopy.confirmButtonText,
+      cancelButtonText: "Cancel",
+      tone: "warning",
+      focusCancel: true,
+    });
+    if (!ok) return;
 
     // optimistic update
     setBusyId(row.id);
-    setList((prev) => prev.map((item) => (item.id === row.id ? { ...item, status: next } : item)));
+    setError("");
+    const optimisticStatus = {
+      status: next,
+      statusLabel: next === "active" ? "Active" : "Suspended",
+      isActive: next === "active",
+    };
+    setList((prev) => prev.map((item) => (item.id === row.id ? { ...item, ...optimisticStatus } : item)));
     if (selectedCompany?.id === row.id) {
-      setSelectedCompany((prev) => ({ ...prev, status: next }));
+      setSelectedCompany((prev) => ({ ...prev, ...optimisticStatus }));
     }
 
     try {
-      await adminToggleCompanyStatus(row.id, next);
+      const result = await adminToggleCompanyStatus(row.id, next);
+      const savedStatus = String(result?.status || next).toLowerCase();
+      const savedStatusPatch = {
+        status: savedStatus,
+        statusLabel: savedStatus === "active" ? "Active" : "Suspended",
+        isActive: savedStatus === "active",
+      };
+      setList((prev) => prev.map((item) => (item.id === row.id ? { ...item, ...savedStatusPatch } : item)));
+      if (selectedCompany?.id === row.id) {
+        setSelectedCompany((prev) => ({ ...prev, ...savedStatusPatch }));
+      }
+      void showSweetToast(actionCopy.success, "success", { timer: 1600 });
     } catch (e) {
       // rollback
       const rollback = next === "active" ? "suspended" : "active";
-      setList((prev) => prev.map((item) => (item.id === row.id ? { ...item, status: rollback } : item)));
+      const rollbackStatusPatch = {
+        status: rollback,
+        statusLabel: rollback === "active" ? "Active" : "Suspended",
+        isActive: rollback === "active",
+      };
+      setList((prev) => prev.map((item) => (item.id === row.id ? { ...item, ...rollbackStatusPatch } : item)));
       if (selectedCompany?.id === row.id) {
-        setSelectedCompany((prev) => ({ ...prev, status: rollback }));
+        setSelectedCompany((prev) => ({ ...prev, ...rollbackStatusPatch }));
       }
-      setError(e?.response?.data?.message || e?.message || "Failed to update company status.");
+      const message = e?.response?.data?.message || e?.message || "Failed to update company status.";
+      setError(message);
+      void showSweetToast(message, "error", { timer: 1800 });
     } finally {
       setBusyId("");
     }
   };
 
-  const handleDelete = (row) => {
-    // NOTE: delete endpoint is not created in Step 2.
-    // For now just remove locally.
-    setList((prev) => prev.filter((item) => item.id !== row.id));
-    if (selectedCompany?.id === row.id) {
-      setDrawerOpen(false);
-      setSelectedCompany(null);
-      setSelectedJobs([]);
-      setSelectedApplicants([]);
+  const handleDelete = async (row) => {
+    const companyName = row?.name || "this company";
+    const ok = await showSweetConfirm({
+      title: "Delete Company?",
+      text: `Please confirm deleting "${companyName}". The company account will be deactivated and active jobs will be disabled.`,
+      confirmButtonText: "Yes, delete company",
+      cancelButtonText: "No, keep company",
+      tone: "warning",
+      focusCancel: true,
+    });
+    if (!ok) return;
+
+    setBusyId(row.id);
+    setError("");
+    try {
+      await adminDeleteCompany(row.id);
+      setList((prev) => prev.filter((item) => item.id !== row.id));
+      if (selectedCompany?.id === row.id) {
+        setDrawerOpen(false);
+        setSelectedCompany(null);
+        setSelectedJobs([]);
+        setSelectedApplicants([]);
+      }
+      void showSweetToast(`"${companyName}" deleted successfully.`, "success", { timer: 1600 });
+    } catch (e) {
+      const message = e?.response?.data?.message || e?.message || "Failed to delete company.";
+      setError(message);
+      void showSweetToast(message, "error", { timer: 1800 });
+    } finally {
+      setBusyId("");
     }
   };
 
@@ -223,14 +299,55 @@ export default function Companies() {
         <SummaryCard title="Companies with Active Plans" value={summary.activePlans} icon={<FiBriefcase />} accent="amber" />
       </section>
 
-      <CompanyTable
-        rows={filtered}
-        loading={loading}
-        onView={openDetails}
-        onEdit={handleEdit}
-        onToggleStatus={(row) => (busyId ? null : handleToggleStatus(row))}
-        onDelete={handleDelete}
-      />
+      <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-bold text-slate-800">
+            {filtered.length} {filtered.length === 1 ? "company" : "companies"} shown
+          </p>
+          <p className="text-xs text-slate-500">Switch between compact table view and visual card view.</p>
+        </div>
+
+        <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+          <button
+            type="button"
+            onClick={() => setViewMode("table")}
+            className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-bold transition ${
+              viewMode === "table" ? "bg-white text-blue-700 shadow-sm" : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <FiList />
+            Table
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("cards")}
+            className={`inline-flex h-10 items-center gap-2 rounded-xl px-4 text-sm font-bold transition ${
+              viewMode === "cards" ? "bg-white text-blue-700 shadow-sm" : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <FiGrid />
+            Cards
+          </button>
+        </div>
+      </section>
+
+      {viewMode === "table" ? (
+        <CompanyTable
+          rows={filtered}
+          loading={loading}
+          onView={openDetails}
+          onToggleStatus={(row) => (busyId ? null : handleToggleStatus(row))}
+          onDelete={(row) => (busyId ? null : handleDelete(row))}
+        />
+      ) : (
+        <CompanyCardGrid
+          rows={filtered}
+          loading={loading}
+          onView={openDetails}
+          onToggleStatus={(row) => (busyId ? null : handleToggleStatus(row))}
+          onDelete={(row) => (busyId ? null : handleDelete(row))}
+        />
+      )}
 
       <CompanyDetailsDrawer
         open={drawerOpen}

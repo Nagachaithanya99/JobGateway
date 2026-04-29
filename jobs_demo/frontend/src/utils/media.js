@@ -29,14 +29,16 @@ export const SPEECH_AUDIO_CONSTRAINTS = {
   googAudioMirroring: false,
 };
 
-export const ULTRA_HD_VIDEO_CONSTRAINTS = {
+export const INTERVIEW_CAMERA_VIDEO_CONSTRAINTS = {
   facingMode: "user",
-  width: { ideal: 3840, max: 3840 },
-  height: { ideal: 2160, max: 2160 },
+  width: { ideal: 1280, max: 1920 },
+  height: { ideal: 720, max: 1080 },
   aspectRatio: { ideal: 16 / 9 },
-  frameRate: { ideal: 30, max: 60 },
-  resizeMode: "none",
+  frameRate: { ideal: 24, max: 30 },
+  resizeMode: "crop-and-scale",
 };
+
+export const ULTRA_HD_VIDEO_CONSTRAINTS = INTERVIEW_CAMERA_VIDEO_CONSTRAINTS;
 
 export async function optimizeSpeechTrack(track) {
   if (!track || track.kind !== "audio") return;
@@ -80,7 +82,7 @@ export async function optimizeVideoTrack(track) {
   if (!track || track.kind !== "video") return;
 
   try {
-    track.contentHint = "detail";
+    track.contentHint = "motion";
   } catch {
     // ignore unsupported browsers
   }
@@ -89,20 +91,24 @@ export async function optimizeVideoTrack(track) {
   const nextConstraints = {};
 
   if (capabilities.width) {
-    nextConstraints.width = Math.min(Number(capabilities.width.max || 3840), 3840);
+    const maxWidth = Math.min(Number(capabilities.width.max || 1920), 1920);
+    nextConstraints.width = { ideal: Math.min(maxWidth, 1280), max: maxWidth };
   }
   if (capabilities.height) {
-    nextConstraints.height = Math.min(Number(capabilities.height.max || 2160), 2160);
+    const maxHeight = Math.min(Number(capabilities.height.max || 1080), 1080);
+    nextConstraints.height = { ideal: Math.min(maxHeight, 720), max: maxHeight };
   }
   if (capabilities.frameRate) {
-    nextConstraints.frameRate = Math.min(Number(capabilities.frameRate.max || 30), 30);
+    const maxFrameRate = Math.min(Number(capabilities.frameRate.max || 30), 30);
+    nextConstraints.frameRate = { ideal: Math.min(maxFrameRate, 24), max: maxFrameRate };
   }
   if (capabilities.aspectRatio) {
     nextConstraints.aspectRatio = 16 / 9;
   }
   if (capabilities.resizeMode) {
     const modes = Array.isArray(capabilities.resizeMode) ? capabilities.resizeMode : [capabilities.resizeMode];
-    if (modes.includes("none")) nextConstraints.resizeMode = "none";
+    if (modes.includes("crop-and-scale")) nextConstraints.resizeMode = "crop-and-scale";
+    else if (modes.includes("none")) nextConstraints.resizeMode = "none";
   }
 
   if (!Object.keys(nextConstraints).length || typeof track.applyConstraints !== "function") return;
@@ -119,4 +125,30 @@ export async function optimizeVideoStream(stream) {
   const tasks = stream.getVideoTracks().map((track) => optimizeVideoTrack(track));
   await Promise.allSettled(tasks);
   return stream;
+}
+
+export async function optimizeVideoSenderForInterview(sender) {
+  if (!sender?.track || sender.track.kind !== "video") return;
+  if (typeof sender.getParameters !== "function" || typeof sender.setParameters !== "function") return;
+
+  try {
+    const parameters = sender.getParameters() || {};
+    const encodings = Array.isArray(parameters.encodings) && parameters.encodings.length
+      ? parameters.encodings
+      : [{}];
+
+    parameters.degradationPreference = "maintain-framerate";
+    parameters.encodings = encodings.map((encoding) => {
+      const currentBitrate = Number(encoding?.maxBitrate);
+      return {
+        ...encoding,
+        maxBitrate: Number.isFinite(currentBitrate) && currentBitrate > 0 ? Math.min(currentBitrate, 900000) : 900000,
+        maxFramerate: 24,
+      };
+    });
+
+    await sender.setParameters(parameters);
+  } catch {
+    // ignore browser implementations that do not support sender tuning
+  }
 }

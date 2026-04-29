@@ -323,13 +323,13 @@ export function ReelSlide({
               {!safetyHidden && post.author?.canFollow ? (
                 <button
                   type="button"
-                  disabled={busy[`follow-${post.author.id}`]}
+                  disabled={busy[`follow-${post.author?.id}`]}
                   onClick={onFollow}
                   className={`rounded-full px-4 py-2 text-sm font-extrabold transition ${
                     post.author?.isFollowed ? "border border-white/15 bg-white/10 text-white" : "bg-white text-[#111111]"
                   }`}
                 >
-                  {busy[`follow-${post.author.id}`] ? "..." : post.author?.isFollowed ? "Following" : "Follow"}
+                  {busy[`follow-${post.author?.id}`] ? "..." : post.author?.isFollowed ? "Following" : "Follow"}
                 </button>
               ) : null}
             </div>

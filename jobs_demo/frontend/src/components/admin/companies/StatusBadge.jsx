@@ -1,10 +1,15 @@
 export default function StatusBadge({ value, type = "account" }) {
-  const key = String(value || "").toLowerCase();
+  const rawKey = String(value ?? "").trim().toLowerCase();
+  const accountKey = normalizeAccountStatus(rawKey);
+  const key = type === "account" ? accountKey : rawKey;
 
-  const maps = {
+  const styleMaps = {
     account: {
       active: "bg-green-50 border-green-200 text-green-700",
       suspended: "bg-red-50 border-red-200 text-red-700",
+      inactive: "bg-red-50 border-red-200 text-red-700",
+      disabled: "bg-red-50 border-red-200 text-red-700",
+      false: "bg-red-50 border-red-200 text-red-700",
       pending: "bg-amber-50 border-amber-200 text-amber-700",
     },
     planType: {
@@ -25,11 +30,22 @@ export default function StatusBadge({ value, type = "account" }) {
     },
   };
 
-  const cls = maps[type]?.[key] || "bg-slate-50 border-slate-200 text-slate-700";
+  const labelMaps = {
+    account: { active: "Active", suspended: "Suspended", pending: "Pending" },
+  };
+
+  const cls = styleMaps[type]?.[key] || "bg-slate-50 border-slate-200 text-slate-700";
+  const label = type === "account" ? labelMaps.account[key] || "Suspended" : String(value || "-");
 
   return (
     <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${cls}`}>
-      {String(value || "-")}
+      {label}
     </span>
   );
+}
+
+function normalizeAccountStatus(value) {
+  if (value === "active" || value === "true" || value === "1") return "active";
+  if (value === "pending") return "pending";
+  return "suspended";
 }

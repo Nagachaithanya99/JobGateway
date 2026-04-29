@@ -22,9 +22,10 @@ export default function ProtectedRoute({ children, role }) {
   const rawClerkRole = user?.publicMetadata?.role ?? user?.unsafeMetadata?.role;
   const clerkRole = typeof rawClerkRole === "string" ? rawClerkRole.toLowerCase() : "";
   const currentRole = clerkRole || String(appAuth?.role || "").toLowerCase();
+  const hasLocalAdmin = Boolean(appAuth?.localAdminToken && String(appAuth?.role || "").toLowerCase() === "admin");
 
-  // Admin area must use Clerk session (no demo fallback)
   if (requiredRole === "admin") {
+    if (hasLocalAdmin) return children;
     if (!isUserLoaded) return null;
     if (!isSignedIn) return <Navigate to={loginPath} replace />;
     if (currentRole !== "admin") return <Navigate to="/" replace />;

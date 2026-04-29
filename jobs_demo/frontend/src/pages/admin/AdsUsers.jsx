@@ -16,16 +16,131 @@ import { showSweetConfirm, showSweetPrompt } from "../../utils/sweetAlert.js";
 import {
   adminDeleteAdPlan,
   adminGetAdsCenter,
+  adminRunAdsPlanRequestAction,
   adminSaveAdPlan,
   adminUpdateAdStatus,
-  adminUpdateAdsPlanRequest,
 } from "../../services/adminService";
 
 function statusPill(status) {
   const value = String(status || "").toLowerCase();
   if (value === "approved" || value === "active") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-  if (value === "rejected" || value === "archived") return "border-rose-200 bg-rose-50 text-rose-600";
+  if (value === "rejected" || value === "archived" || value === "failed") return "border-rose-200 bg-rose-50 text-rose-600";
+  if (value === "inactive") return "border-slate-200 bg-slate-100 text-slate-600";
+  if (value === "created") return "border-blue-200 bg-blue-50 text-blue-700";
   return "border-amber-200 bg-amber-50 text-amber-700";
+}
+
+function statusLabel(status) {
+  const value = String(status || "").toLowerCase();
+  if (value === "active") return "Active";
+  if (value === "approved") return "Approved";
+  if (value === "pending") return "Pending";
+  if (value === "rejected") return "Rejected";
+  if (value === "inactive") return "Inactive";
+  if (value === "archived") return "Archived";
+  if (value === "created") return "Payment Pending";
+  if (value === "failed") return "Payment Failed";
+  return "Pending Approval";
+}
+
+function canApproveRow(row) {
+  return ["pending", "created", "failed"].includes(String(row?.status || "").toLowerCase());
+}
+
+function canActivateRow(row) {
+  return String(row?.status || "").toLowerCase() === "inactive";
+}
+
+function canDeactivateRow(row) {
+  return String(row?.status || "").toLowerCase() === "approved";
+}
+
+function canRejectRow(row) {
+  return String(row?.source || "").toLowerCase() === "manual"
+    && String(row?.status || "").toLowerCase() === "pending";
+}
+
+function requestActionPrompt(action, row) {
+  const userName = row?.userName || "this user";
+  const planName = row?.planName || "selected plan";
+
+  if (action === "approve") {
+    return {
+      title: "Approve Ad User?",
+      text: `Approve ${userName} for the ${planName} plan?`,
+      confirmButtonText: "Approve",
+      tone: "info",
+    };
+  }
+  if (action === "active") {
+    return {
+      title: "Activate Ad Access?",
+      text: `Activate ad access for ${userName}?`,
+      confirmButtonText: "Active",
+      tone: "info",
+    };
+  }
+  if (action === "inactive") {
+    return {
+      title: "Mark Ad Access Inactive?",
+      text: `Set ${userName}'s ${planName} access to inactive?`,
+      confirmButtonText: "In-Active",
+      tone: "warning",
+    };
+  }
+  if (action === "reject") {
+    return {
+      title: "Reject Ad Request?",
+      text: `Reject ${userName} for the ${planName} plan?`,
+      confirmButtonText: "Reject",
+      tone: "warning",
+    };
+  }
+  return {
+    title: "Delete Ad User Record?",
+    text: `Delete this ${planName} record for ${userName}?`,
+    confirmButtonText: "Delete",
+    tone: "warning",
+  };
+}
+
+function adActionPrompt(action, row) {
+  const title = row?.title || "this ad";
+  const userName = row?.userName || "this user";
+
+  if (action === "active") {
+    return {
+      title: "Activate Ad?",
+      text: `Make "${title}" by ${userName} live on the student home page?`,
+      confirmButtonText: "Activate",
+      tone: "info",
+    };
+  }
+
+  if (action === "inactive") {
+    return {
+      title: "Mark Ad Inactive?",
+      text: `Hide "${title}" by ${userName} from the student home page?`,
+      confirmButtonText: "In-Active",
+      tone: "warning",
+    };
+  }
+
+  if (action === "archived") {
+    return {
+      title: "Archive Ad?",
+      text: `Archive "${title}" by ${userName}? It will no longer appear on the home page.`,
+      confirmButtonText: "Archive",
+      tone: "warning",
+    };
+  }
+
+  return {
+    title: "Reject Ad?",
+    text: `Reject "${title}" by ${userName}? The reason will be shared with the user.`,
+    confirmButtonText: "Reject",
+    tone: "warning",
+  };
 }
 
 function shortDate(value) {
@@ -189,34 +304,57 @@ export default function AdsUsers() {
     }
   };
 
-  const onRequestStatus = async (row, status) => {
+  const onRequestAction = async (row, action) => {
+    const ok = await showSweetConfirm(requestActionPrompt(action, row));
+    if (!ok) return;
+
     try {
+      setError("");
       setBusyId(row.id);
-      const res = await adminUpdateAdsPlanRequest(row.id, status);
+      const res = await adminRunAdsPlanRequestAction(row.id, {
+        action,
+        source: row.source,
+      });
+      if (res?.deleted) {
+        setRequests((prev) => prev.filter((item) => item.id !== row.id));
+        return;
+      }
       if (!res?.request) return;
       setRequests((prev) => prev.map((item) => (item.id === row.id ? res.request : item)));
     } catch (e) {
-      setError(e?.response?.data?.message || e?.message || "Failed to update request.");
+      setError(e?.response?.data?.message || e?.message || "Failed to update ad user.");
     } finally {
       setBusyId("");
     }
   };
 
   const onAdStatus = async (row, status) => {
-    const rejectedReason =
-      status === "rejected"
-        ? String(
-            (
-              await showSweetPrompt({
-                title: "Reason for Rejection",
-                inputValue: row.rejectedReason || "",
-                inputPlaceholder: "Enter rejection reason",
-                confirmButtonText: "Save",
-              })
-            ).value || "",
-          )
-        : "";
+    let rejectedReason = "";
+
+    if (status === "rejected") {
+      const prompt = await showSweetPrompt({
+        title: "Reject Ad?",
+        text: `Tell ${row.userName || "the user"} why "${row.title || "this ad"}" is being rejected.`,
+        input: "textarea",
+        inputValue: row.rejectedReason || "",
+        inputPlaceholder: "Enter rejection reason",
+        confirmButtonText: "Reject",
+        icon: "warning",
+        inputValidator: (value) => {
+          if (!String(value || "").trim()) return "Reject reason is required.";
+          return undefined;
+        },
+      });
+
+      if (!prompt.isConfirmed) return;
+      rejectedReason = String(prompt.value || "").trim();
+    } else {
+      const ok = await showSweetConfirm(adActionPrompt(status, row));
+      if (!ok) return;
+    }
+
     try {
+      setError("");
       setBusyId(row.id);
       const res = await adminUpdateAdStatus(row.id, { status, rejectedReason });
       if (!res?.ad) return;
@@ -273,6 +411,11 @@ export default function AdsUsers() {
             <tbody>
               {requests.map((row) => {
                 const initial = String(row.userName || "U").charAt(0).toUpperCase();
+                const isBusy = busyId === row.id;
+                const canApprove = canApproveRow(row);
+                const canActivate = canActivateRow(row);
+                const canDeactivate = canDeactivateRow(row);
+                const canReject = canRejectRow(row);
                 return (
                   <tr key={row.id} className="border-t border-slate-100 align-top hover:bg-slate-50/70">
                     <td className="px-4 py-4">
@@ -292,28 +435,60 @@ export default function AdsUsers() {
                     <td className="px-4 py-4 text-slate-600">{shortDate(row.requestedAt)}</td>
                     <td className="px-4 py-4">
                       <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold capitalize ${statusPill(row.status)}`}>
-                        {row.status}
+                        {statusLabel(row.status)}
                       </span>
                       {row.paymentId ? <p className="mt-2 text-xs text-slate-500">Payment: {row.paymentId}</p> : null}
                       {row.expiresAt ? <p className="mt-2 text-xs text-slate-500">Expires {shortDate(row.expiresAt)}</p> : null}
                     </td>
                     <td className="px-4 py-4">
-                      <div className="flex justify-end gap-2">
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {canApprove ? (
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => onRequestAction(row, "approve")}
+                            className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+                          >
+                            {isBusy ? "Updating..." : "Approve"}
+                          </button>
+                        ) : null}
+                        {canActivate ? (
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => onRequestAction(row, "active")}
+                            className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+                          >
+                            Active
+                          </button>
+                        ) : null}
+                        {canDeactivate ? (
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => onRequestAction(row, "inactive")}
+                            className="rounded-xl border border-amber-200 px-3 py-2 text-xs font-bold text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+                          >
+                            In-Active
+                          </button>
+                        ) : null}
+                        {canReject ? (
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => onRequestAction(row, "reject")}
+                            className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                          >
+                            Reject
+                          </button>
+                        ) : null}
                         <button
                           type="button"
-                          disabled={busyId === row.id || row.status === "approved" || Boolean(row.paymentStatus)}
-                          onClick={() => onRequestStatus(row, "approved")}
-                          className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white hover:bg-emerald-700 disabled:opacity-50"
+                          disabled={isBusy}
+                          onClick={() => onRequestAction(row, "delete")}
+                          className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                         >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busyId === row.id || row.status === "rejected" || Boolean(row.paymentStatus)}
-                          onClick={() => onRequestStatus(row, "rejected")}
-                          className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-                        >
-                          Reject
+                          Delete
                         </button>
                       </div>
                     </td>
@@ -383,83 +558,94 @@ export default function AdsUsers() {
         </div>
 
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-3">
-          {ads.map((ad) => (
-            <article
-              key={ad.id}
-              className="overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.06)]"
-            >
-              <div className="relative overflow-hidden bg-slate-100 p-3">
-                {renderMedia(ad)}
-                <span className={`absolute left-5 top-5 inline-flex rounded-full border px-2.5 py-1 text-xs font-black uppercase tracking-[0.14em] ${statusPill(ad.status)}`}>
-                  {ad.mediaType}
-                </span>
-              </div>
+          {ads.map((ad) => {
+            const currentStatus = String(ad.status || "").toLowerCase();
+            const toggleStatus = currentStatus === "active" ? "inactive" : "active";
+            const toggleLabel = toggleStatus === "active" ? "Active" : "In-Active";
+            const toggleClass =
+              toggleStatus === "active"
+                ? "flex-1 rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
+                : "flex-1 rounded-xl border border-amber-200 px-3 py-2.5 text-sm font-bold text-amber-700 hover:bg-amber-50 disabled:opacity-50";
 
-              <div className="space-y-4 p-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-lg font-black text-slate-900">{ad.title}</p>
-                    <p className="mt-1 text-sm font-medium text-slate-500">By {ad.userName}</p>
-                  </div>
-                  <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold capitalize ${statusPill(ad.status)}`}>
-                    {ad.status}
+            return (
+              <article
+                key={ad.id}
+                className="overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.06)]"
+              >
+                <div className="relative overflow-hidden bg-slate-100 p-3">
+                  {renderMedia(ad)}
+                  <span className={`absolute left-5 top-5 inline-flex rounded-full border px-2.5 py-1 text-xs font-black uppercase tracking-[0.14em] ${statusPill(ad.status)}`}>
+                    {ad.mediaType}
                   </span>
                 </div>
 
-                <p className="text-sm leading-6 text-slate-600">{ad.description || "No description provided."}</p>
-
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Audience</p>
-                    <p className="mt-1 font-semibold text-slate-800">{ad.audience || "Students"}</p>
+                <div className="space-y-4 p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-lg font-black text-slate-900">{ad.title}</p>
+                      <p className="mt-1 text-sm font-medium text-slate-500">By {ad.userName}</p>
+                    </div>
+                    <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-bold capitalize ${statusPill(ad.status)}`}>
+                      {statusLabel(ad.status)}
+                    </span>
                   </div>
-                  <div className="rounded-2xl bg-slate-50 p-3">
-                    <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Created</p>
-                    <p className="mt-1 font-semibold text-slate-800">{shortDate(ad.createdAt)}</p>
+
+                  <p className="text-sm leading-6 text-slate-600">{ad.description || "No description provided."}</p>
+
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Audience</p>
+                      <p className="mt-1 font-semibold text-slate-800">{ad.audience || "Students"}</p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 p-3">
+                      <p className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Created</p>
+                      <p className="mt-1 font-semibold text-slate-800">{shortDate(ad.createdAt)}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-3 text-sm">
+                    <p className="font-bold text-slate-700">CTA</p>
+                    <p className="mt-1 text-slate-600">{ad.ctaLabel || "Learn More"}</p>
+                    <p className="mt-2 break-all text-xs text-blue-600">{ad.targetUrl || "No external link"}</p>
+                  </div>
+
+                  {ad.rejectedReason ? (
+                    <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
+                      <p className="text-xs font-black uppercase tracking-[0.14em] text-rose-500">Reject Reason</p>
+                      <p className="mt-1">{ad.rejectedReason}</p>
+                    </div>
+                  ) : null}
+
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      disabled={busyId === ad.id}
+                      onClick={() => onAdStatus(ad, toggleStatus)}
+                      className={toggleClass}
+                    >
+                      {toggleLabel}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId === ad.id || ad.status === "rejected"}
+                      onClick={() => onAdStatus(ad, "rejected")}
+                      className="flex-1 rounded-xl border border-rose-200 px-3 py-2.5 text-sm font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+                    >
+                      Reject
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId === ad.id || ad.status === "archived"}
+                      onClick={() => onAdStatus(ad, "archived")}
+                      className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                    >
+                      Archive
+                    </button>
                   </div>
                 </div>
-
-                <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-3 text-sm">
-                  <p className="font-bold text-slate-700">CTA</p>
-                  <p className="mt-1 text-slate-600">{ad.ctaLabel || "Learn More"}</p>
-                  <p className="mt-2 break-all text-xs text-blue-600">{ad.targetUrl || "No external link"}</p>
-                </div>
-
-                {ad.rejectedReason ? (
-                  <div className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-medium text-rose-700">
-                    {ad.rejectedReason}
-                  </div>
-                ) : null}
-
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    disabled={busyId === ad.id || ad.status === "active"}
-                    onClick={() => onAdStatus(ad, "active")}
-                    className="flex-1 rounded-xl bg-blue-600 px-3 py-2.5 text-sm font-bold text-white hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    Activate
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busyId === ad.id || ad.status === "rejected"}
-                    onClick={() => onAdStatus(ad, "rejected")}
-                    className="flex-1 rounded-xl border border-rose-200 px-3 py-2.5 text-sm font-bold text-rose-600 hover:bg-rose-50 disabled:opacity-50"
-                  >
-                    Reject
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busyId === ad.id || ad.status === "archived"}
-                    onClick={() => onAdStatus(ad, "archived")}
-                    className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                  >
-                    Archive
-                  </button>
-                </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
 
           {!ads.length && !loading ? (
             <div className="col-span-full rounded-[28px] border border-dashed border-slate-300 bg-white p-10 text-center text-slate-500">

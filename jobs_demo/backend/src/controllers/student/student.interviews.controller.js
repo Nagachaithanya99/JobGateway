@@ -1,6 +1,17 @@
 import mongoose from "mongoose";
 import Interview from "../../models/Interview.js";
 import { emitInterviewSignal } from "../../realtime/interviewSignaling.js";
+import {
+  ensureInterviewWebrtcState,
+  normalizeIceCandidate,
+  normalizeWebRtcSdp,
+} from "../../utils/interviewWebrtc.js";
+import {
+  buildPreviewUnsupportedHtml,
+  emptyInterviewCodeResult,
+  executeInterviewCode,
+  normalizeInterviewCodeLanguage,
+} from "../../utils/interviewCodeRunner.js";
 
 const STATUS_ALLOWED = [
   "Scheduled",
@@ -36,56 +47,6 @@ function normalizeDurationMins(input, fallback = 30) {
   if (!Number.isFinite(n)) return fallback;
   if (n < 0) return fallback;
   return Math.floor(n);
-}
-
-function normalizeWebRtcSdp(raw) {
-  let source = "";
-  if (raw && typeof raw === "object" && typeof raw.sdp === "string") {
-    source = raw.sdp;
-  } else {
-    source = String(raw || "").trim();
-    if (source.startsWith("{") && source.endsWith("}")) {
-      try {
-        const parsed = JSON.parse(source);
-        if (parsed && typeof parsed.sdp === "string") source = parsed.sdp;
-      } catch {
-        // keep original source
-      }
-    }
-  }
-
-  const sdp = String(source || "")
-    .replace(/\\r\\n/g, "\r\n")
-    .replace(/\\n/g, "\n")
-    .trim();
-  if (!sdp) return "";
-
-  const lines = sdp
-    .split(/\r?\n/)
-    .map((line) => String(line || "").trim())
-    .filter(Boolean);
-  const startIndex = lines.findIndex((line) => line.startsWith("v=0"));
-  if (startIndex < 0) return "";
-
-  const allowed = /^(v|o|s|t|a|m|c|b)=/;
-  const cleaned = lines.slice(startIndex).filter((line) => allowed.test(line));
-  if (!cleaned.length || !cleaned[0].startsWith("v=0")) return "";
-  if (!cleaned.some((line) => line.startsWith("m="))) return "";
-
-  const normalized = `${cleaned.join("\r\n")}\r\n`;
-  return normalized.slice(0, 200000);
-}
-
-function normalizeIceCandidate(input = {}) {
-  const parsedMLine = Number(input?.sdpMLineIndex);
-  const safeMLine = Number.isFinite(parsedMLine) ? parsedMLine : null;
-  return {
-    candidate: String(input?.candidate || "").slice(0, 4000),
-    sdpMid: String(input?.sdpMid || "").slice(0, 100),
-    sdpMLineIndex: safeMLine,
-    usernameFragment: String(input?.usernameFragment || "").slice(0, 100),
-    createdAt: new Date(),
-  };
 }
 
 function mapStudentInterview(x) {
@@ -137,20 +98,23 @@ function mapStudentInterview(x) {
     candidateReadiness: x.candidateReadiness || {},
     joinAllowed,
     joinAvailableAt: startAllowedAt.toISOString(),
-    collaboration: x.collaboration || {
-      chat: [],
-      questions: [],
-      code: { language: "javascript", content: "", note: "", output: "", error: "" },
-      screenShare: { active: false, by: "" },
-      liveQuestionDraft: { text: "", by: "", updatedAt: null },
-      webrtc: {
-        active: false,
-        sessionId: "",
-        offer: { type: "", sdp: "", by: "", createdAt: null },
-        answer: { type: "", sdp: "", by: "", createdAt: null },
-        companyCandidates: [],
-        studentCandidates: [],
+    collaboration: {
+      chat: Array.isArray(x?.collaboration?.chat) ? x.collaboration.chat : [],
+      questions: Array.isArray(x?.collaboration?.questions) ? x.collaboration.questions : [],
+      code: x?.collaboration?.code || {
+        language: "javascript",
+        content: "",
+        note: "",
+        outputMode: "console",
+        output: "",
+        error: "",
+        serverOutput: "",
+        serverError: "",
+        previewHtml: "",
       },
+      screenShare: x?.collaboration?.screenShare || { active: false, by: "" },
+      liveQuestionDraft: x?.collaboration?.liveQuestionDraft || { text: "", by: "", updatedAt: null },
+      webrtc: ensureInterviewWebrtcState(x?.collaboration?.webrtc, x?.sessionId),
     },
     notes: Array.isArray(x.notes) ? x.notes : [],
     createdAt: x.createdAt,
@@ -250,6 +214,47 @@ export const studentEnterWaitingRoom = async (req, res, next) => {
       interview.status = "Waiting Room";
     }
     await interview.save();
+
+    return res.json({ ok: true, interview: mapStudentInterview(interview) });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/student/interviews/:id/leave
+export const studentLeaveInterview = async (req, res, next) => {
+  try {
+    const studentId = req.user?._id;
+    if (!studentId) return res.status(401).json({ message: "Unauthorized" });
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: "Invalid interview id" });
+
+    const interview = await Interview.findOne({ _id: id, student: studentId });
+    if (!interview) return res.status(404).json({ message: "Interview not found" });
+
+    if (!["Completed", "Review Ready", "Cancelled", "No Show"].includes(interview.status)) {
+      interview.candidateReadiness = {
+        ...(interview.candidateReadiness || {}),
+        online: false,
+        cameraReady: false,
+        microphoneReady: false,
+      };
+
+      if (interview.status === "Live") {
+        interview.status = "Waiting Room";
+      }
+
+      if (interview?.collaboration?.screenShare?.by === "student") {
+        interview.collaboration = interview.collaboration || {};
+        interview.collaboration.screenShare = {
+          ...(interview.collaboration.screenShare || {}),
+          active: false,
+          by: "",
+        };
+      }
+
+      await interview.save();
+    }
 
     return res.json({ ok: true, interview: mapStudentInterview(interview) });
   } catch (err) {
@@ -425,14 +430,22 @@ export const studentInterviewCode = async (req, res, next) => {
     const { id } = req.params;
     const { language = "javascript", content = "", note = "" } = req.body || {};
     const updatedAt = new Date();
+    const normalizedLanguage = normalizeInterviewCodeLanguage(language);
+    const clearedResult = emptyInterviewCodeResult("console");
     const updated = await Interview.findOneAndUpdate(
       { _id: id, student: studentId },
       {
         $set: {
-          "collaboration.code.language": String(language || "javascript"),
+          "collaboration.code.language": normalizedLanguage,
           "collaboration.code.content": String(content || ""),
           "collaboration.code.note": String(note || ""),
           "collaboration.code.lastUpdatedBy": "student",
+          "collaboration.code.outputMode": clearedResult.outputMode,
+          "collaboration.code.output": "",
+          "collaboration.code.error": "",
+          "collaboration.code.serverOutput": "",
+          "collaboration.code.serverError": "",
+          "collaboration.code.previewHtml": "",
           "collaboration.code.updatedAt": updatedAt,
         },
       },
@@ -443,15 +456,60 @@ export const studentInterviewCode = async (req, res, next) => {
       id,
       "collab_code",
       {
-        language: String(language || "javascript"),
+        language: normalizedLanguage,
         content: String(content || ""),
         note: String(note || ""),
         lastUpdatedBy: "student",
+        outputMode: clearedResult.outputMode,
+        output: "",
+        error: "",
+        serverOutput: "",
+        serverError: "",
+        previewHtml: "",
         updatedAt: updatedAt.toISOString(),
       },
       { excludeRole: "student" }
     );
     return res.json({ ok: true, interview: mapStudentInterview(updated) });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/student/interviews/:id/code/run
+export const studentRunInterviewCode = async (req, res, next) => {
+  try {
+    const studentId = req.user?._id;
+    if (!studentId) return res.status(401).json({ message: "Unauthorized" });
+    const { id } = req.params;
+    const { mode = "console" } = req.body || {};
+    const interview = await Interview.findOne({ _id: id, student: studentId });
+    if (!interview) return res.status(404).json({ message: "Interview not found" });
+
+    const code = interview?.collaboration?.code?.content || "";
+    const language = String(interview?.collaboration?.code?.language || "javascript");
+    const execution = executeInterviewCode({ language, content: code, mode });
+    interview.collaboration = interview.collaboration || {};
+    interview.collaboration.code = {
+      ...(interview.collaboration.code || {}),
+      ...execution,
+      previewHtml: execution.previewHtml || buildPreviewUnsupportedHtml(execution.serverError || execution.serverOutput || "Preview not available."),
+      updatedAt: new Date(),
+    };
+    await interview.save();
+
+    emitInterviewSignal(
+      id,
+      "collab_code_result",
+      {
+        ...execution,
+        previewHtml: execution.previewHtml || buildPreviewUnsupportedHtml(execution.serverError || execution.serverOutput || "Preview not available."),
+        updatedAt: interview.collaboration.code.updatedAt?.toISOString?.() || new Date().toISOString(),
+      },
+      {}
+    );
+
+    return res.json({ ok: true, interview: mapStudentInterview(interview) });
   } catch (err) {
     next(err);
   }
@@ -569,6 +627,120 @@ export const studentInterviewWebrtcCandidate = async (req, res, next) => {
       id,
       "webrtc_candidate",
       { from: "student", candidate },
+      { excludeRole: "student" }
+    );
+
+    return res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/student/interviews/:id/admin-monitor/answer
+export const studentInterviewAdminMonitorAnswer = async (req, res, next) => {
+  try {
+    const studentId = req.user?._id;
+    if (!studentId) return res.status(401).json({ message: "Unauthorized" });
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: "Invalid interview id" });
+    const { type = "answer", sdp = "" } = req.body || {};
+    const safeSdp = normalizeWebRtcSdp(sdp);
+    if (!safeSdp) return res.status(400).json({ message: "Answer SDP is required" });
+
+    const existing = await Interview.findOne({ _id: id, student: studentId })
+      .select("_id sessionId collaboration.webrtc")
+      .lean();
+    if (!existing) return res.status(404).json({ message: "Interview not found" });
+
+    const rtc = ensureInterviewWebrtcState(existing?.collaboration?.webrtc, existing?.sessionId);
+    const sessionId = String(
+      rtc?.adminMonitor?.student?.sessionId
+      || rtc?.sessionId
+      || ""
+    );
+    const createdAt = new Date();
+
+    const interview = await Interview.findOneAndUpdate(
+      { _id: id, student: studentId },
+      {
+        $set: {
+          "collaboration.webrtc.active": true,
+          "collaboration.webrtc.adminMonitor.student.sessionId": sessionId,
+          "collaboration.webrtc.adminMonitor.student.answer": {
+            type: String(type || "answer"),
+            sdp: safeSdp,
+            by: "student",
+            createdAt,
+          },
+        },
+      },
+      { returnDocument: "after" }
+    );
+
+    emitInterviewSignal(
+      id,
+      "admin_monitor_answer",
+      {
+        from: "student",
+        sessionId,
+        answer: {
+          type: String(type || "answer"),
+          sdp: safeSdp,
+          by: "student",
+          createdAt: createdAt.toISOString(),
+        },
+      },
+      { excludeRole: "student" }
+    );
+
+    return res.json({ ok: true, interview: mapStudentInterview(interview) });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// POST /api/student/interviews/:id/admin-monitor/candidate
+export const studentInterviewAdminMonitorCandidate = async (req, res, next) => {
+  try {
+    const studentId = req.user?._id;
+    if (!studentId) return res.status(401).json({ message: "Unauthorized" });
+    const { id } = req.params;
+    if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: "Invalid interview id" });
+    const candidate = normalizeIceCandidate(req.body || {});
+    if (!candidate.candidate) return res.status(400).json({ message: "ICE candidate is required" });
+
+    const existing = await Interview.findOne({ _id: id, student: studentId })
+      .select("_id sessionId collaboration.webrtc")
+      .lean();
+    if (!existing) return res.status(404).json({ message: "Interview not found" });
+
+    const rtc = ensureInterviewWebrtcState(existing?.collaboration?.webrtc, existing?.sessionId);
+    const sessionId = String(
+      rtc?.adminMonitor?.student?.sessionId
+      || rtc?.sessionId
+      || ""
+    );
+
+    await Interview.updateOne(
+      { _id: id, student: studentId },
+      {
+        $set: {
+          "collaboration.webrtc.active": true,
+          "collaboration.webrtc.adminMonitor.student.sessionId": sessionId,
+        },
+        $push: {
+          "collaboration.webrtc.adminMonitor.student.studentCandidates": {
+            $each: [candidate],
+            $slice: -150,
+          },
+        },
+      }
+    );
+
+    emitInterviewSignal(
+      id,
+      "admin_monitor_candidate",
+      { from: "student", target: "student", candidate },
       { excludeRole: "student" }
     );
 

@@ -918,6 +918,29 @@ function computeProfileStrength(user, company) {
 
 function buildActorProfile(user, company) {
   const isCompany = String(user?.role || "") === "company";
+  const avatarUrl = safeStr(
+    isCompany
+      ? company?.logoUrl
+      : user?.avatarUrl || user?.avatar || user?.profilePhoto || user?.imageUrl || ""
+  );
+  const explicitOnline = [user?.isOnline, user?.online, company?.isOnline, company?.online].find(
+    (value) => typeof value === "boolean"
+  );
+  const lastSeenAt =
+    user?.lastSeenAt ||
+    user?.lastActiveAt ||
+    company?.lastSeenAt ||
+    company?.lastActiveAt ||
+    user?.updatedAt ||
+    company?.updatedAt ||
+    user?.createdAt ||
+    company?.createdAt ||
+    null;
+  const lastSeenTime = new Date(lastSeenAt || 0).getTime();
+  const isOnline =
+    typeof explicitOnline === "boolean"
+      ? explicitOnline
+      : Number.isFinite(lastSeenTime) && Date.now() - lastSeenTime <= 1000 * 60 * 15;
   const name =
     safeStr(isCompany ? company?.name : user?.name) ||
     safeStr(user?.name) ||
@@ -944,7 +967,9 @@ function buildActorProfile(user, company) {
     name,
     headline,
     location,
-    avatarUrl: safeStr(isCompany ? company?.logoUrl : ""),
+    avatarUrl,
+    isOnline,
+    lastSeenAt: lastSeenAt ? new Date(lastSeenAt).toISOString() : null,
     profileStrength: computeProfileStrength(user, company),
     focusTags,
     intro: isCompany
