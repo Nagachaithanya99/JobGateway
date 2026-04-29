@@ -5,6 +5,7 @@ import Modal from "../../components/common/Modal";
 import useAuth from "../../hooks/useAuth.js";
 import { jobsGetById } from "../../services/jobsService.js";
 import { studentApplyJob, studentGetSavedJobs, studentMe, studentMyApplications, studentSearchJobs, studentToggleSaveJob } from "../../services/studentService.js";
+import { toAbsoluteMediaUrl } from "../../utils/media.js";
 
 function initials(name = "") {
   return name.split(" ").filter(Boolean).slice(0, 2).map((x) => x[0]).join("").toUpperCase();
@@ -135,6 +136,7 @@ export default function JobDetails() {
   }, [job, id]);
 
   const companyName = job?.companyName || job?.company?.name || "";
+  const companyLogo = toAbsoluteMediaUrl(job?.companyLogo || job?.logoUrl || job?.company?.logoUrl || "");
   const jobLocation = job?.location || [job?.city, job?.state].filter(Boolean).join(", ") || "Not provided";
   const responsibilities = normalizeArray(job?.responsibilities);
   const requirements = normalizeArray(job?.requirements);
@@ -233,7 +235,11 @@ export default function JobDetails() {
       <div className="text-xs text-slate-500"><Link to={withBase("/")}>Home</Link> / <Link to={withBase("/jobs")}>Jobs</Link> / {job.title}</div>
       <div className="mt-3 rounded-3xl border border-slate-200 bg-white p-5">
         <div className="flex items-start gap-3">
-          <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100 font-extrabold text-orange-600">{initials(companyName || "Job")}</div>
+          {companyLogo ? (
+            <img src={companyLogo} alt={companyName || "Company"} className="h-12 w-12 rounded-2xl object-cover" />
+          ) : (
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-orange-100 font-extrabold text-orange-600">{initials(companyName || "Job")}</div>
+          )}
           <div className="flex-1">
             <h1 className="text-2xl font-extrabold">{job.title}</h1>
             <p className="text-sm text-slate-600">{companyName || "Company not provided"}</p>

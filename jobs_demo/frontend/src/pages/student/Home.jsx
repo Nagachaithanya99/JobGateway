@@ -836,7 +836,7 @@ function StatBox({ icon, value, label, delay = 0 }) {
 
 function JobCard({ job, onClick, delay = 0 }) {
   const ratingText = Math.min(5, Math.max(3.5, Number(job.rating || 4.4))).toFixed(1);
-  const logoUrl = job.companyLogo || job.logoUrl || "";
+  const logoUrl = toAbsoluteMediaUrl(job.companyLogo || job.logoUrl || "");
   return (
     <motion.button
       type="button"

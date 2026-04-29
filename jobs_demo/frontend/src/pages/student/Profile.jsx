@@ -1829,6 +1829,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@clerk/clerk-react";
+import { toAbsoluteMediaUrl } from "../../utils/media.js";
 import Swal from "sweetalert2";
 import {
   FiBook, FiBriefcase, FiMapPin, FiSave, FiUploadCloud,
@@ -2195,10 +2196,11 @@ function ComboInput({ label, value, onChange, options=[], placeholder }) {
 
 // ─── AVATAR ───────────────────────────────────────────────────────────────────
 function AvatarComp({ src, name, id, size=96, editable, onEdit, showOnline }) {
+  const srcUrl = toAbsoluteMediaUrl(src);
   return (
     <div className="relative inline-block" style={{width:size,height:size}}>
-      {src
-        ? <img src={src} alt={name} className="rounded-full object-cover shadow-md" style={{width:size,height:size,border:"3px solid white"}}/>
+      {srcUrl
+        ? <img src={srcUrl} alt={name} className="rounded-full object-cover shadow-md" style={{width:size,height:size,border:"3px solid white"}}/>
         : <div className="rounded-full flex items-center justify-center text-white font-bold shadow-md" style={{width:size,height:size,fontSize:size*0.33,border:"3px solid white",background:avatarGradient(id||name)}}>{initials(name)}</div>}
       {showOnline && <span className="online-dot absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full bg-emerald-400 border-2 border-white"/>}
       {editable && (

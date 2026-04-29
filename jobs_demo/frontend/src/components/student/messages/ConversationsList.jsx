@@ -1,4 +1,5 @@
 import { FiSearch } from "react-icons/fi";
+import { toAbsoluteMediaUrl } from "../../../utils/media.js";
 
 function initials(name = "") {
   return name
@@ -50,6 +51,7 @@ export default function ConversationsList({ query, setQuery, list, activeId, ope
       <div className="max-h-[560px] overflow-auto pb-2">
         {(list || []).map((c) => {
           const active = c.id === activeId;
+          const avatarLogo = toAbsoluteMediaUrl(c.companyLogo || c.logoUrl || "");
           return (
             <button
               key={c.id}
@@ -60,7 +62,7 @@ export default function ConversationsList({ query, setQuery, list, activeId, ope
               }`}
             >
               <div className="flex items-start gap-3">
-                <Avatar name={c.company} logoUrl={c.companyLogo || c.logoUrl} />
+                <Avatar name={c.company} logoUrl={avatarLogo} />
 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">

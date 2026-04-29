@@ -26,6 +26,7 @@ import {
   FiRefreshCw,
   FiSend,
   FiShare2,
+  FiUser,
   FiVideo,
   FiX,
 } from "react-icons/fi";
@@ -3895,19 +3896,28 @@ export default function CareerPulsePage() {
                           <p className="text-sm text-white/60">{viewer?.headline || "Explore member"}</p>
                         </div>
                       </div>
-                      <div className="mt-5 grid grid-cols-3 gap-3">
-                        <MetricBlock dark label="Followers" value={viewer?.followers || 0} />
+                      <div className="mt-5 grid grid-cols-2 gap-3">
                         <MetricBlock dark label="Following" value={viewer?.following || 0} />
                         <MetricBlock dark label="Posts" value={viewer?.posts || 0} />
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => navigate(`${basePath}/messages`)}
-                        className="mt-5 inline-flex items-center gap-2 rounded-full bg-white px-4 py-3 text-sm font-extrabold text-[#111111]"
-                      >
-                        <FiSend />
-                        Open Messages
-                      </button>
+                      <div className="mt-5 grid gap-3">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`${basePath}/profile`)}
+                          className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-3 text-sm font-extrabold text-[#111111]"
+                        >
+                          <FiUser />
+                          View Profile
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => navigate(`${basePath}/messages`)}
+                          className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-3 text-sm font-extrabold text-[#111111]"
+                        >
+                          <FiSend />
+                          Open Messages
+                        </button>
+                      </div>
                     </SidePanelCard>
                   </>
                 ) : null

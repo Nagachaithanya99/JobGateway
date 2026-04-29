@@ -10,6 +10,7 @@ import {
   FiZap,
 } from "react-icons/fi";
 import { Link } from "react-router-dom";
+import { toAbsoluteMediaUrl } from "../../../utils/media.js";
 
 function initials(name = "") {
   return name
@@ -143,7 +144,7 @@ export default function JobCard({
   const jobId = String(job?._id || job?.id || "");
   const title = job?.title || "Job";
   const company = job?.companyName || job?.company?.name || "Company";
-  const companyLogo = job?.companyLogo || job?.logoUrl || job?.company?.logoUrl || "";
+  const companyLogo = toAbsoluteMediaUrl(job?.companyLogo || job?.logoUrl || job?.company?.logoUrl || "");
   const location = job?.location || [job?.city, job?.state].filter(Boolean).join(", ") || "Location not provided";
   const hierarchy = [job?.stream, job?.category, job?.subCategory].filter(Boolean).join(" / ");
   const summary = summarize(job?.overview || job?.description);
