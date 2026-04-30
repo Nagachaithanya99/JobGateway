@@ -9,7 +9,7 @@ export async function adminLocalLogin(req, res, next) {
   try {
     const ok = verifyLocalAdminCredentials(req.body || {});
     if (!ok) {
-      return res.status(401).json({ message: "Invalid admin username, email, or password" });
+      return res.status(401).json({ message: "You are not authorized" });
     }
 
     const clerkId = `local_admin_${LOCAL_ADMIN_AUTH.username}`;
