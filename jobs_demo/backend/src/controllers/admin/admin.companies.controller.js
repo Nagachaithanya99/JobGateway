@@ -393,7 +393,7 @@ export const adminDeleteCompany = async (req, res, next) => {
 
     if (!user) return res.status(404).json({ message: "Company not found" });
 
-    const [jobsUpdate, subscriptionsUpdate] = await Promise.all([
+    const [jobsUpdate, subscriptionsUpdate, companyUpdate, profileUpdate] = await Promise.all([
       Job.updateMany(
         { company: user._id, status: "Active" },
         { $set: { status: "Disabled", boostActive: false } }

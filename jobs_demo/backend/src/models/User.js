@@ -116,6 +116,8 @@ const UserSchema = new mongoose.Schema(
     profileImageUrl: String,
     imageUrl: String,
     role:      { type: String, enum: ["student", "company", "recruiter", "admin"], default: "student" },
+    isActive:  { type: Boolean, default: true },
+    deletedAt: { type: Date, default: null },
 
     studentProfile: StudentProfileSchema,
     resume: { type: mongoose.Schema.Types.Mixed, default: {} },
