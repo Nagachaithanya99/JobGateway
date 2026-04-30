@@ -71,6 +71,7 @@ function mapJob(job) {
   return {
     id: job._id || job.id,
     company: job.companyName || job.company?.name || job.company || "Company",
+    companyLogo: job.companyLogo || job.logoUrl || job.company?.logoUrl || "",
     title: job.title || job.jobTitle || "Job",
     location: job.location || [job.city, job.state].filter(Boolean).join(", ") || "India",
     salary:

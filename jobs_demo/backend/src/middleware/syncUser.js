@@ -59,13 +59,19 @@ export default function syncUser(defaultRole = "student") {
       const finalRole = clerkRole || user?.role || fallbackRole;
 
       if (!user) {
-        user = await User.create({
-          clerkId,
-          role: finalRole,
-          email,
-          name,
-          isActive: true,
-        });
+        user = await User.findOneAndUpdate(
+          { clerkId },
+          {
+            $setOnInsert: {
+              clerkId,
+              role: finalRole,
+              email,
+              name,
+              isActive: true,
+            },
+          },
+          { upsert: true, returnDocument: "after" }
+        );
       } else {
         // Only update safe fields. Never touch studentProfile/resume/settings here.
         const $set = {};

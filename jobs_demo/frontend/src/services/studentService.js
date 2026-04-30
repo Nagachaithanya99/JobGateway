@@ -208,7 +208,7 @@ export const studentUpdateProfile = async (payload = {}, token) =>
   api.put("/student/profile/me", payload, authConfig(token));
 
 export const studentMyApplications = async (params = {}) =>
-  api.get("/student/me/applications", { params });
+  api.get("/student/profile/applied-jobs", { params });
 
 export const studentGetResume = async () =>
   api.get("/student/me/resume");
