@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useClerk, useSignIn, useSignUp } from "@clerk/clerk-react";
+import { FiEye, FiEyeOff } from "react-icons/fi";
 import { FcGoogle } from "react-icons/fc";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import useAuth from "../../hooks/useAuth.js";
@@ -40,6 +41,28 @@ function Field({ label, children }) {
       <div className="mb-2 text-sm font-semibold text-slate-600">{label}</div>
       {children}
     </label>
+  );
+}
+
+function PasswordInput({ className = "", ...props }) {
+  const [showPassword, setShowPassword] = useState(false);
+
+  return (
+    <div className="relative">
+      <input
+        {...props}
+        type={showPassword ? "text" : "password"}
+        className={`${inputClassName} pr-14 ${className}`}
+      />
+      <button
+        type="button"
+        aria-label={showPassword ? "Hide password" : "Show password"}
+        className="absolute right-5 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-[#2563eb]"
+        onClick={() => setShowPassword((current) => !current)}
+      >
+        {showPassword ? <FiEyeOff /> : <FiEye />}
+      </button>
+    </div>
   );
 }
 
@@ -704,9 +727,7 @@ export default function AuthPage({ mode = "signin", fixedRole = null, initialRol
           </Field>
 
           <Field label="Password">
-            <input
-              className={inputClassName}
-              type="password"
+            <PasswordInput
               name="password"
               placeholder="Password"
               autoComplete="current-password"
@@ -781,9 +802,7 @@ export default function AuthPage({ mode = "signin", fixedRole = null, initialRol
             ) : null}
 
             <Field label="Password">
-              <input
-                className={inputClassName}
-                type="password"
+              <PasswordInput
                 name="password"
                 placeholder="Password"
                 autoComplete="new-password"
@@ -793,9 +812,7 @@ export default function AuthPage({ mode = "signin", fixedRole = null, initialRol
             </Field>
 
             <Field label="Confirm Password">
-              <input
-                className={inputClassName}
-                type="password"
+              <PasswordInput
                 name="confirmPassword"
                 placeholder="Confirm password"
                 autoComplete="new-password"

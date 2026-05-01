@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { FiLock, FiLogIn, FiUser } from "react-icons/fi";
+import { FiEye, FiEyeOff, FiLock, FiLogIn, FiUser } from "react-icons/fi";
 import { Navigate, useNavigate } from "react-router-dom";
-import { ADMIN_LOGIN_CONFIG } from "../../config/adminLoginConfig.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { loginLocalAdmin } from "../../services/adminAuthService.js";
 import { showSweetAlert } from "../../utils/sweetAlert.js";
@@ -10,10 +9,11 @@ export default function AdminLogin() {
   const navigate = useNavigate();
   const { isAuthed, role, login } = useAuth();
   const [form, setForm] = useState({
-    username: ADMIN_LOGIN_CONFIG.username,
-    email: ADMIN_LOGIN_CONFIG.email,
+    username: "",
+    email: "",
     password: "",
   });
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -76,7 +76,14 @@ export default function AdminLogin() {
                 <span className="mb-2 block text-sm font-semibold text-slate-600">Admin Username</span>
                 <div className="flex items-center gap-3 rounded-2xl border border-slate-300 px-4 focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-100">
                   <FiUser className="text-slate-400" />
-                  <input name="username" value={form.username} onChange={update} className="h-14 flex-1 outline-none" />
+                  <input
+                    name="username"
+                    value={form.username}
+                    onChange={update}
+                    placeholder="Admin username"
+                    autoComplete="username"
+                    className="h-14 flex-1 outline-none"
+                  />
                 </div>
               </label>
 
@@ -87,20 +94,33 @@ export default function AdminLogin() {
                   name="email"
                   value={form.email}
                   onChange={update}
+                  placeholder="Admin email"
+                  autoComplete="email"
                   className="h-14 w-full rounded-2xl border border-slate-300 px-4 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
                 />
               </label>
 
               <label className="block">
                 <span className="mb-2 block text-sm font-semibold text-slate-600">Password</span>
-                <input
-                  type="password"
-                  name="password"
-                  value={form.password}
-                  onChange={update}
-                  autoComplete="current-password"
-                  className="h-14 w-full rounded-2xl border border-slate-300 px-4 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    name="password"
+                    value={form.password}
+                    onChange={update}
+                    placeholder="Password"
+                    autoComplete="current-password"
+                    className="h-14 w-full rounded-2xl border border-slate-300 px-4 pr-12 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
+                  />
+                  <button
+                    type="button"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-blue-600"
+                    onClick={() => setShowPassword((current) => !current)}
+                  >
+                    {showPassword ? <FiEyeOff /> : <FiEye />}
+                  </button>
+                </div>
               </label>
 
               <button
