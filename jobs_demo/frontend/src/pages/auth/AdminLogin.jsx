@@ -71,7 +71,7 @@ export default function AdminLogin() {
               </div>
             ) : null}
 
-            <form className="space-y-4" onSubmit={submit}>
+            <form className="space-y-4" onSubmit={submit} autoComplete="off">
               <label className="block">
                 <span className="mb-2 block text-sm font-semibold text-slate-600">Admin Username</span>
                 <div className="flex items-center gap-3 rounded-2xl border border-slate-300 px-4 focus-within:border-blue-400 focus-within:ring-4 focus-within:ring-blue-100">
@@ -109,7 +109,8 @@ export default function AdminLogin() {
                     value={form.password}
                     onChange={update}
                     placeholder="Password"
-                    autoComplete="current-password"
+                    autoComplete="new-password"
+                    spellCheck="false"
                     className="h-14 w-full rounded-2xl border border-slate-300 px-4 pr-12 outline-none focus:border-blue-400 focus:ring-4 focus:ring-blue-100"
                   />
                   <button

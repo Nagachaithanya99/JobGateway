@@ -1,13 +1,6 @@
 import api from "./api.js";
 
 export async function authLogin({ email, password }) {
-  if (email === "admin@jobgateway.com" && password === "admin123") {
-    return {
-      token: "demo_admin_token",
-      user: { role: "admin", name: "JobGateway Admin", email },
-    };
-  }
-
   if (email === "company@jobgateway.com" && password === "company123") {
     return {
       token: "demo_company_token",
