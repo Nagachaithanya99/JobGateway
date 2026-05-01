@@ -1,6 +1,8 @@
+import { useEffect, useRef } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth as useClerkAuth, useUser } from "@clerk/clerk-react";
 import { useAuth as useAppAuth } from "../../context/AuthContext.jsx";
+import { showSweetAlert } from "../../utils/sweetAlert.js";
 
 function pickLoginPath(pathname) {
   if (pathname.startsWith("/admin")) return "/admin/login";
@@ -27,8 +29,8 @@ export default function ProtectedRoute({ children, role }) {
   if (requiredRole === "admin") {
     if (hasLocalAdmin) return children;
     if (!isUserLoaded) return null;
-    if (!isSignedIn) return <Navigate to={loginPath} replace />;
-    if (currentRole !== "admin") return <Navigate to="/" replace />;
+    if (!isSignedIn) return <AdminUnauthorizedRedirect to={loginPath} />;
+    if (currentRole !== "admin") return <AdminUnauthorizedRedirect to={loginPath} />;
     return children;
   }
 
@@ -41,4 +43,19 @@ export default function ProtectedRoute({ children, role }) {
   }
 
   return children;
+}
+
+function AdminUnauthorizedRedirect({ to }) {
+  const shownRef = useRef(false);
+
+  useEffect(() => {
+    if (shownRef.current) return;
+    shownRef.current = true;
+    void showSweetAlert("Unauthorized. Please login with the admin account.", "error", {
+      title: "Unauthorized",
+      confirmButtonText: "Login",
+    });
+  }, []);
+
+  return <Navigate to={to} replace />;
 }

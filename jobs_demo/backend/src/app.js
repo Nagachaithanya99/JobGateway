@@ -112,6 +112,7 @@ app.use("/uploads", (req, res, next) => {
 // Public content endpoints (About/Contact/Home sections) must be accessible without auth
 app.use("/api/content", contentRoutes);
 app.get("/api/health", (req, res) => res.json({ ok: true }));
+app.use("/api/admin", adminAuthRoutes);
 
 // ✅ Clerk middleware (global) — must be BEFORE routes
 app.use(requireAuth);
@@ -147,7 +148,6 @@ app.use("/api/student", studentInterviewsRoutes);
 app.use("/api/student", studentAdsRoutes);
 
 // Admin routes
-app.use("/api/admin", adminAuthRoutes);
 app.use("/api/admin", adminDashboardRoutes);
 app.use("/api/admin", adminCompaniesRoutes);
 app.use("/api/admin", adminJobsRoutes);

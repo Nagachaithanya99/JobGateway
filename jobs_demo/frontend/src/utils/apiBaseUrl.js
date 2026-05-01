@@ -12,7 +12,9 @@ function isLocalBrowserHost() {
 }
 
 function getRawApiBaseUrl(env) {
-  const explicitUrl = String(env?.VITE_API_BASE_URL || env?.VITE_API_URL || "").trim();
+  const explicitUrl = String(env?.VITE_API_BASE_URL || env?.VITE_API_URL || "")
+    .split(",")[0]
+    ?.trim();
   if (explicitUrl) return explicitUrl;
   if (isLocalBrowserHost()) return DEFAULT_API_BASE_URL;
   return "/api";
@@ -43,6 +45,36 @@ export function getApiBaseUrl(env = import.meta.env) {
   } catch {
     return DEFAULT_API_BASE_URL;
   }
+}
+
+export function getApiBaseUrls(env = import.meta.env) {
+  const rawList = String(
+    env?.VITE_API_BASE_URLS ||
+      env?.VITE_API_URLS ||
+      env?.VITE_API_BASE_URL ||
+      env?.VITE_API_URL ||
+      "",
+  )
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const candidates = rawList.length ? rawList : [getRawApiBaseUrl(env)];
+  return [
+    ...new Set(
+      candidates.map((raw) => {
+        try {
+          const url = new URL(raw || DEFAULT_API_BASE_URL, getResolutionBase());
+          url.pathname = normalizePathname(url.pathname);
+          url.search = "";
+          url.hash = "";
+          return url.toString().replace(/\/$/, "");
+        } catch {
+          return DEFAULT_API_BASE_URL;
+        }
+      }),
+    ),
+  ];
 }
 
 export function getApiOrigin(env = import.meta.env) {

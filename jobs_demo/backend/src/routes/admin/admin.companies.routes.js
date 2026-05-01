@@ -7,8 +7,10 @@ import {
   adminListCompanies,
   adminUpdateCompanyStatus,
 } from "../../controllers/admin/admin.companies.controller.js";
+import requireAdminClerk from "../../middleware/requireAdminClerk.js";
 
 const router = Router();
+router.use(requireAdminClerk);
 
 router.get("/companies", adminListCompanies);
 router.post("/companies", adminCreateCompany);
