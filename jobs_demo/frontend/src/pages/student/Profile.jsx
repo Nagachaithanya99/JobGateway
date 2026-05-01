@@ -1847,6 +1847,7 @@ import {
   studentMe,
   studentUpdateProfile,
   uploadResume as uploadResumeAPI,
+  studentViewResumeFile,
   uploadAvatar as uploadAvatarAPI,
   getFollowSuggestions,
   toggleFollow,
@@ -2244,13 +2245,18 @@ function ColorBadge({name,color="#3b82f6",onRemove}){
 }
 
 // ─── VIEW RESUME — opens in new browser tab ───────────────────────────────────
-// For Cloudinary PDFs, we just window.open the URL directly.
-// This is the most reliable cross-browser approach — no iframe needed.
-function openResumeInNewTab(url) {
-  if (!url) return;
-  // Cloudinary: strip any fragment, force fl_attachment=false to inline
-  const clean = url.split("#")[0];
-  window.open(clean, "_blank", "noopener,noreferrer");
+// Fetch through the backend so protected Cloudinary/local resumes open reliably.
+async function openResumeInNewTab(fetchResumeFile, targetWindow = null) {
+  const res = await fetchResumeFile();
+  const contentType = res?.headers?.["content-type"] || "application/pdf";
+  const blob = new Blob([res.data], { type: contentType });
+  const blobUrl = URL.createObjectURL(blob);
+  if (targetWindow && !targetWindow.closed) {
+    targetWindow.location.href = blobUrl;
+  } else {
+    window.open(blobUrl, "_blank", "noopener,noreferrer");
+  }
+  window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
 }
 
 // ─── AVATAR MODAL ─────────────────────────────────────────────────────────────
@@ -2598,15 +2604,21 @@ export default function Profile() {
   };
 
   // ── View Resume — opens directly in new browser tab ──────────────────────────
-  const viewResume=()=>{
+  const viewResume=async()=>{
     if(!form.resume.url&&!form.resume.fileName){
       sweet.warning("No Resume","Please upload your resume first.");return;
     }
-    if(!form.resume.url){
-      sweet.info("Not Available Yet","Save your profile first, then try viewing the resume.");return;
+    const resumeWindow=window.open("", "_blank");
+    if(resumeWindow) resumeWindow.opener=null;
+    try{
+      const t=token||await getToken();
+      await openResumeInNewTab(()=>studentViewResumeFile(t),resumeWindow);
+    }catch(err){
+      if(resumeWindow&&!resumeWindow.closed) resumeWindow.close();
+      const msg=err?.response?.data?.message||"Resume file is not available. Please upload it again.";
+      toast(msg,"error");
+      sweet.error("Resume Not Available",msg);
     }
-    // Open Cloudinary URL directly in new tab — no iframe, no routing
-    openResumeInNewTab(form.resume.url);
   };
 
   // ── Save profile to MongoDB ──────────────────────────────────────────────────

@@ -64,7 +64,7 @@ function normalizeItems(payload) {
 }
 
 function readProfileCompletion(payload) {
-  const data = payload?.data ?? payload ?? {};
+  const data = payload?.data?.data ?? payload?.data ?? payload ?? {};
   const n = Number(data?.profileCompletion ?? data?.studentProfile?.profileCompletion ?? 0);
   if (!Number.isFinite(n)) return 0;
   return Math.max(0, Math.min(100, Math.round(n)));

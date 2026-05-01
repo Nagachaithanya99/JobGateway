@@ -7,6 +7,7 @@
 // Adjust the two import paths below if your project uses different filenames.
 
 import fs         from "fs";
+import { resolveUploadedFilePath } from "../../utils/uploadPaths.js";
 import cloudinary from "../../config/cloudinary.js";  // ← adjust if your file is named differently
 import User       from "../../models/User.js";         // ← adjust if your model file is named differently
 
@@ -14,6 +15,81 @@ import User       from "../../models/User.js";         // ← adjust if your mod
 const deleteTmp = (p) => {
   try { if (p && fs.existsSync(p)) fs.unlinkSync(p); } catch (_) {}
 };
+
+const safeObj = (value) => (value && typeof value === "object" ? value : {});
+const safeArr = (value) => (Array.isArray(value) ? value : []);
+
+function parseList(value) {
+  if (Array.isArray(value)) return value.flatMap(parseList).filter(Boolean);
+  return String(value || "").split(/[\n,;/|]+/g).map((item) => item.trim()).filter(Boolean);
+}
+
+function hasValidEducation(education = []) {
+  return safeArr(education).some((item) => item?.degree && item?.college);
+}
+
+function hasResumeReady(user = {}) {
+  const profile = safeObj(user.studentProfile);
+  const resume = safeObj(user.resume);
+  return Boolean(
+    user.resumeUrl ||
+      profile.resumeMeta?.fileName ||
+      profile.resumeMeta?.updatedAt ||
+      safeObj(resume.personal).name ||
+      safeObj(resume.personal).email ||
+      safeArr(resume.education).length ||
+      safeArr(resume.skills).length ||
+      safeArr(resume.experience).length
+  );
+}
+
+function calcProfileCompletion(user = {}) {
+  const profile = safeObj(user.studentProfile);
+  const personal = safeObj(profile.personal);
+  const checks = {
+    personal: Boolean(personal.fullName && personal.phone && personal.city),
+    about: Boolean(personal.about),
+    education: hasValidEducation(profile.education),
+    skills: parseList(profile.skills).length >= 2,
+    experience: profile.fresher === true || safeArr(profile.experience).some((item) => item?.company && item?.role),
+    resume: hasResumeReady(user),
+    projects: safeArr(profile.projects).some((item) => item?.title),
+  };
+  const done = Object.values(checks).filter(Boolean).length;
+  return Math.round((done / Object.keys(checks).length) * 100);
+}
+
+function withProfileCompletion(user = {}) {
+  const profileCompletion = calcProfileCompletion(user);
+  return {
+    ...user,
+    profileCompletion,
+    studentProfile: {
+      ...safeObj(user.studentProfile),
+      profileCompletion,
+    },
+  };
+}
+
+function getCloudinaryFormat(user = {}) {
+  const meta = safeObj(safeObj(user.studentProfile).resumeMeta);
+  if (meta.format) return String(meta.format).replace(/^\./, "");
+  const fileName = String(meta.fileName || user.resumeUrl || "");
+  const match = fileName.match(/\.([a-z0-9]+)(?:$|[?#])/i);
+  return match?.[1] || "pdf";
+}
+
+function buildSignedResumeUrl(user = {}) {
+  const meta = safeObj(safeObj(user.studentProfile).resumeMeta);
+  if (!meta.cloudinaryId) return "";
+
+  return cloudinary.utils.private_download_url(meta.cloudinaryId, getCloudinaryFormat(user), {
+    resource_type: meta.resourceType || "raw",
+    type: "upload",
+    expires_at: Math.floor(Date.now() / 1000) + 10 * 60,
+    attachment: false,
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/student/me
@@ -29,7 +105,7 @@ export const getMe = async (req, res) => {
     // NOTE: /me is always the owner — do NOT increment profileViews here.
     // Views are only counted when other users visit via GET /profile/:userId
 
-    return res.json({ success: true, data: user });
+    return res.json({ success: true, data: withProfileCompletion(user) });
   } catch (err) {
     console.error("[getMe]", err);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -87,7 +163,7 @@ export const updateMe = async (req, res) => {
 
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
-    return res.json({ success: true, data: user });
+    return res.json({ success: true, data: withProfileCompletion(user) });
   } catch (err) {
     console.error("[updateMe]", err);
     return res.status(500).json({ success: false, message: "Server error" });
@@ -119,6 +195,9 @@ export const uploadResumeHandler = async (req, res) => {
       size:         `${Math.max(1, Math.round(req.file.size / 1024))} KB`,
       updatedAt:    new Date().toISOString(),
       cloudinaryId: result.public_id,
+      resourceType: result.resource_type,
+      format:       result.format,
+      bytes:        result.bytes,
     };
 
     await User.findOneAndUpdate(
@@ -149,6 +228,45 @@ export const uploadResumeHandler = async (req, res) => {
 // POST /api/student/upload-avatar
 // multipart/form-data, field name: "file"
 // ─────────────────────────────────────────────────────────────────────────────
+export const viewResumeHandler = async (req, res) => {
+  try {
+    const clerkId = req.auth()?.userId;
+    if (!clerkId) return res.status(401).json({ success: false, message: "Unauthorized" });
+
+    const user = await User.findOne({ clerkId }).lean();
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
+    const resumeUrl = String(user.resumeUrl || "").trim();
+    const resumeMeta = safeObj(safeObj(user.studentProfile).resumeMeta);
+    if (!resumeUrl && !resumeMeta.cloudinaryId) {
+      return res.status(404).json({ success: false, message: "Resume not found" });
+    }
+
+    if (resumeUrl.startsWith("/uploads/")) {
+      const filePath = resolveUploadedFilePath(resumeUrl.replace(/^\/uploads\/?/, ""));
+      if (!filePath) return res.status(404).json({ success: false, message: "Resume file not found" });
+      res.setHeader("Content-Disposition", `inline; filename="${resumeMeta.fileName || "resume"}"`);
+      return res.sendFile(filePath);
+    }
+
+    const signedUrl = buildSignedResumeUrl(user) || resumeUrl;
+    const upstream = await fetch(signedUrl);
+    if (!upstream.ok) {
+      return res.status(upstream.status || 502).json({ success: false, message: "Resume file is not available" });
+    }
+
+    const contentType = upstream.headers.get("content-type") || "application/pdf";
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Length", String(buffer.length));
+    res.setHeader("Content-Disposition", `inline; filename="${resumeMeta.fileName || "resume"}"`);
+    return res.send(buffer);
+  } catch (err) {
+    console.error("[viewResumeHandler]", err);
+    return res.status(500).json({ success: false, message: "Resume view failed" });
+  }
+};
+
 export const uploadAvatarHandler = async (req, res) => {
   try {
     const clerkId = req.auth()?.userId;

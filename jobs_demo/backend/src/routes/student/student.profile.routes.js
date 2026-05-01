@@ -28,6 +28,7 @@ import {
   getMe,
   updateMe,
   uploadResumeHandler,
+  viewResumeHandler,
   uploadAvatarHandler,
   getFollowSuggestionsHandler,
   getRecentUsersHandler,
@@ -95,6 +96,7 @@ const uploadImageMW = multer({
 router.get   ("/profile/me",                          getMe);
 router.put   ("/profile/me",                          updateMe);
 router.post  ("/profile/upload-resume",               uploadResumeMW.single("file"), uploadResumeHandler);
+router.get   ("/profile/resume/view",                 viewResumeHandler);
 router.post  ("/profile/upload-avatar",               uploadImageMW.single("file"),  uploadAvatarHandler);
 router.get   ("/profile/follow-suggestions",          getFollowSuggestionsHandler);
 router.get   ("/profile/recent-users",                getRecentUsersHandler);

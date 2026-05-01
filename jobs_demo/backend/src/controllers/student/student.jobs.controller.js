@@ -107,19 +107,13 @@ function normalizeSkillCount(skills = []) {
 }
 
 function hasValidEducation(education = []) {
-  return safeArr(education).some((e) => e?.degree && e?.college && e?.year);
+  return safeArr(education).some((e) => e?.degree && e?.college);
 }
 
-function calcProfileCompletion(studentProfile, resumeUrl, resumeDoc = {}) {
-  const p = safeObj(studentProfile);
-
+function calcProfileCompletion(student = {}) {
+  const p = safeObj(student.studentProfile);
   const personal = safeObj(p.personal);
-  const education = safeArr(p.education);
-  const skills = safeArr(p.skills);
-  const experience = safeArr(p.experience);
-  const preferred = safeObj(p.preferred);
-
-  const resume = safeObj(resumeDoc);
+  const resume = safeObj(student.resume);
   const resumeSectionsFilled =
     Boolean(safeObj(resume.personal).name || safeObj(resume.personal).email) ||
     safeArr(resume.education).length > 0 ||
@@ -127,15 +121,13 @@ function calcProfileCompletion(studentProfile, resumeUrl, resumeDoc = {}) {
     safeArr(resume.experience).length > 0;
 
   const checks = {
-    personal: !!(personal.fullName && personal.phone && personal.city && personal.state),
-    education: hasValidEducation(education),
-    skills: normalizeSkillCount(skills) >= 2,
-    experience: p.fresher === true || experience.some((e) => e.company && e.role),
-    resume: !!(p.resumeMeta?.fileName || p.resumeMeta?.updatedAt || resumeUrl || resumeSectionsFilled),
-    preferred:
-      !!safeStr(preferred.stream).trim() &&
-      !!safeStr(preferred.category).trim() &&
-      toStringArray(preferred.locations).length > 0,
+    personal: !!(personal.fullName && personal.phone && personal.city),
+    about: !!personal.about,
+    education: hasValidEducation(p.education),
+    skills: normalizeSkillCount(p.skills) >= 2,
+    experience: p.fresher === true || safeArr(p.experience).some((e) => e.company && e.role),
+    resume: !!(p.resumeMeta?.fileName || p.resumeMeta?.updatedAt || student.resumeUrl || resumeSectionsFilled),
+    projects: safeArr(p.projects).some((item) => item?.title),
   };
 
   const total = Object.keys(checks).length;
@@ -399,7 +391,7 @@ export const applyStudentJob = async (req, res, next) => {
       return res.status(404).json({ message: "Student not found" });
     }
 
-    const profileCompletion = calcProfileCompletion(student.studentProfile, student.resumeUrl, student.resume);
+    const profileCompletion = calcProfileCompletion(student);
     const applicantProfileRequirement = normalizeApplicantProfileRequirement(job.applicantProfileRequirement);
     const needsResume = job.requireResume !== false && ["resume", "both"].includes(applicantProfileRequirement);
     const needsStudentProfile = job.requireProfile100 || ["student_profile", "both"].includes(applicantProfileRequirement);

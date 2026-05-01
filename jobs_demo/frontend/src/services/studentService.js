@@ -289,6 +289,12 @@ export const uploadResume = async (file, token) => {
 };
 
 // Upload profile avatar image — field name must match backend: "file"
+export const studentViewResumeFile = async (token) =>
+  api.get("/student/profile/resume/view", {
+    ...authConfig(token),
+    responseType: "blob",
+  });
+
 export const uploadAvatar = async (file, token) => {
   const fd = new FormData();
   fd.append("file", file);
