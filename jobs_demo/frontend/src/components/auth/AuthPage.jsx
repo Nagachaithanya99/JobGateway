@@ -3,6 +3,7 @@ import { useClerk, useSignIn, useSignUp } from "@clerk/clerk-react";
 import { FcGoogle } from "react-icons/fc";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import useAuth from "../../hooks/useAuth.js";
+import { showSweetAlert } from "../../utils/sweetAlert.js";
 import AuthShell from "./AuthShell.jsx";
 import CompanyProfileFields from "./CompanyProfileFields.jsx";
 import {
@@ -130,6 +131,12 @@ export default function AuthPage({ mode = "signin", fixedRole = null, initialRol
 
   const switchRole = (nextRole) => {
     const normalizedRole = getSelectableRole(nextRole);
+
+    if (!fixedRole && normalizedRole === "admin") {
+      navigate("/admin/login", { replace: true });
+      return;
+    }
+
     setRole(normalizedRole);
 
     if (fixedRole) return;
@@ -163,6 +170,10 @@ export default function AuthPage({ mode = "signin", fixedRole = null, initialRol
 
   if (!authLoading && isAuthed) {
     return <Navigate to={redirectToAuthedArea} replace />;
+  }
+
+  if (!fixedRole && role === "admin") {
+    return <Navigate to="/admin/login" replace />;
   }
 
   const clearMessages = () => {
@@ -289,11 +300,19 @@ export default function AuthPage({ mode = "signin", fixedRole = null, initialRol
 
       if (!hasPasswordFirstFactor(firstFactors)) {
         if (hasGoogleFirstFactor(firstFactors)) {
-          setError("This account is configured for Google sign-in. Use Continue with Google to continue.");
+          const message = "This account is configured for Google sign-in. Use Continue with Google to continue.";
+          setError(message);
+          if (role === "admin") {
+            await showSweetAlert(message, "error", { title: "Unauthorized" });
+          }
           return;
         }
 
-        setError("This account cannot sign in with email and password. Use the available sign-in method for this account.");
+        const message = "This account cannot sign in with email and password. Use the available sign-in method for this account.";
+        setError(message);
+        if (role === "admin") {
+          await showSweetAlert(message, "error", { title: "Unauthorized" });
+        }
         return;
       }
 
@@ -318,11 +337,24 @@ export default function AuthPage({ mode = "signin", fixedRole = null, initialRol
       }
 
       if (isPasswordStrategyError(clerkError)) {
-        setError("This account cannot sign in with email and password. Use Continue with Google for this account.");
+        const message = "This account cannot sign in with email and password. Use Continue with Google for this account.";
+        setError(message);
+        if (role === "admin") {
+          await showSweetAlert(message, "error", { title: "Unauthorized" });
+        }
         return;
       }
 
       if (isAccountMissingError(clerkError)) {
+        const message =
+          role === "admin"
+            ? "Unauthorized: admin account not found. Please use the configured admin credentials or use Continue with Google if your admin account is setup."
+            : "Account not found. Please check your email or sign up first.";
+        setError(message);
+        if (role === "admin") {
+          await showSweetAlert(message, "error", { title: "Unauthorized" });
+        }
+
         const nextParams = new URLSearchParams();
         nextParams.set("role", role);
         nextParams.set("email", form.email.trim());
@@ -334,7 +366,11 @@ export default function AuthPage({ mode = "signin", fixedRole = null, initialRol
         return;
       }
 
-      setError(normalizeClerkError(clerkError).message);
+      const normalized = normalizeClerkError(clerkError);
+      setError(normalized.message);
+      if (role === "admin") {
+        await showSweetAlert(normalized.message, "error", { title: "Unauthorized" });
+      }
     } finally {
       setBusy("");
     }
@@ -407,7 +443,11 @@ export default function AuthPage({ mode = "signin", fixedRole = null, initialRol
         return;
       }
 
-      setError(normalizeClerkError(clerkError).message);
+      const normalized = normalizeClerkError(clerkError);
+      setError(normalized.message);
+      if (role === "admin") {
+        await showSweetAlert(normalized.message, "error", { title: "Unauthorized" });
+      }
       setBusy("");
     }
   };

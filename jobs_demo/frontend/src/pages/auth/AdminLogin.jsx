@@ -4,6 +4,7 @@ import { Navigate, useNavigate } from "react-router-dom";
 import { ADMIN_LOGIN_CONFIG } from "../../config/adminLoginConfig.js";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { loginLocalAdmin } from "../../services/adminAuthService.js";
+import { showSweetAlert } from "../../utils/sweetAlert.js";
 
 export default function AdminLogin() {
   const navigate = useNavigate();
@@ -35,7 +36,9 @@ export default function AdminLogin() {
       login({ token: data.token, user: data.user });
       navigate("/admin", { replace: true });
     } catch (err) {
-      setError(err?.response?.data?.message || "Admin login failed");
+      const message = err?.response?.data?.message || "Admin login failed";
+      setError(message);
+      await showSweetAlert(message, "error", { title: "Unauthorized" });
     } finally {
       setBusy(false);
     }
