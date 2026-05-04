@@ -345,12 +345,10 @@ export const studentGetAdsStatus = async () =>
 
 // Create a Razorpay order for an ad plan purchase
 export const studentCreateAdPlanOrder = async (payload = {}) =>
-  api.post("/student/ads/plan/order", payload);
+  api.post("/student/ads/plans/create-order", payload);
 
-// Verify Razorpay payment after checkout completes
 export const studentVerifyAdPlanPayment = async (payload = {}) =>
-  api.post("/student/ads/plan/verify", payload);
-
+  api.post("/student/ads/plans/verify-payment", payload);
 // Post a new ad (after plan is approved)
 // payload shape:
 // {
