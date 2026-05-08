@@ -2081,9 +2081,7 @@ export async function createCareerPulsePost(req, res, next) {
     const content = safeStr(req.body?.content);
     const mediaUrl = safeStr(req.body?.mediaUrl);
     const textModeration = scanUnsafeText([headline, content, ...toTextArray(req.body?.tags)]);
-    const requiresMediaSafety = Boolean(
-      mediaUrl || ["image", "banner", "video", "reel"].includes(type)
-    );
+    const requiresMediaSafety = ["image", "banner", "video", "reel"].includes(type);
     const mediaModerationCheck = validateMediaModeration(req.body?.mediaModeration, {
       required: requiresMediaSafety,
       label: "post",

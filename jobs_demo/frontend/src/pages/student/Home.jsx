@@ -10,9 +10,12 @@ import {
   FiExternalLink,
   FiFileText,
   FiImage,
+  FiMaximize2,
   FiMapPin,
   FiMessageCircle,
+  FiPause,
   FiPhoneCall,
+  FiPlay,
   FiSearch,
   FiShield,
   FiSkipForward,
@@ -31,6 +34,7 @@ import {
   studentCreateAd,
   studentCreateAdPlanOrder,
   studentGetAdsStatus,
+  studentTrackAdEvent,
   studentHome,
   studentVerifyAdPlanPayment,
 } from "../../services/studentService.js";
@@ -1065,7 +1069,10 @@ function SponsoredAdsRail({ ads = [] }) {
   const [cycle, setCycle] = useState(0);
   const [progress, setProgress] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [skipCountdown, setSkipCountdown] = useState(Math.ceil(AD_SKIP_DELAY_MS / 1000));
+  const railRef = useRef(null);
   const videoRef = useRef(null);
 
   const activeAd = ads[activeIndex] || null;
@@ -1074,6 +1081,12 @@ function SponsoredAdsRail({ ads = [] }) {
   const description = String(activeAd?.description || "Featured sponsor content tailored for students.").trim();
   const mediaLabel = String(activeAd?.mediaType || (isVideo ? "video" : "banner")).toUpperCase();
   const canSkip = ads.length <= 1 || skipCountdown <= 0;
+
+  const trackAdEvent = (event) => {
+    if (!activeAd?.id) return;
+    studentTrackAdEvent(activeAd.id, { event }).catch(() => {});
+  };
+
   useEffect(() => {
     if (!ads.length) return undefined;
     setActiveIndex((prev) => (prev >= ads.length ? 0 : prev));
@@ -1084,7 +1097,9 @@ function SponsoredAdsRail({ ads = [] }) {
     if (!activeAd) return undefined;
     setProgress(0);
     setIsMuted(true);
+    setIsPaused(false);
     setSkipCountdown(Math.ceil(AD_SKIP_DELAY_MS / 1000));
+    trackAdEvent("impression");
 
     const startedAt = Date.now();
     const intervalId = window.setInterval(() => {
@@ -1099,27 +1114,26 @@ function SponsoredAdsRail({ ads = [] }) {
   }, [activeKey, activeAd]);
 
   useEffect(() => {
-    if (!activeAd || isVideo) return undefined;
+    if (!activeAd || isVideo || isPaused) return undefined;
 
-    const startedAt = Date.now();
     const intervalId = window.setInterval(() => {
-      const elapsedMs = Date.now() - startedAt;
-      const nextProgress = Math.min(100, (elapsedMs / AD_BANNER_DURATION_MS) * 100);
-      setProgress(nextProgress);
-
-      if (elapsedMs >= AD_BANNER_DURATION_MS) {
-        window.clearInterval(intervalId);
-        setIsMuted(true);
-        if (ads.length <= 1) {
-          setCycle((prev) => prev + 1);
-          return;
+      setProgress((prev) => {
+        const nextProgress = Math.min(100, prev + (120 / AD_BANNER_DURATION_MS) * 100);
+        if (nextProgress >= 100) {
+          window.clearInterval(intervalId);
+          setIsMuted(true);
+          if (ads.length <= 1) {
+            setCycle((prevCycle) => prevCycle + 1);
+          } else {
+            setActiveIndex((prevIndex) => (prevIndex + 1) % ads.length);
+          }
         }
-        setActiveIndex((prev) => (prev + 1) % ads.length);
-      }
+        return nextProgress;
+      });
     }, 120);
 
     return () => window.clearInterval(intervalId);
-  }, [activeKey, activeAd, isVideo, ads.length]);
+  }, [activeKey, activeAd, isVideo, ads.length, isPaused]);
 
   useEffect(() => {
     if (!activeAd || !isVideo || !videoRef.current) return undefined;
@@ -1127,6 +1141,7 @@ function SponsoredAdsRail({ ads = [] }) {
     const video = videoRef.current;
     video.muted = isMuted;
     video.currentTime = 0;
+    video.pause();
     const playPromise = video.play();
     if (playPromise?.catch) {
       playPromise.catch(() => {});
@@ -1139,16 +1154,36 @@ function SponsoredAdsRail({ ads = [] }) {
     videoRef.current.muted = isMuted;
   }, [isMuted, activeKey]);
 
+  useEffect(() => {
+    if (!videoRef.current || !isVideo) return;
+    if (isPaused) {
+      videoRef.current.pause();
+      return;
+    }
+    videoRef.current.play?.().catch(() => {});
+  }, [isPaused, isVideo, activeKey]);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    };
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
   if (!activeAd) return null;
 
   const openTarget = () => {
     if (!activeAd.targetUrl) return;
+    trackAdEvent("click");
     window.open(activeAd.targetUrl, "_blank", "noopener,noreferrer");
   };
 
   const playNextAd = () => {
+    trackAdEvent(ads.length > 1 ? "skip" : "replay");
     setProgress(0);
     setIsMuted(true);
+    setIsPaused(false);
     if (ads.length <= 1) {
       setCycle((prev) => prev + 1);
       return;
@@ -1156,9 +1191,44 @@ function SponsoredAdsRail({ ads = [] }) {
     setActiveIndex((prev) => (prev + 1) % ads.length);
   };
 
+  const togglePause = () => {
+    const nextPaused = !isPaused;
+    setIsPaused(nextPaused);
+    trackAdEvent(nextPaused ? "pause" : "resume");
+  };
+
+  const openFullscreen = async () => {
+    setIsPaused(false);
+    trackAdEvent("fullscreen");
+    try {
+      await railRef.current?.requestFullscreen?.();
+      setIsFullscreen(true);
+      videoRef.current?.play?.().catch(() => {});
+    } catch {
+      setIsFullscreen(true);
+    }
+  };
+
+  const cancelFullscreen = async () => {
+    trackAdEvent("cancel");
+    setIsFullscreen(false);
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen?.();
+    } catch {
+      // ignore fullscreen close failures
+    }
+  };
+
   return (
-    <div className="overflow-hidden rounded-[26px] bg-[#0f172a] text-white shadow-[0_24px_60px_rgba(15,23,42,0.25)]">
-      <div className="relative aspect-[16/10] overflow-hidden bg-[#020617]">
+    <div
+      ref={railRef}
+      className={`overflow-hidden bg-[#0f172a] text-white shadow-[0_24px_60px_rgba(15,23,42,0.25)] ${
+        isFullscreen
+          ? "fixed inset-0 z-[9999] flex h-screen w-screen flex-col rounded-none"
+          : "rounded-[26px]"
+      }`}
+    >
+      <div className={`relative overflow-hidden bg-[#020617] ${isFullscreen ? "min-h-0 flex-1" : "aspect-[16/10]"}`}>
         <div className="absolute inset-x-0 top-0 z-20 p-4">
           <div className="h-1.5 overflow-hidden rounded-full bg-white/15">
             <motion.div
@@ -1242,28 +1312,62 @@ function SponsoredAdsRail({ ads = [] }) {
                   Timed Banner
                 </span>
               )}
+              <motion.button
+                type="button"
+                onClick={togglePause}
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-2 text-[11px] font-black uppercase tracking-[0.2em] text-white backdrop-blur"
+              >
+                {isPaused ? <FiPlay /> : <FiPause />}
+                {isPaused ? "Play" : "Pause"}
+              </motion.button>
             </div>
 
-            <motion.button
-              type="button"
-              onClick={playNextAd}
-              disabled={!canSkip}
-              whileHover={canSkip ? { scale: 1.03 } : undefined}
-              whileTap={canSkip ? { scale: 0.97 } : undefined}
-              className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-[11px] font-black uppercase tracking-[0.2em] transition-all ${
-                canSkip
-                  ? "bg-white text-slate-900 shadow-lg"
-                  : "cursor-not-allowed bg-white/10 text-white/60"
-              }`}
-            >
-              <FiSkipForward />
-              {canSkip ? (ads.length > 1 ? "Skip Ad" : "Replay Ad") : `Skip in ${skipCountdown}s`}
-            </motion.button>
+            <div className="flex flex-wrap justify-end gap-2">
+              <motion.button
+                type="button"
+                onClick={openFullscreen}
+                whileHover={{ scale: 1.03 }}
+                whileTap={{ scale: 0.97 }}
+                className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-2 text-[11px] font-black uppercase tracking-[0.2em] text-white transition-all hover:bg-white/15"
+              >
+                <FiMaximize2 />
+                Full Screen
+              </motion.button>
+              {isFullscreen ? (
+                <motion.button
+                  type="button"
+                  onClick={cancelFullscreen}
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="inline-flex items-center gap-2 rounded-full bg-red-500 px-3 py-2 text-[11px] font-black uppercase tracking-[0.2em] text-white shadow-lg"
+                >
+                  <FiXCircle />
+                  Cancel
+                </motion.button>
+              ) : null}
+              <motion.button
+                type="button"
+                onClick={playNextAd}
+                disabled={!canSkip}
+                whileHover={canSkip ? { scale: 1.03 } : undefined}
+                whileTap={canSkip ? { scale: 0.97 } : undefined}
+                className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-[11px] font-black uppercase tracking-[0.2em] transition-all ${
+                  canSkip
+                    ? "bg-white text-slate-900 shadow-lg"
+                    : "cursor-not-allowed bg-white/10 text-white/60"
+                }`}
+              >
+                <FiSkipForward />
+                {canSkip ? (ads.length > 1 ? "Skip Ad" : "Replay Ad") : `Skip in ${skipCountdown}s`}
+              </motion.button>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="space-y-4 p-5">
+      <div className={`space-y-4 p-5 ${isFullscreen ? "max-h-[36vh] overflow-auto" : ""}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[11px] font-black uppercase tracking-[0.28em] text-orange-300">{activeAd.advertiserName}</p>

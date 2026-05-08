@@ -75,6 +75,17 @@ function normalizeAd(doc) {
     placement: doc.placement || "student-home",
     status: doc.status || "active",
     rejectedReason: doc.rejectedReason || "",
+    metrics: {
+      impressions: Number(doc.metrics?.impressions || 0),
+      clicks: Number(doc.metrics?.clicks || 0),
+      fullscreenViews: Number(doc.metrics?.fullscreenViews || 0),
+      pauses: Number(doc.metrics?.pauses || 0),
+      resumes: Number(doc.metrics?.resumes || 0),
+      cancels: Number(doc.metrics?.cancels || 0),
+      skips: Number(doc.metrics?.skips || 0),
+      replays: Number(doc.metrics?.replays || 0),
+      lastInteractionAt: formatDate(doc.metrics?.lastInteractionAt),
+    },
     approvedAt: formatDate(doc.approvedAt),
     createdAt: formatDate(doc.createdAt),
   };
@@ -481,6 +492,45 @@ export async function createStudentAd(req, res, next) {
       message: "Ad posted successfully.",
       ad: normalizeAd(ad),
     });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function trackStudentAdEvent(req, res, next) {
+  try {
+    const { adId } = req.params;
+    const event = String(req.body?.event || "").trim().toLowerCase();
+    const eventFieldMap = {
+      impression: "impressions",
+      click: "clicks",
+      fullscreen: "fullscreenViews",
+      pause: "pauses",
+      resume: "resumes",
+      cancel: "cancels",
+      skip: "skips",
+      replay: "replays",
+    };
+
+    if (!mongoose.isValidObjectId(adId)) {
+      return res.status(400).json({ message: "Invalid ad id." });
+    }
+    const field = eventFieldMap[event];
+    if (!field) {
+      return res.status(400).json({ message: "Invalid ad event." });
+    }
+
+    const ad = await Advertisement.findOneAndUpdate(
+      { _id: adId, status: "active" },
+      {
+        $inc: { [`metrics.${field}`]: 1 },
+        $set: { "metrics.lastInteractionAt": new Date() },
+      },
+      { new: true }
+    ).lean();
+
+    if (!ad) return res.status(404).json({ message: "Ad not found." });
+    return res.json({ ok: true, metrics: normalizeAd(ad).metrics });
   } catch (err) {
     next(err);
   }

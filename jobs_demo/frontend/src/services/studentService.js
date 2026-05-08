@@ -359,6 +359,11 @@ export const studentVerifyAdPlanPayment = async (payload = {}) =>
 export const studentCreateAd = async (payload = {}) =>
   api.post("/student/ads", payload);
 
+export const studentTrackAdEvent = async (adId, payload = {}) => {
+  if (!adId) throw new Error("adId is required");
+  return api.post(`/student/ads/${adId}/event`, payload);
+};
+
 // Get all ads posted by the current student
 export const studentGetMyAds = async () =>
   api.get("/student/ads/mine");
