@@ -39,7 +39,7 @@ const COMPLETED_BUCKET_STATUSES = ["Completed", "Review Ready"];
 const CANCELLED_BUCKET_STATUSES = ["Cancelled", "No Show"];
 const ACTIVE_TODAY_STATUSES = [...SCHEDULED_BUCKET_STATUSES, ...ONGOING_BUCKET_STATUSES];
 
-function normalizeDurationMins(input, fallback = 30) {
+function normalizeDurationMins(input, fallback = 0) {
   const n = Number(input);
   if (!Number.isFinite(n)) return fallback;
   if (n < 0) return fallback;
@@ -96,12 +96,6 @@ function computeStartWindow(scheduledAt) {
   return {
     startAllowedAt: new Date(t - 15 * 60 * 1000),
   };
-}
-
-function isStartAllowedNow(scheduledAt) {
-  const now = Date.now();
-  const { startAllowedAt } = computeStartWindow(scheduledAt);
-  return now >= startAllowedAt.getTime();
 }
 
 function safeStr(value) {
@@ -287,10 +281,8 @@ function mapInterview(x) {
   const d = new Date(x?.scheduledAt || Date.now());
   const safeScheduledAt = Number.isNaN(d.getTime()) ? new Date() : d;
   const { startAllowedAt } = computeStartWindow(safeScheduledAt);
-  const now = Date.now();
-  const startAtMs = new Date(startAllowedAt).getTime();
-  const openJoinWindow = now >= startAtMs;
-  const durationMins = normalizeDurationMins(x.durationMins, 30);
+  const openJoinWindow = true;
+  const durationMins = normalizeDurationMins(x.durationMins, 0);
   return {
     id: x._id,
     applicationId: x.application?._id ? String(x.application._id) : x.application ? String(x.application) : "",
@@ -561,7 +553,7 @@ export async function createCompanyInterview(req, res, next) {
       stage = "HR",
       date,
       time, // "HH:mm"
-      durationMins = 30,
+      durationMins = 0,
       mode = "Online",
       roomId = "",
       meetingLink = "",
@@ -627,7 +619,7 @@ export async function createCompanyInterview(req, res, next) {
       jobTitle: resolvedJobTitle,
       stage,
       scheduledAt: dt,
-      durationMins: normalizeDurationMins(durationMins, 30),
+      durationMins: normalizeDurationMins(durationMins, 0),
       mode,
       meetingLink: safeMeetingLink,
       interviewLinks:
@@ -770,7 +762,7 @@ export async function updateCompanyInterview(req, res, next) {
       update.verificationStatus = payload.verificationStatus;
     }
 
-    if (payload.durationMins != null) update.durationMins = normalizeDurationMins(payload.durationMins, 30);
+    if (payload.durationMins != null) update.durationMins = normalizeDurationMins(payload.durationMins, 0);
 
     if (payload.date || payload.time) {
       const existing = await Interview.findOne({ _id: id, company: companyId }).lean();
@@ -911,14 +903,6 @@ export async function startCompanyInterview(req, res, next) {
     if (!interview) return res.status(404).json({ message: "Interview not found" });
     if (!["Scheduled", "Rescheduled", "Waiting Room", "Live"].includes(interview.status)) {
       return res.status(400).json({ message: "Interview cannot be started in current status" });
-    }
-
-    if (!isStartAllowedNow(interview.scheduledAt)) {
-      const { startAllowedAt } = computeStartWindow(interview.scheduledAt);
-      return res.status(400).json({
-        message: "Start is allowed only in the interview start window",
-        startAvailableAt: startAllowedAt.toISOString(),
-      });
     }
 
     if (!interview.roomId) interview.roomId = randomId("room");

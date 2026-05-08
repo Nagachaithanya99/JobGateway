@@ -42,7 +42,7 @@ function toTime12h(d) {
   return `${String(h).padStart(2, "0")}:${m} ${ampm}`;
 }
 
-function normalizeDurationMins(input, fallback = 30) {
+function normalizeDurationMins(input, fallback = 0) {
   const n = Number(input);
   if (!Number.isFinite(n)) return fallback;
   if (n < 0) return fallback;
@@ -54,8 +54,8 @@ function mapStudentInterview(x) {
   const startAllowedAt = new Date(d.getTime() - 10 * 60 * 1000);
   const status = x.status || "Scheduled";
   const joinableStatuses = ["Scheduled", "Rescheduled", "Waiting Room", "Live"];
-  const joinAllowed = Date.now() >= startAllowedAt.getTime() && joinableStatuses.includes(status);
-  const durationMins = normalizeDurationMins(x.durationMins, 30);
+  const joinAllowed = joinableStatuses.includes(status);
+  const durationMins = normalizeDurationMins(x.durationMins, 0);
   const durationLabel = durationMins === 0 ? "Unlimited" : `${durationMins} mins`;
   const endedAtDate = x.endedAt ? new Date(x.endedAt) : null;
   return {

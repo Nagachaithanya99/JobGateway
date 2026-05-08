@@ -310,10 +310,6 @@ export default function Interviews() {
         return;
       }
 
-      if (!row.openJoinWindow) {
-        setMsg(`Start available at ${new Date(row.startAvailableAt).toLocaleString()}`);
-        return;
-      }
       const res = await startCompanyInterview(row.id);
       const interviewId = res?.interview?.id || row.id;
       nav(`/company/interviews/${interviewId}/workspace?autocam=1`);

@@ -134,6 +134,7 @@ export default function StudentInterviewWorkspace() {
   const remoteVideoRef = useRef(null);
   const videoShellRef = useRef(null);
   const socketRef = useRef(null);
+  const cameraVideoSenderRef = useRef(null);
   const screenSenderRef = useRef(null);
   const screenPlaceholderTrackRef = useRef(null);
   const appliedCompanyCandidatesRef = useRef(new Set());
@@ -286,7 +287,12 @@ export default function StudentInterviewWorkspace() {
       if (!screenSenderRef.current) {
         const freeVideoTransceiver = pc
           .getTransceivers()
-          .find((t) => t?.receiver?.track?.kind === "video" && t?.sender && !t.sender.track);
+          .find((t) => (
+            t?.receiver?.track?.kind === "video"
+            && t?.sender
+            && t.sender !== cameraVideoSenderRef.current
+            && !t.sender.track
+          ));
         if (freeVideoTransceiver?.sender) {
           const canvas = document.createElement("canvas");
           canvas.width = 16;
@@ -299,7 +305,6 @@ export default function StudentInterviewWorkspace() {
           const placeholderStream = canvas.captureStream(1);
           const placeholderTrack = placeholderStream.getVideoTracks()[0];
           if (placeholderTrack) {
-            placeholderTrack.enabled = false;
             await freeVideoTransceiver.sender.replaceTrack(placeholderTrack);
             screenSenderRef.current = freeVideoTransceiver.sender;
             screenPlaceholderTrackRef.current = placeholderTrack;
@@ -777,6 +782,7 @@ export default function StudentInterviewWorkspace() {
       peerRef.current.close();
       peerRef.current = null;
     }
+    cameraVideoSenderRef.current = null;
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach((t) => t.stop());
       localStreamRef.current = null;
@@ -812,7 +818,12 @@ export default function StudentInterviewWorkspace() {
 
     const reusable = pc
       .getTransceivers()
-      .find((t) => t?.receiver?.track?.kind === "video" && t?.sender && !t.sender.track);
+      .find((t) => (
+        t?.receiver?.track?.kind === "video"
+        && t?.sender
+        && t.sender !== cameraVideoSenderRef.current
+        && (t.sender === screenSenderRef.current || !t.sender.track || t.sender.track === screenPlaceholderTrackRef.current)
+      ));
     if (!reusable?.sender) return false;
 
     try {
@@ -852,6 +863,7 @@ export default function StudentInterviewWorkspace() {
       audioTracks.forEach((track) => pc.addTrack(track, outgoingStream));
       if (outgoingVideoTrack) {
         const videoSender = pc.addTrack(outgoingVideoTrack, outgoingStream);
+        cameraVideoSenderRef.current = videoSender;
         await bindVideoSender(videoSender);
         await optimizeVideoSenderForInterview(videoSender);
       }
@@ -1186,6 +1198,7 @@ export default function StudentInterviewWorkspace() {
       }
       screenSenderRef.current = null;
     }
+    cameraVideoSenderRef.current = null;
     if (screenPlaceholderTrackRef.current) {
       try {
         screenPlaceholderTrackRef.current.stop();
@@ -1236,7 +1249,7 @@ export default function StudentInterviewWorkspace() {
           <div className="flex flex-wrap gap-2 text-xs">
             <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">Status: {item.status}</span>
             <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1"><FiWifi className="mr-1 inline" />{item.candidateReadiness?.networkQuality || "Unknown"}</span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">Timer: {item.durationLabel || `${item.durationMins || 30} mins`}</span>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1">Timer: {item.durationLabel || (Number(item.durationMins) === 0 ? "Unlimited" : `${item.durationMins || 30} mins`)}</span>
           </div>
 
           <div ref={videoShellRef} className="relative h-[520px] overflow-hidden rounded-xl border border-slate-300 bg-black lg:h-[620px]">

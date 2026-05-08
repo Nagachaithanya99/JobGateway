@@ -820,6 +820,7 @@ export default function InterviewWorkspace() {
         await optimizeVideoSenderForInterview(videoSender);
       }
       pc.addTransceiver("video", { direction: "recvonly" });
+      pc.addTransceiver("video", { direction: "recvonly" });
 
       pc.ontrack = (event) => {
         setJoined(true);
@@ -1168,7 +1169,8 @@ export default function InterviewWorkspace() {
     .trim();
   const liveChatRows = chatRows.slice(-6);
   const liveQuestionRows = questionRows.slice(-5);
-  const screenAsMain = remoteScreenReady;
+  const studentScreenShareActive = item?.collaboration?.screenShare?.active && item?.collaboration?.screenShare?.by === "student";
+  const screenAsMain = remoteScreenReady && studentScreenShareActive;
 
   if (loading) return <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600">Loading workspace...</div>;
   if (!item) return <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">Interview not found.</div>;
@@ -1332,7 +1334,7 @@ export default function InterviewWorkspace() {
               </div>
             ) : null}
             {remoteScreenReady ? (
-              <div className={screenAsMain && !focusLocal ? "absolute inset-0 z-5" : "hidden"}>
+              <div className={screenAsMain && !focusLocal ? "absolute inset-0 z-10" : "hidden"}>
                 <video
                   ref={remoteScreenVideoRef}
                   autoPlay
