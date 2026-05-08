@@ -122,6 +122,8 @@ function defaultAdForm() {
     mediaType: "banner",
     ctaLabel: "Learn More",
     targetUrl: "",
+    contactLabel: "",
+    audience: "",
     mediaMode: "device",
     mediaLink: "",
     file: null,
@@ -185,10 +187,34 @@ export default function Home() {
 
   const featuredJobs = useMemo(() => (data.jobs || []).slice(0, 4), [data.jobs]);
   const homeAds = useMemo(() => (data.ads || []).slice(0, 6), [data.ads]);
+  const selectedPlan = useMemo(
+    () => adPlans.find((item) => String(item.id || item._id || "") === String(planForm.planId || "")) || adPlans[0] || null,
+    [adPlans, planForm.planId],
+  );
+  const adPreview = useMemo(() => {
+    const filePreview = adForm.file ? URL.createObjectURL(adForm.file) : "";
+    return {
+      title: adForm.title.trim() || "Your campaign headline",
+      description: adForm.description.trim() || "Add a short message that tells students why they should click.",
+      ctaLabel: adForm.ctaLabel.trim() || "Learn More",
+      audience: adForm.audience.trim() || "All students",
+      mediaUrl: adForm.mediaMode === "device" ? filePreview : adForm.mediaLink.trim(),
+      isVideo:
+        adForm.mediaType === "video" ||
+        String(adForm.file?.type || "").startsWith("video/") ||
+        /\.(mp4|webm|mov|m4v)$/i.test(adForm.mediaLink.trim()),
+    };
+  }, [adForm]);
   const welcomeName = useMemo(
     () => (user?.name || user?.fullName || user?.username || "Student").trim() || "Student",
     [user],
   );
+
+  useEffect(() => {
+    return () => {
+      if (adPreview.mediaUrl?.startsWith("blob:")) URL.revokeObjectURL(adPreview.mediaUrl);
+    };
+  }, [adPreview.mediaUrl]);
 
   useEffect(() => {
     const timer = setInterval(() => setActiveSlide((prev) => (prev + 1) % slides.length), 4500);
@@ -262,7 +288,7 @@ export default function Home() {
       return;
     }
     setAdView("buy");
-    ping("error", "Buy a plan first. After admin approval, you can post your ad.");
+    ping("error", "Buy a plan first. Once payment is verified, you can post your ad.");
   };
   const buyPlan = async () => {
     try {
@@ -362,6 +388,8 @@ export default function Home() {
         mimeType: media.mimeType,
         ctaLabel: adForm.ctaLabel,
         targetUrl: adForm.targetUrl,
+        contactLabel: adForm.contactLabel,
+        audience: adForm.audience,
       });
       const nextAd = mapAd(res?.data?.ad);
       setData((prev) => ({ ...prev, ads: nextAd ? [nextAd, ...(prev.ads || [])] : prev.ads }));
@@ -740,35 +768,50 @@ export default function Home() {
           </div>
         ) : null}
         {adView === "buy" ? (
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.25fr_0.75fr]">
             <div className="grid grid-cols-1 gap-4">
               {adPlans.map((plan) => (
                 <button
                   key={plan.id}
                   type="button"
                   onClick={() => setPlanForm({ planId: plan.id })}
-                  className={`rounded-[24px] border p-5 text-left shadow-sm transition ${planForm.planId === plan.id ? "border-[#F97316] bg-orange-50/70" : "border-slate-200 bg-white"}`}
+                  className={`group rounded-[24px] border p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-[0_18px_45px_rgba(15,23,42,0.10)] ${planForm.planId === plan.id ? "border-[#F97316] bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_70%)] ring-2 ring-orange-100" : "border-slate-200 bg-white"}`}
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="text-lg font-black text-slate-900">{plan.name}</p>
-                      <p className="mt-2 text-sm text-slate-600">{plan.description}</p>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">{plan.description || "Promote your services with student-home sponsored placements."}</p>
                     </div>
                     {plan.highlight && <span className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-bold text-[#F97316]">Popular</span>}
                   </div>
-                  <div className="mt-4 flex items-end gap-2">
+                  <div className="mt-4 flex flex-wrap items-end gap-2">
                     <p className="text-3xl font-black text-slate-900">Rs {plan.price}</p>
                     <p className="pb-1 text-sm text-slate-500">/{plan.durationDays}d</p>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {(plan.mediaTypes || ["banner", "video", "pamphlet"]).slice(0, 3).map((item) => (
+                      <span key={item} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-bold capitalize text-slate-600">{item}</span>
+                    ))}
+                    {(plan.placements || ["student-home"]).slice(0, 2).map((item) => (
+                      <span key={item} className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-bold capitalize text-blue-700">{item.replaceAll("-", " ")}</span>
+                    ))}
                   </div>
                 </button>
               ))}
             </div>
-            <div className="rounded-[24px] border border-emerald-100 bg-emerald-50/70 p-5 text-sm text-slate-700">
-              <p className="text-xs font-black uppercase text-emerald-700">Flow</p>
+            <div className="rounded-[24px] border border-emerald-100 bg-[linear-gradient(160deg,#ecfdf5_0%,#ffffff_70%)] p-5 text-sm text-slate-700 shadow-sm">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-700">Ready after payment</p>
+              <h4 className="mt-3 text-2xl font-black text-slate-900">{selectedPlan?.name || "Choose a plan"}</h4>
+              <p className="mt-2 leading-6 text-slate-600">
+                Verified payments unlock ad posting immediately and your billing page will show the active access window.
+              </p>
               <div className="mt-4 space-y-3">
-                <p>• Select plan</p>
-                <p>• Razorpay payment</p>
-                <p>• Start posting</p>
+                {["Select plan", "Complete Razorpay payment", "Post banner, video, or pamphlet"].map((item) => (
+                  <div key={item} className="flex items-center gap-3 rounded-2xl border border-emerald-100 bg-white/80 px-3 py-3">
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><FiCheckCircle /></span>
+                    <span className="font-bold text-slate-700">{item}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -776,14 +819,19 @@ export default function Home() {
         {adView === "post" ? (
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.15fr_0.85fr]">
             <div className="space-y-4">
+              <div className="rounded-[24px] border border-blue-100 bg-[linear-gradient(135deg,#eff6ff_0%,#ffffff_70%)] p-5">
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-700">Campaign details</p>
+                <h4 className="mt-2 text-2xl font-black text-slate-900">Create a polished student-home ad</h4>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Add clear copy, a call to action, and media that looks good in the sponsored rail.</p>
+              </div>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <label className="block text-sm font-semibold text-slate-700">
                   Title
-                  <input value={adForm.title} onChange={(e) => setAdForm((prev) => ({ ...prev, title: e.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none" />
+                  <input value={adForm.title} onChange={(e) => setAdForm((prev) => ({ ...prev, title: e.target.value }))} placeholder="Example: Learn Java with live projects" className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50" />
                 </label>
                 <label className="block text-sm font-semibold text-slate-700">
                   Type
-                  <select value={adForm.mediaType} onChange={(e) => setAdForm((prev) => ({ ...prev, mediaType: e.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none">
+                  <select value={adForm.mediaType} onChange={(e) => setAdForm((prev) => ({ ...prev, mediaType: e.target.value }))} className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50">
                     <option value="banner">Banner</option>
                     <option value="video">Video</option>
                     <option value="pamphlet">Pamphlet</option>
@@ -792,22 +840,85 @@ export default function Home() {
               </div>
               <label className="block text-sm font-semibold text-slate-700">
                 Description
-                <textarea value={adForm.description} onChange={(e) => setAdForm((prev) => ({ ...prev, description: e.target.value }))} rows={3} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none" />
+                <textarea value={adForm.description} onChange={(e) => setAdForm((prev) => ({ ...prev, description: e.target.value }))} rows={4} placeholder="Write the benefit, offer, deadline, or outcome students should notice." className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50" />
               </label>
-              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <div className="flex gap-2 mb-4">
-                  <button type="button" onClick={() => setAdForm((prev) => ({ ...prev, mediaMode: "device" }))} className={`rounded-full px-4 py-2 text-sm font-bold ${adForm.mediaMode === "device" ? "bg-blue-600 text-white" : "border border-slate-200 bg-white"}`}>
-                    Device
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <label className="block text-sm font-semibold text-slate-700">
+                  Call to action
+                  <input value={adForm.ctaLabel} onChange={(e) => setAdForm((prev) => ({ ...prev, ctaLabel: e.target.value }))} placeholder="Apply Now" className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50" />
+                </label>
+                <label className="block text-sm font-semibold text-slate-700">
+                  Landing URL
+                  <input value={adForm.targetUrl} onChange={(e) => setAdForm((prev) => ({ ...prev, targetUrl: e.target.value }))} placeholder="https://..." className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50" />
+                </label>
+                <label className="block text-sm font-semibold text-slate-700">
+                  Audience
+                  <input value={adForm.audience} onChange={(e) => setAdForm((prev) => ({ ...prev, audience: e.target.value }))} placeholder="Freshers, B.Tech, Hyderabad" className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50" />
+                </label>
+                <label className="block text-sm font-semibold text-slate-700">
+                  Contact label
+                  <input value={adForm.contactLabel} onChange={(e) => setAdForm((prev) => ({ ...prev, contactLabel: e.target.value }))} placeholder="WhatsApp, Email, Admissions desk" className="mt-1 h-11 w-full rounded-xl border border-slate-200 px-3 outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50" />
+                </label>
+              </div>
+              <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-4 flex flex-wrap gap-2">
+                  <button type="button" onClick={() => setAdForm((prev) => ({ ...prev, mediaMode: "device" }))} className={`rounded-full px-4 py-2 text-sm font-bold transition ${adForm.mediaMode === "device" ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" : "border border-slate-200 bg-white text-slate-700"}`}>
+                    <span className="inline-flex items-center gap-2"><FiUpload /> Device</span>
                   </button>
-                  <button type="button" onClick={() => setAdForm((prev) => ({ ...prev, mediaMode: "link" }))} className={`rounded-full px-4 py-2 text-sm font-bold ${adForm.mediaMode === "link" ? "bg-blue-600 text-white" : "border border-slate-200 bg-white"}`}>
-                    Link
+                  <button type="button" onClick={() => setAdForm((prev) => ({ ...prev, mediaMode: "link" }))} className={`rounded-full px-4 py-2 text-sm font-bold transition ${adForm.mediaMode === "link" ? "bg-blue-600 text-white shadow-lg shadow-blue-600/20" : "border border-slate-200 bg-white text-slate-700"}`}>
+                    <span className="inline-flex items-center gap-2"><FiExternalLink /> Link</span>
                   </button>
                 </div>
                 {adForm.mediaMode === "device" ? (
-                  <input type="file" accept="image/*,video/*" onChange={(e) => setAdForm((prev) => ({ ...prev, file: e.target.files?.[0] || null }))} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                  <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center transition hover:border-blue-300 hover:bg-blue-50/40">
+                    <FiImage className="text-2xl text-blue-600" />
+                    <span className="mt-2 text-sm font-black text-slate-900">{adForm.file?.name || "Upload image or video"}</span>
+                    <span className="mt-1 text-xs font-semibold text-slate-500">PNG, JPG, MP4, or WebM works best</span>
+                    <input type="file" accept="image/*,video/*" onChange={(e) => setAdForm((prev) => ({ ...prev, file: e.target.files?.[0] || null }))} className="sr-only" />
+                  </label>
                 ) : (
-                  <input value={adForm.mediaLink} onChange={(e) => setAdForm((prev) => ({ ...prev, mediaLink: e.target.value }))} placeholder="https://..." className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm" />
+                  <input value={adForm.mediaLink} onChange={(e) => setAdForm((prev) => ({ ...prev, mediaLink: e.target.value }))} placeholder="https://example.com/ad-banner.png" className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50" />
                 )}
+              </div>
+            </div>
+            <div className="space-y-4">
+              <div className="overflow-hidden rounded-[26px] border border-slate-200 bg-[#0f172a] text-white shadow-[0_24px_60px_rgba(15,23,42,0.20)]">
+                <div className="relative aspect-[16/10] bg-[#020617]">
+                  {adPreview.mediaUrl ? (
+                    adPreview.isVideo ? (
+                      <video src={adPreview.mediaUrl} className="h-full w-full object-cover" muted controls />
+                    ) : (
+                      <img src={adPreview.mediaUrl} alt="" className="h-full w-full object-cover" />
+                    )
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center px-6 text-center">
+                      <div>
+                        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-white/10 text-xl"><FiImage /></div>
+                        <p className="mt-3 text-xs font-black uppercase tracking-[0.25em] text-orange-200">Media preview</p>
+                      </div>
+                    </div>
+                  )}
+                  <div className="absolute left-4 top-4 rounded-full bg-black/45 px-3 py-1 text-[10px] font-black uppercase tracking-[0.22em] text-orange-200">Sponsored</div>
+                </div>
+                <div className="space-y-4 p-5">
+                  <div>
+                    <p className="text-[11px] font-black uppercase tracking-[0.24em] text-orange-300">{adPreview.audience}</p>
+                    <h4 className="mt-2 text-xl font-black leading-7">{adPreview.title}</h4>
+                  </div>
+                  <p className="text-sm leading-6 text-slate-300">{adPreview.description}</p>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-bold capitalize text-white/80">{adForm.mediaType}</span>
+                    {adForm.contactLabel ? <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-bold text-white/80">{adForm.contactLabel}</span> : null}
+                  </div>
+                  <button type="button" className="inline-flex items-center gap-2 rounded-full border border-blue-400/30 bg-blue-500/15 px-4 py-2 text-xs font-extrabold text-blue-200">
+                    {adPreview.ctaLabel}
+                    <FiExternalLink />
+                  </button>
+                </div>
+              </div>
+              <div className="rounded-[24px] border border-orange-100 bg-orange-50/80 p-4 text-sm leading-6 text-slate-700">
+                <p className="font-black text-slate-900">Quick quality check</p>
+                <p className="mt-1">Use a crisp 16:9 creative, keep the title short, and add a landing URL so students can take action.</p>
               </div>
             </div>
           </div>

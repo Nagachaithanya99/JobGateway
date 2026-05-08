@@ -80,6 +80,66 @@ function normalizeAd(doc) {
   };
 }
 
+function defaultAdAccess() {
+  return {
+    canPost: false,
+    planStatus: "none",
+    planName: "Ads Starter Plan",
+    requestedAt: null,
+    approvedAt: null,
+    expiresAt: null,
+    note: "",
+  };
+}
+
+function normalizeAccess(access) {
+  const next = { ...defaultAdAccess(), ...(access || {}) };
+  next.canPost = Boolean(next.canPost);
+  next.planStatus = String(next.planStatus || "none").toLowerCase();
+  next.approvedAt = formatDate(next.approvedAt);
+  next.expiresAt = formatDate(next.expiresAt);
+  next.requestedAt = formatDate(next.requestedAt);
+  return next;
+}
+
+async function reconcileStudentAdAccess(userId, userDoc = null) {
+  const now = new Date();
+  const current = userDoc?.adAccess || {};
+  const currentExpiresAt = current.expiresAt ? new Date(current.expiresAt) : null;
+  const currentIsActive =
+    Boolean(current.canPost) &&
+    String(current.planStatus || "") === "approved" &&
+    (!currentExpiresAt || Number.isNaN(currentExpiresAt.getTime()) || currentExpiresAt >= now);
+
+  if (currentIsActive) return normalizeAccess(current);
+
+  const paidPayment = await Payment.findOne({
+    user: userId,
+    purpose: "student_ad_plan",
+    status: "paid",
+  }).sort({ paidAt: -1, createdAt: -1 }).lean();
+
+  if (!paidPayment) return normalizeAccess(current);
+
+  const plan = await AdPlan.findById(paidPayment.planId).lean();
+  const durationDays = Number(plan?.durationDays || 30);
+  const approvedAt = paidPayment.paidAt || paidPayment.createdAt || now;
+  const expiresAt = new Date(new Date(approvedAt).getTime() + durationDays * 24 * 60 * 60 * 1000);
+  const isExpired = !Number.isNaN(expiresAt.getTime()) && expiresAt < now;
+  const access = {
+    canPost: !isExpired,
+    planStatus: isExpired ? "expired" : "approved",
+    planName: plan?.name || paidPayment.planName || "Ads Starter Plan",
+    requestedAt: approvedAt,
+    approvedAt,
+    expiresAt,
+    note: plan?.description || "",
+  };
+
+  await User.findByIdAndUpdate(userId, { $set: { adAccess: access } });
+  return normalizeAccess(access);
+}
+
 export async function getStudentAdsStatus(req, res, next) {
   try {
     const userId = req.user._id;
@@ -90,6 +150,7 @@ export async function getStudentAdsStatus(req, res, next) {
       AdPlan.find({ active: true }).sort({ price: 1, createdAt: -1 }).lean(),
       Payment.find({ user: userId, purpose: "student_ad_plan" }).sort({ createdAt: -1 }).lean(),
     ]);
+    const access = await reconcileStudentAdAccess(userId, user);
 
     const invoices = payments.map((payment) => {
       const amounts = makeBillingAmounts(payment.amount);
@@ -107,11 +168,7 @@ export async function getStudentAdsStatus(req, res, next) {
     const latestInvoice = invoices[0] || null;
 
     return res.json({
-      access: user?.adAccess || {
-        canPost: false,
-        planStatus: "none",
-        planName: "Ads Starter Plan",
-      },
+      access,
       latestRequest: normalizeRequest(latestRequest),
       ads: ads.map(normalizeAd).filter(Boolean),
       plans: plans.map(normalizeAdPlan).filter(Boolean),
@@ -373,7 +430,8 @@ export async function verifyAdPlanPayment(req, res, next) {
 export async function createStudentAd(req, res, next) {
   try {
     const user = await User.findById(req.user._id).select("adAccess").lean();
-    if (!user?.adAccess?.canPost || String(user?.adAccess?.planStatus || "") !== "approved") {
+    const access = await reconcileStudentAdAccess(req.user._id, user);
+    if (!access?.canPost || String(access?.planStatus || "") !== "approved") {
       return res.status(403).json({ message: "Buy and get approval for an ad plan before posting ads." });
     }
 

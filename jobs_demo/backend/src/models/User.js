@@ -100,6 +100,20 @@ const AppliedJobSchema = new mongoose.Schema({
   },
 });
 
+const AdAccessSchema = new mongoose.Schema({
+  canPost: { type: Boolean, default: false },
+  planStatus: {
+    type: String,
+    enum: ["none", "pending", "approved", "rejected", "expired"],
+    default: "none",
+  },
+  planName: { type: String, default: "Ads Starter Plan" },
+  requestedAt: { type: Date, default: null },
+  approvedAt: { type: Date, default: null },
+  expiresAt: { type: Date, default: null },
+  note: { type: String, default: "" },
+}, { _id: false });
+
 const UserSchema = new mongoose.Schema(
   {
     clerkId:   { type: String, required: true, unique: true, index: true },
@@ -130,6 +144,7 @@ const UserSchema = new mongoose.Schema(
 
     profileViews: { type: Number, default: 0 },
     projectViews: { type: Number, default: 0 },
+    adAccess: { type: AdAccessSchema, default: () => ({}) },
   },
   { timestamps: true }
 );
