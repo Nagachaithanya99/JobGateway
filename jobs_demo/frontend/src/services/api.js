@@ -1,6 +1,7 @@
 // frontend/src/services/api.js
 import axios from "axios";
 import { getApiBaseUrl, getApiBaseUrls } from "../utils/apiBaseUrl.js";
+import { createApiLoadBalancer } from "../utils/apiLoadBalancer.js";
 import { showSweetAlert } from "../utils/sweetAlert.js";
 
 /**
@@ -19,15 +20,8 @@ const api = axios.create({
 
 const LOCAL_ADMIN_AUTH_KEY = "jobgateway_local_admin_auth";
 const API_BASE_URLS = getApiBaseUrls();
-let apiBaseCursor = 0;
+const apiLoadBalancer = createApiLoadBalancer(API_BASE_URLS);
 let adminUnauthorizedAlertOpen = false;
-
-function pickApiBaseUrl() {
-  if (!API_BASE_URLS.length) return getApiBaseUrl();
-  const next = API_BASE_URLS[apiBaseCursor % API_BASE_URLS.length];
-  apiBaseCursor += 1;
-  return next;
-}
 
 function readLocalAdminToken() {
   try {
@@ -69,8 +63,13 @@ api.interceptors.request.use(
   async (config) => {
     try {
       if (API_BASE_URLS.length > 1) {
-        config.baseURL = pickApiBaseUrl();
+        config.baseURL = apiLoadBalancer.pick(config.__jgPreferredBaseUrl);
       }
+      config.metadata = {
+        ...(config.metadata || {}),
+        startedAt: Date.now(),
+        baseURL: config.baseURL,
+      };
 
       const localAdminToken = readLocalAdminToken();
       if (localAdminToken) {
@@ -122,8 +121,35 @@ function handleAdminUnauthorized(error) {
 }
 
 api.interceptors.response.use(
-  (response) => response,
-  (error) => {
+  (response) => {
+    const baseURL = response?.config?.metadata?.baseURL || response?.config?.baseURL;
+    if (baseURL) {
+      apiLoadBalancer.markSuccess(baseURL, Date.now() - Number(response?.config?.metadata?.startedAt || Date.now()));
+    }
+    return response;
+  },
+  async (error) => {
+    const baseURL = error?.config?.metadata?.baseURL || error?.config?.baseURL;
+    if (baseURL) apiLoadBalancer.markFailure(baseURL);
+
+    if (apiLoadBalancer.shouldRetry(error)) {
+      const nextBaseUrl = apiLoadBalancer.pick(baseURL);
+      if (nextBaseUrl && nextBaseUrl !== baseURL) {
+        const retryConfig = {
+          ...error.config,
+          baseURL: nextBaseUrl,
+          __jgRetried: true,
+          __jgPreferredBaseUrl: nextBaseUrl,
+          metadata: {
+            ...(error.config?.metadata || {}),
+            startedAt: Date.now(),
+            baseURL: nextBaseUrl,
+          },
+        };
+        return api.request(retryConfig);
+      }
+    }
+
     const status = error?.response?.status;
     if (status === 401 || status === 403) {
       console.warn("Unauthorized request");
