@@ -45,6 +45,7 @@ import useVirtualBackground from "../../hooks/useVirtualBackground.js";
 
 const ICE_CONFIG = {
   iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }],
+  iceCandidatePoolSize: 8,
 };
 
 const TOOL_PANEL_POSITION_KEY = "jobgateway_company_interview_tool_panel_position";
@@ -148,6 +149,7 @@ export default function InterviewWorkspace() {
   const [remoteScreenReady, setRemoteScreenReady] = useState(false);
   const [focusLocal, setFocusLocal] = useState(false);
   const [joined, setJoined] = useState(false);
+  const [meetingActive, setMeetingActive] = useState(false);
   const [activeTool, setActiveTool] = useState("chat");
   const [toolPanelPosition, setToolPanelPosition] = useState(readToolPanelPosition);
   const toolPanelDragRef = useRef(null);
@@ -791,12 +793,19 @@ export default function InterviewWorkspace() {
     setRemoteReady(false);
     setRemoteScreenReady(false);
     setJoined(false);
+    setMeetingActive(false);
   }, [closeAdminMonitorConnection, resetVirtualBackground]);
 
   const joinMeeting = useCallback(async () => {
     try {
-      if (peerRef.current) return;
+      if (peerRef.current) {
+        setJoined(true);
+        setMeetingActive(true);
+        return;
+      }
       const localStream = await ensureLocalMedia();
+      setJoined(true);
+      setMeetingActive(true);
       const pc = new RTCPeerConnection(ICE_CONFIG);
       peerRef.current = pc;
 
@@ -813,6 +822,8 @@ export default function InterviewWorkspace() {
       pc.addTransceiver("video", { direction: "recvonly" });
 
       pc.ontrack = (event) => {
+        setJoined(true);
+        setMeetingActive(true);
         const track = event.track;
         const isVideo = track?.kind === "video";
         const hasCameraTrack = Boolean(remoteStreamRef.current?.getVideoTracks().length);
@@ -840,6 +851,12 @@ export default function InterviewWorkspace() {
         setRemoteScreenReady(hasScreenVideo);
 
         if (track) {
+          track.onunmute = () => {
+            const cameraActive = Boolean(remoteStreamRef.current?.getVideoTracks().length);
+            const screenActive = Boolean(remoteScreenStreamRef.current?.getVideoTracks().length);
+            setRemoteReady(cameraActive || screenActive);
+            setRemoteScreenReady(screenActive);
+          };
           track.onended = () => {
             try {
               remoteStreamRef.current?.removeTrack(track);
@@ -866,10 +883,27 @@ export default function InterviewWorkspace() {
 
       pc.onconnectionstatechange = () => {
         const st = pc.connectionState;
+        if (["new", "connecting", "connected"].includes(st)) {
+          setJoined(true);
+          setMeetingActive(true);
+        }
         if (st === "connected") setMsg("Meeting connected");
         if (["disconnected", "failed", "closed"].includes(st)) {
           setRemoteReady(false);
           setRemoteScreenReady(false);
+        }
+        if (["failed", "closed"].includes(st)) {
+          setMeetingActive(false);
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === "failed") {
+          try {
+            pc.restartIce?.();
+          } catch {
+            // ignore unsupported browsers
+          }
         }
       };
 
@@ -879,6 +913,8 @@ export default function InterviewWorkspace() {
       setJoined(true);
       setMsg("Waiting for candidate to connect...");
     } catch (e) {
+      setMeetingActive(false);
+      setJoined(false);
       setMsg(e?.response?.data?.message || e?.message || "Unable to join meeting");
     }
   }, [bindVideoSender, ensureLocalMedia, getOutgoingVideoTrack, id]);
@@ -976,7 +1012,8 @@ export default function InterviewWorkspace() {
   };
 
   const isMeetingJoined =
-    joined
+    meetingActive
+    || joined
     || Boolean(peerRef.current)
     || Boolean(streamRef.current)
     || remoteReady

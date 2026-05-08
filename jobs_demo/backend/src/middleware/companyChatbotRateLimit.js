@@ -4,8 +4,9 @@ function nowMs() {
   return Date.now();
 }
 
-export default function companyChatbotRateLimit({ limit = 30, windowMs = 10 * 60 * 1000 } = {}) {
+export default function companyChatbotRateLimit({ limit = Number.POSITIVE_INFINITY, windowMs = 10 * 60 * 1000 } = {}) {
   return (req, res, next) => {
+    if (!Number.isFinite(Number(limit)) || Number(limit) <= 0) return next();
     const clerkId = req.auth?.()?.userId || req.user?.clerkId || req.user?._id?.toString() || req.ip || "anon";
     const key = `chatbot:${clerkId}`;
     const now = nowMs();

@@ -3,6 +3,7 @@ import { URL } from "url";
 
 const rooms = new Map();
 let wss = null;
+let heartbeat = null;
 
 function roomSet(interviewId) {
   if (!rooms.has(interviewId)) rooms.set(interviewId, new Set());
@@ -32,6 +33,12 @@ export function initInterviewSignaling(server) {
   wss = new WebSocketServer({ server });
 
   wss.on("connection", (ws, req) => {
+    try {
+      req.socket?.setNoDelay?.(true);
+      req.socket?.setKeepAlive?.(true, 30000);
+    } catch {
+      // ignore socket tuning failures
+    }
     const host = req?.headers?.host || "localhost";
     const rawUrl = String(req?.url || "/ws/interviews");
     let parsed = null;
@@ -57,8 +64,13 @@ export function initInterviewSignaling(server) {
     }
 
     ws.meta = { interviewId, role };
+    ws.isAlive = true;
     roomSet(interviewId).add(ws);
     safeSend(ws, { event: "connected", interviewId, role });
+
+    ws.on("pong", () => {
+      ws.isAlive = true;
+    });
 
     ws.on("message", (buf) => {
       let payload = null;
@@ -74,6 +86,32 @@ export function initInterviewSignaling(server) {
 
     ws.on("close", () => removeClient(ws));
     ws.on("error", () => removeClient(ws));
+  });
+
+  heartbeat = setInterval(() => {
+    for (const client of wss.clients) {
+      if (client.isAlive === false) {
+        removeClient(client);
+        try {
+          client.terminate();
+        } catch {
+          // ignore broken socket
+        }
+        continue;
+      }
+      client.isAlive = false;
+      try {
+        client.ping();
+      } catch {
+        removeClient(client);
+      }
+    }
+  }, 30000);
+  heartbeat.unref?.();
+
+  wss.on("close", () => {
+    if (heartbeat) clearInterval(heartbeat);
+    heartbeat = null;
   });
 
   return wss;

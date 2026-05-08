@@ -28,6 +28,7 @@ import useVirtualBackground from "../../hooks/useVirtualBackground.js";
 
 const ICE_CONFIG = {
   iceServers: [{ urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] }],
+  iceCandidatePoolSize: 8,
 };
 
 const TOOL_PANEL_POSITION_KEY = "jobgateway_student_interview_tool_panel_position";
@@ -122,6 +123,7 @@ export default function StudentInterviewWorkspace() {
   const [cameraErr, setCameraErr] = useState("");
   const [remoteReady, setRemoteReady] = useState(false);
   const [focusLocal, setFocusLocal] = useState(false);
+  const [meetingActive, setMeetingActive] = useState(false);
   const screenStreamRef = useRef(null);
   const localStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
@@ -151,6 +153,7 @@ export default function StudentInterviewWorkspace() {
     syncVideoEnabled,
   } = useVirtualBackground(localVideoRef);
   const isMeetingJoined =
+    meetingActive ||
     joined ||
     Boolean(peerRef.current) ||
     Boolean(localStreamRef.current) ||
@@ -791,6 +794,7 @@ export default function StudentInterviewWorkspace() {
     setCameraOn(false);
     setMicOn(false);
     setRemoteReady(false);
+    setMeetingActive(false);
   }, [closeAdminMonitorConnection, resetVirtualBackground]);
 
   const publishScreenTrack = useCallback(async (track) => {
@@ -824,6 +828,7 @@ export default function StudentInterviewWorkspace() {
     try {
       if (peerRef.current) {
         setJoined(true);
+        setMeetingActive(true);
         return;
       }
       const rtc = item?.collaboration?.webrtc || {};
@@ -837,6 +842,7 @@ export default function StudentInterviewWorkspace() {
 
       const stream = await ensureLocalMedia();
       setJoined(true);
+      setMeetingActive(true);
       const pc = new RTCPeerConnection(ICE_CONFIG);
       peerRef.current = pc;
       const audioTracks = stream.getAudioTracks();
@@ -852,6 +858,7 @@ export default function StudentInterviewWorkspace() {
 
       pc.ontrack = (event) => {
         setJoined(true);
+        setMeetingActive(true);
         if (!remoteStreamRef.current) remoteStreamRef.current = new MediaStream();
         const primaryTrack = event.track;
         if (primaryTrack && !remoteStreamRef.current.getTracks().find((t) => t.id === primaryTrack.id)) {
@@ -874,7 +881,6 @@ export default function StudentInterviewWorkspace() {
           setRemoteReady(true);
           videoTracks.forEach((vt) => {
             vt.onended = () => setRemoteReady(false);
-            vt.onmute = () => setRemoteReady(false);
             vt.onunmute = () => setRemoteReady(true);
           });
         } else {
@@ -893,10 +899,24 @@ export default function StudentInterviewWorkspace() {
 
       pc.onconnectionstatechange = () => {
         const st = pc.connectionState;
-        if (["new", "connecting", "connected"].includes(st)) setJoined(true);
+        if (["new", "connecting", "connected"].includes(st)) {
+          setJoined(true);
+          setMeetingActive(true);
+        }
         if (["failed", "closed"].includes(st)) {
           setJoined(false);
           setRemoteReady(false);
+          setMeetingActive(false);
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === "failed") {
+          try {
+            pc.restartIce?.();
+          } catch {
+            // ignore unsupported browsers
+          }
         }
       };
 
@@ -905,6 +925,7 @@ export default function StudentInterviewWorkspace() {
       setMsg("Connecting to interviewer...");
     } catch (e) {
       setJoined(false);
+      setMeetingActive(false);
       setMsg(e?.response?.data?.message || e?.message || "Unable to join meeting");
     }
   }, [applyRemoteOffer, bindVideoSender, ensureLocalMedia, getOutgoingVideoTrack, id, item]);
