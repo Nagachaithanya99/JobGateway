@@ -867,808 +867,725 @@
 // Self-contained single component — no backend, no auth hooks required.
 // Drop into any React + Tailwind + react-icons project and it works.
 
-import { createElement, useMemo, useState } from "react";
+import { createElement, useMemo, useState, useRef } from "react";
 import {
-  FiAward,
-  FiBookOpen,
-  FiCheckCircle,
-  FiChevronDown,
-  FiDownload,
-  FiFileText,
-  FiLayers,
-  FiPlus,
-  FiSave,
-  FiSettings,
-  FiTool,
-  FiUser,
-  FiX,
-  FiPrinter,
+  FiAward, FiBookOpen, FiCheckCircle, FiChevronDown,
+  FiDownload, FiFileText, FiLayers, FiPlus, FiSave,
+  FiTool, FiUser, FiX, FiLink,
 } from "react-icons/fi";
-
-// ─────────────────────────────────────────────────────────────
-// CONSTANTS
-// ─────────────────────────────────────────────────────────────
-const templates = [
-  "Classic ATS",
-  "Modern Minimal",
-  "Two-Column Professional",
-  "Fresher Clean",
-  "Tech Focused",
-];
-
-const sectionMeta = [
-  ["personal",    "Personal Info",               FiUser],
-  ["summary",     "Professional Summary",        FiFileText],
-  ["education",   "Education",                   FiBookOpen],
-  ["skills",      "Skills",                      FiTool],
-  ["experience",  "Experience",                  FiLayers],
-  ["projects",    "Projects",                    FiLayers],
-  ["certs",       "Certifications / Awards",     FiAward],
-  ["settings",    "Resume Settings",             FiSettings],
-];
 
 const INITIAL = {
   personal: {
-    name:      "Shyam Shree",
-    email:     "sssshyam702@gmail.com",
-    phone:     "+91 9353605622",
-    location:  "Bangalore",
-    linkedin:  "",
-    portfolio: "https://my-portfolio-2-rust.vercel.app/",
-    github:    "https://github.com/itsme-shyam-702",
+    name:     "Shyam Shree",
+    site:     "my-portfolio-2-rust.vercel.app",
+    email:    "sssshyam702@gmail.com",
+    phone:    "+91 9353605622",
+    location: "Bangalore",
   },
-  summary:
-    "Aspiring Full Stack Developer with foundational knowledge in web development (HTML, CSS, JavaScript, React, Node.js, MongoDB). Eager to gain practical experience, build web applications, and contribute to innovative projects through internships or full-time roles.",
-  education: [
-    { degree: "Diploma, Computer Science & Engineering", college: "Karnataka (Govt.) Polytechnic", branch: "CSE", year: "2023 – 2026", cgpa: "" },
-    { degree: "Secondary (X)", college: "MCKC High School", branch: "", year: "2019", cgpa: "79.36%" },
+  links: [
+    { label: "GitHub",    value: "itsme-shyam-702" },
+    { label: "Portfolio", value: "my-portfolio-2-rust.vercel.app" },
   ],
-  skills: ["React", "JavaScript", "Node.js", "Express.js", "MongoDB", "HTML5", "CSS3", "Python", "GitHub", "Figma", "Postman", "React Router"],
+  education: [
+    { institution:"Karnataka (Govt.) Polytechnic", degree:"Diploma, Computer Science & Engineering", date:"2023 – 2026", location:"Bangalore", notes:"Branch: CSE" },
+    { institution:"MCKC High School", degree:"Secondary (X)", date:"2019", location:"Bangalore", notes:"79.36%" },
+  ],
+  coursework: {
+    col1label: "Recent",
+    col1: ["Full Stack Web Dev","Database Systems","Operating Systems","Data Structures","Computer Networks"],
+    col2label: "Core",
+    col2: ["HTML / CSS / JS","React & Node.js","Python Programming","MongoDB & Express"],
+  },
+  skills: {
+    groups: [
+      { label:"Proficient", items:"React, JavaScript, Node.js, Express.js, MongoDB, HTML5, CSS3" },
+      { label:"Familiar",   items:"Python, Git, GitHub, Figma, Postman, React Router" },
+    ],
+  },
   experience: [
     {
-      company:  "School Website Project, Virtual",
-      role:     "Student Developer",
-      duration: "Aug 2025 – Aug 2025 (1 month)",
-      bullets: [
+      org:"School Website Project", role:"Student Developer", date:"Aug 2025", location:"Virtual",
+      bullets:[
         "Built a responsive school website, improving event visibility and digital accessibility for students and staff.",
         "Enhanced communication efficiency by 40% through streamlined interfaces and features.",
         "Received positive feedback from staff for intuitive design and usability.",
       ],
     },
   ],
-  projects: [
-    {
-      name:  "ThinkBoard Task Management App",
-      stack: "React, Node.js, MongoDB, Express.js",
-      link:  "https://thinkboard-frontend.onrender.com/",
-      bullets: [
-        "Built a task management app with features to create, update, and track tasks.",
-        "Integrated MongoDB database for storing user data and task details.",
-        "Implemented user authentication and CRUD operations using Node.js and Express.js.",
-      ],
-    },
-    {
-      name:  "Personal Portfolio Website",
-      stack: "React.js, CSS, JavaScript",
-      link:  "https://my-portfolio-2-rust.vercel.app/",
-      bullets: [
-        "Developed a personal portfolio website to showcase projects, skills, and resume.",
-        "Implemented responsive design for mobile and desktop screens.",
-        "Improved site performance and load time by optimizing images and code.",
-      ],
-    },
+  research: [
+    { org:"ThinkBoard Task Management App", role:"React, Node.js, MongoDB, Express.js", date:"2025", location:"https://thinkboard-frontend.onrender.com/", desc:"Built a task management app with features to create, update, and track tasks. Integrated MongoDB for storing user data. Implemented user authentication and CRUD operations using Node.js and Express.js." },
+    { org:"Personal Portfolio Website", role:"React.js, CSS, JavaScript", date:"2025", location:"https://my-portfolio-2-rust.vercel.app/", desc:"Developed a personal portfolio website to showcase projects, skills, and resume. Implemented responsive design for mobile and desktop screens. Optimized images and code for improved performance." },
   ],
-  certs: ["React.js – Infosys Springboard (Oct 2025)", "ES6 – Infosys Springboard (Sep 2025)", "JavaScript – Infosys Springboard (Aug 2025)"],
-  settings: { template: "Classic ATS", fontSize: "Medium", atsMode: true, onePage: true },
+  awards: [
+    "React.js – Infosys Springboard (Oct 2025)",
+    "ES6 – Infosys Springboard (Sep 2025)",
+    "JavaScript – Infosys Springboard (Aug 2025)",
+  ],
 };
 
-// ─────────────────────────────────────────────────────────────
-// TINY HELPERS
-// ─────────────────────────────────────────────────────────────
 const arr = (v) => (Array.isArray(v) ? v : []);
 
-function Input({ value, onChange, placeholder, className = "", multiline = false, rows = 3 }) {
-  const base =
-    "w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 transition";
-  if (multiline)
-    return (
-      <textarea
-        value={value}
-        onChange={onChange}
-        rows={rows}
-        placeholder={placeholder}
-        className={`${base} py-2 resize-none ${className}`}
-      />
-    );
-  return (
-    <input
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      className={`${base} h-10 ${className}`}
-    />
-  );
+function Input({ value, onChange, placeholder, className="", multiline=false, rows=3, onKeyDown }) {
+  const base = "w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100 transition";
+  if (multiline) return <textarea value={value} onChange={onChange} rows={rows} placeholder={placeholder} className={`${base} py-2 resize-none ${className}`}/>;
+  return <input value={value} onChange={onChange} placeholder={placeholder} onKeyDown={onKeyDown} className={`${base} h-9 ${className}`}/>;
 }
 
-function Tag({ label, onRemove }) {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 border border-blue-200 px-2.5 py-0.5 text-xs font-medium text-blue-700">
-      {label}
-      <button type="button" onClick={onRemove} className="text-blue-400 hover:text-red-500">
-        <FiX size={11} />
-      </button>
-    </span>
-  );
+function Btn({ onClick, children, variant="ghost", disabled=false }) {
+  const s = { ghost:"border border-slate-200 text-slate-700 hover:bg-slate-50", blue:"bg-indigo-600 text-white hover:bg-indigo-700", red:"text-red-400 hover:text-red-600" };
+  return <button type="button" onClick={onClick} disabled={disabled} className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition disabled:opacity-60 ${s[variant]}`}>{children}</button>;
 }
 
-function SmallBtn({ onClick, children, variant = "ghost" }) {
-  const styles = {
-    ghost:  "border border-slate-200 text-slate-700 hover:bg-slate-50",
-    blue:   "border border-blue-200 text-blue-600 hover:bg-blue-50",
-    orange: "border border-orange-200 text-orange-500 hover:bg-orange-50",
-  };
+function AccHead({ title, icon, open, done, onToggle }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition ${styles[variant]}`}
-    >
-      {children}
-    </button>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// SECTION ACCORDION HEADER
-// ─────────────────────────────────────────────────────────────
-function SectionHeader({ title, icon, open, done, onToggle }) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className="flex w-full items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3.5 shadow-sm hover:bg-slate-50/60 transition"
-    >
+    <button type="button" onClick={onToggle} className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm hover:bg-slate-50 transition">
       <div className="flex items-center gap-2.5">
-        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-          {icon}
-        </span>
-        <span className="font-semibold text-slate-800">{title}</span>
-        {done && <FiCheckCircle size={14} className="text-emerald-500" />}
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">{icon}</span>
+        <span className="font-semibold text-slate-800 text-sm">{title}</span>
+        {done && <FiCheckCircle size={13} className="text-emerald-500"/>}
       </div>
-      <div className="flex items-center gap-2 text-xs text-slate-400 font-medium">
-        Edit
-        <FiChevronDown className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
-      </div>
+      <FiChevronDown className={`text-slate-400 transition-transform duration-200 ${open?"rotate-180":""}`}/>
     </button>
   );
 }
 
-// ─────────────────────────────────────────────────────────────
-// MODAL
-// ─────────────────────────────────────────────────────────────
-function Modal({ open, onClose, title, children }) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="relative w-full max-w-xl rounded-2xl border border-slate-200 bg-white p-6 shadow-xl mx-4">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-bold text-slate-900">{title}</h3>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700">
-            <FiX size={18} />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
+// ─────────────────────────────────────────────────────────────────
+//  DEEDY-STYLE TEMPLATE
+//  Dark gray/black text, compact header, clean academic look
+// ─────────────────────────────────────────────────────────────────
 
-// ─────────────────────────────────────────────────────────────
-// RESUME PREVIEW (right panel)
-// ─────────────────────────────────────────────────────────────
-function ResumePreview({ data }) {
+const D = {
+  dark:    "#111111",
+  mid:     "#333333",
+  muted:   "#555555",
+  faint:   "#777777",
+  rule:    "#cccccc",
+  accent:  "#2b4590",
+  bg:      "#ffffff",
+};
+
+// Small live preview (scaled down)
+function DeedyPreview({ data }) {
   const p = data.personal;
-  const contacts = [p.email, p.phone, p.location, p.linkedin, p.github, p.portfolio].filter(Boolean);
 
-  return (
-    <div
-      id="resume-print-area"
-      className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden"
-      style={{ fontFamily: "Georgia, serif", fontSize: "10.5px", lineHeight: "1.55", color: "#1e293b" }}
-    >
-      {/* Header */}
-      <div className="bg-slate-800 text-white px-7 py-5 text-center">
-        <h1 style={{ fontSize: "20px", fontFamily: "Arial, sans-serif", fontWeight: 700, letterSpacing: "1.5px", marginBottom: 4 }}>
-          {p.name || "Your Name"}
-        </h1>
-        <p style={{ fontSize: "9.5px", color: "#94a3b8", wordBreak: "break-all" }}>
-          {contacts.join("  •  ")}
-        </p>
-      </div>
-
-      <div className="px-7 py-5 space-y-4">
-        {/* Summary */}
-        {data.summary && (
-          <PreviewSection title="Professional Summary">
-            <p className="text-slate-700" style={{ fontSize: "10px" }}>{data.summary}</p>
-          </PreviewSection>
-        )}
-
-        {/* Education */}
-        {arr(data.education).length > 0 && (
-          <PreviewSection title="Education">
-            {arr(data.education).map((ed, i) => (
-              <div key={i} className="flex justify-between items-start" style={{ marginBottom: 6 }}>
-                <div>
-                  <div className="font-semibold" style={{ fontSize: "10.5px" }}>{ed.degree}</div>
-                  <div className="text-slate-500" style={{ fontSize: "9.5px" }}>
-                    {ed.college}{ed.branch ? ` — ${ed.branch}` : ""}
-                  </div>
-                </div>
-                <div className="text-right text-slate-500 shrink-0 pl-4" style={{ fontSize: "9.5px" }}>
-                  <div>{ed.year}</div>
-                  {ed.cgpa && <div>{ed.cgpa}</div>}
-                </div>
-              </div>
-            ))}
-          </PreviewSection>
-        )}
-
-        {/* Experience */}
-        {arr(data.experience).length > 0 && (
-          <PreviewSection title="Work Experience">
-            {arr(data.experience).map((ex, i) => (
-              <div key={i} style={{ marginBottom: 8 }}>
-                <div className="flex justify-between">
-                  <span className="font-semibold" style={{ fontSize: "10.5px" }}>{ex.role}</span>
-                  <span className="text-slate-500 shrink-0 pl-4" style={{ fontSize: "9.5px" }}>{ex.duration}</span>
-                </div>
-                <div className="text-slate-500" style={{ fontSize: "9.5px", marginBottom: 3 }}>{ex.company}</div>
-                <ul style={{ paddingLeft: 14, margin: 0 }}>
-                  {arr(ex.bullets).filter(Boolean).map((b, j) => (
-                    <li key={j} className="text-slate-700" style={{ fontSize: "9.5px", marginBottom: 2 }}>{b}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </PreviewSection>
-        )}
-
-        {/* Projects */}
-        {arr(data.projects).length > 0 && (
-          <PreviewSection title="Projects">
-            {arr(data.projects).map((pr, i) => (
-              <div key={i} style={{ marginBottom: 8 }}>
-                <div className="flex justify-between">
-                  <span className="font-semibold" style={{ fontSize: "10.5px" }}>{pr.name}</span>
-                  {pr.link && (
-                    <a href={pr.link} className="text-blue-600 shrink-0 pl-4" style={{ fontSize: "9px" }}>
-                      {pr.link}
-                    </a>
-                  )}
-                </div>
-                {pr.stack && (
-                  <div className="text-slate-500" style={{ fontSize: "9.5px", marginBottom: 3 }}>
-                    Tech: {pr.stack}
-                  </div>
-                )}
-                <ul style={{ paddingLeft: 14, margin: 0 }}>
-                  {arr(pr.bullets).filter(Boolean).map((b, j) => (
-                    <li key={j} className="text-slate-700" style={{ fontSize: "9.5px", marginBottom: 2 }}>{b}</li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </PreviewSection>
-        )}
-
-        {/* Skills */}
-        {arr(data.skills).length > 0 && (
-          <PreviewSection title="Skills">
-            <div className="flex flex-wrap gap-1.5">
-              {arr(data.skills).map((s, i) => (
-                <span key={i} className="rounded bg-slate-100 border border-slate-200 px-2 py-0.5 text-slate-700"
-                  style={{ fontSize: "9.5px" }}>
-                  {s}
-                </span>
-              ))}
-            </div>
-          </PreviewSection>
-        )}
-
-        {/* Certifications */}
-        {arr(data.certs).length > 0 && (
-          <PreviewSection title="Certifications / Awards">
-            <ul style={{ paddingLeft: 14, margin: 0 }}>
-              {arr(data.certs).map((c, i) => (
-                <li key={i} className="text-slate-700" style={{ fontSize: "9.5px", marginBottom: 2 }}>{c}</li>
-              ))}
-            </ul>
-          </PreviewSection>
-        )}
-      </div>
+  const Sec = ({ title }) => (
+    <div style={{ marginTop:"8px", marginBottom:"3px" }}>
+      <div style={{
+        fontSize:"7.5px", fontWeight:700, textTransform:"uppercase",
+        letterSpacing:"1.5px", color:D.dark,
+        borderBottom:`0.75px solid ${D.dark}`, paddingBottom:"1px",
+      }}>{title}</div>
     </div>
   );
-}
 
-function PreviewSection({ title, children }) {
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-2" style={{ borderBottom: "1.5px solid #1e3a5f", paddingBottom: 3 }}>
-        <h2 style={{
-          fontSize: "10px", fontFamily: "Arial, sans-serif", fontWeight: 700,
-          textTransform: "uppercase", letterSpacing: "1px", color: "#1e3a5f", margin: 0,
-        }}>
-          {title}
-        </h2>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// MAIN COMPONENT
-// ─────────────────────────────────────────────────────────────
-export default function ResumeBuilder() {
-  const [data, setData]               = useState(INITIAL);
-  const [openSection, setOpenSection] = useState("personal");
-  const [templateModal, setTemplateModal] = useState(false);
-  const [savedToast, setSavedToast]   = useState(false);
-  const [infoToast, setInfoToast]     = useState("");
-  const [newSkill, setNewSkill]       = useState("");
-
-  // ── completion flags ──────────────────────────────────────
-  const completed = useMemo(() => ({
-    personal:   Boolean(data.personal.name && data.personal.email && data.personal.phone),
-    summary:    Boolean(String(data.summary || "").trim()),
-    education:  arr(data.education).length > 0,
-    skills:     arr(data.skills).length > 0,
-    experience: arr(data.experience).length > 0,
-    projects:   arr(data.projects).length > 0,
-    certs:      arr(data.certs).length > 0,
-    settings:   true,
-  }), [data]);
-
-  // ── toggle accordion ─────────────────────────────────────
-  const toggle = (key) => setOpenSection((p) => (p === key ? "" : key));
-
-  // ── setters ───────────────────────────────────────────────
-  const setPersonal  = (f, v) => setData((p) => ({ ...p, personal: { ...p.personal, [f]: v } }));
-  const setSummary   = (v)    => setData((p) => ({ ...p, summary: v }));
-  const setCerts     = (v)    => setData((p) => ({
-    ...p, certs: v.split(",").map((x) => x.trim()).filter(Boolean),
-  }));
-
-  // education
-  const addEdu = () =>
-    setData((p) => ({ ...p, education: [...arr(p.education), { degree: "", college: "", branch: "", year: "", cgpa: "" }] }));
-  const setEdu = (idx, f, v) =>
-    setData((p) => ({ ...p, education: arr(p.education).map((x, i) => i === idx ? { ...x, [f]: v } : x) }));
-  const removeEdu = (idx) =>
-    setData((p) => ({ ...p, education: arr(p.education).filter((_, i) => i !== idx) }));
-
-  // skills
-  const addSkill = () => {
-    const s = newSkill.trim();
-    if (!s) return;
-    setData((p) => ({ ...p, skills: [...arr(p.skills), s] }));
-    setNewSkill("");
-  };
-  const removeSkill = (i) =>
-    setData((p) => ({ ...p, skills: arr(p.skills).filter((_, idx) => idx !== i) }));
-
-  // experience
-  const addExp = () =>
-    setData((p) => ({ ...p, experience: [...arr(p.experience), { company: "", role: "", duration: "", bullets: [""] }] }));
-  const setExp = (idx, f, v) =>
-    setData((p) => ({ ...p, experience: arr(p.experience).map((x, i) => i === idx ? { ...x, [f]: v } : x) }));
-  const setExpBullet = (idx, bi, v) =>
-    setData((p) => ({
-      ...p,
-      experience: arr(p.experience).map((x, i) =>
-        i === idx ? { ...x, bullets: arr(x.bullets).map((b, j) => (j === bi ? v : b)) } : x
-      ),
-    }));
-  const addExpBullet = (idx) =>
-    setData((p) => ({
-      ...p,
-      experience: arr(p.experience).map((x, i) => i === idx ? { ...x, bullets: [...arr(x.bullets), ""] } : x),
-    }));
-  const removeExp = (idx) =>
-    setData((p) => ({ ...p, experience: arr(p.experience).filter((_, i) => i !== idx) }));
-
-  // projects
-  const addProject = () =>
-    setData((p) => ({ ...p, projects: [...arr(p.projects), { name: "", stack: "", link: "", bullets: [""] }] }));
-  const setProj = (idx, f, v) =>
-    setData((p) => ({ ...p, projects: arr(p.projects).map((x, i) => i === idx ? { ...x, [f]: v } : x) }));
-  const setProjBullet = (idx, bi, v) =>
-    setData((p) => ({
-      ...p,
-      projects: arr(p.projects).map((x, i) =>
-        i === idx ? { ...x, bullets: arr(x.bullets).map((b, j) => (j === bi ? v : b)) } : x
-      ),
-    }));
-  const addProjBullet = (idx) =>
-    setData((p) => ({
-      ...p,
-      projects: arr(p.projects).map((x, i) => i === idx ? { ...x, bullets: [...arr(x.bullets), ""] } : x),
-    }));
-  const removeProj = (idx) =>
-    setData((p) => ({ ...p, projects: arr(p.projects).filter((_, i) => i !== idx) }));
-
-  // ── save draft (localStorage) ─────────────────────────────
-  const saveDraft = () => {
-    localStorage.setItem("resumeBuilderDraft", JSON.stringify(data));
-    setSavedToast(true);
-    setTimeout(() => setSavedToast(false), 1600);
-  };
-
-  // ── download PDF via print dialog ────────────────────────
-  const downloadPDF = () => {
-    const style = document.createElement("style");
-    style.innerHTML = `
-      @media print {
-        body > * { display: none !important; }
-        #resume-print-wrapper { display: block !important; position: fixed; inset: 0; background: white; z-index: 9999; padding: 0; margin: 0; }
-      }
-    `;
-    document.head.appendChild(style);
-    const wrapper = document.getElementById("resume-print-wrapper");
-    if (wrapper) wrapper.style.display = "block";
-    window.print();
-    setTimeout(() => {
-      document.head.removeChild(style);
-      if (wrapper) wrapper.style.display = "none";
-    }, 500);
-  };
-
-  // ── ATS scan ─────────────────────────────────────────────
-  const atsScan = () => {
-    const issues = [];
-    if (!data.personal.name || !data.personal.email) issues.push("Complete personal details.");
-    if (!String(data.summary || "").trim()) issues.push("Add a professional summary.");
-    if (!arr(data.skills).length) issues.push("Add key skills.");
-    if (!arr(data.education).length) issues.push("Add education.");
-    if (!arr(data.experience).length && !arr(data.projects).length) issues.push("Add experience or projects.");
-    setInfoToast(issues.length ? `⚠ ${issues.length} ATS issue(s) found` : "✅ ATS check passed!");
-    setTimeout(() => setInfoToast(""), 2500);
-  };
-
-  // ─────────────────────────────────────────────────────────
-  // RENDER
-  // ─────────────────────────────────────────────────────────
-  return (
-    <div className="min-h-screen bg-[#F8FAFC] pb-10">
-
-      {/* Hidden print target */}
-      <div id="resume-print-wrapper" style={{ display: "none" }}>
-        <ResumePreview data={data} />
-      </div>
-
-      <div className="mx-auto max-w-[1200px] space-y-5 px-4 py-6 sm:px-6 lg:px-8">
-
-        {/* ── Page header ── */}
-        <section>
-          <h1 className="text-3xl font-bold text-slate-900">Resume Builder</h1>
-          <p className="mt-1 text-sm text-slate-500">Build an ATS-friendly resume in minutes</p>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-semibold">
-            {["Step 1 Profile", "Step 2 Content", "Step 3 Template", "Step 4 Download"].map((s, i) => (
-              <span key={s}
-                className={`rounded-full border px-2.5 py-1 ${
-                  i === 2
-                    ? "border-blue-200 bg-blue-50 text-blue-600"
-                    : "border-slate-200 bg-white text-slate-600"
-                }`}>
-                {s}
-              </span>
+    <div style={{ background:D.bg, fontFamily:"'Georgia',serif", fontSize:"7px", color:D.mid, width:"100%", boxSizing:"border-box" }}>
+      {/* HEADER */}
+      <div style={{ textAlign:"center", padding:"8px 10px 5px", borderBottom:`1px solid ${D.rule}` }}>
+        <div style={{ fontSize:"16px", fontWeight:700, color:D.dark, fontFamily:"'Georgia',serif", letterSpacing:"0.5px" }}>{p.name||"Your Name"}</div>
+        <div style={{ fontSize:"6.5px", color:D.muted, marginTop:"2px" }}>
+          {[p.site, p.email, p.phone, p.location].filter(Boolean).join("  |  ")}
+        </div>
+        {arr(data.links).some(l=>l.value) && (
+          <div style={{ fontSize:"6px", color:D.muted, marginTop:"1px" }}>
+            {arr(data.links).filter(l=>l.value).map((l,i)=>(
+              <span key={i} style={{ marginRight:"8px" }}><span style={{ fontWeight:700, color:D.dark }}>{l.label}:</span> {l.value}</span>
             ))}
           </div>
-        </section>
-
-        {/* ── Two-column grid ── */}
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_400px]">
-
-          {/* ════════════ LEFT — FORM PANEL ════════════ */}
-          <main className="space-y-2">
-            {sectionMeta.map(([key, title, iconComp]) => (
-              <div key={key} className="space-y-1.5">
-
-                {/* Accordion header */}
-                <SectionHeader
-                  title={title}
-                  icon={createElement(iconComp, { size: 15 })}
-                  open={openSection === key}
-                  done={completed[key]}
-                  onToggle={() => toggle(key)}
-                />
-
-                {/* Accordion body */}
-                {openSection === key && (
-                  <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-
-                    {/* ── Personal ── */}
-                    {key === "personal" && (
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        {Object.keys(data.personal).map((f) => (
-                          <Input
-                            key={f}
-                            value={data.personal[f]}
-                            onChange={(e) => setPersonal(f, e.target.value)}
-                            placeholder={f.charAt(0).toUpperCase() + f.slice(1)}
-                          />
-                        ))}
-                      </div>
-                    )}
-
-                    {/* ── Summary ── */}
-                    {key === "summary" && (
-                      <div className="space-y-2">
-                        <Input multiline rows={5} value={data.summary} onChange={(e) => setSummary(e.target.value)}
-                          placeholder="Write a short professional summary..." />
-                        <SmallBtn variant="blue"
-                          onClick={() => {
-                            const next = String(data.summary || "").replace(/\s+/g, " ").trim().replace(/^\w/, (c) => c.toUpperCase());
-                            setSummary(next);
-                            setInfoToast("Summary refined ✨");
-                            setTimeout(() => setInfoToast(""), 1400);
-                          }}>
-                          ✨ AI Improve
-                        </SmallBtn>
-                      </div>
-                    )}
-
-                    {/* ── Education ── */}
-                    {key === "education" && (
-                      <div className="space-y-3">
-                        {arr(data.education).map((ed, idx) => (
-                          <div key={idx} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-                            <div className="flex justify-between items-center mb-2">
-                              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Entry {idx + 1}</span>
-                              <button type="button" onClick={() => removeEdu(idx)}
-                                className="text-red-400 hover:text-red-600 text-xs font-semibold">Remove</button>
-                            </div>
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                              {[["degree","Degree / Certificate"],["college","Institution"],["branch","Branch / Board"],["year","Year"],["cgpa","CGPA / Percentage"]].map(([f, ph]) => (
-                                <Input key={f} value={ed[f]} onChange={(e) => setEdu(idx, f, e.target.value)} placeholder={ph} />
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                        <SmallBtn onClick={addEdu}><FiPlus size={12} /> Add Education</SmallBtn>
-                      </div>
-                    )}
-
-                    {/* ── Skills ── */}
-                    {key === "skills" && (
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap gap-1.5 min-h-[28px]">
-                          {arr(data.skills).map((s, i) => (
-                            <Tag key={i} label={s} onRemove={() => removeSkill(i)} />
-                          ))}
-                        </div>
-                        <div className="flex gap-2">
-                          <Input value={newSkill} onChange={(e) => setNewSkill(e.target.value)}
-                            placeholder="Type a skill and press Enter or +"
-                            className="flex-1"
-                            onKeyDown={(e) => e.key === "Enter" && addSkill()} />
-                          <button type="button" onClick={addSkill}
-                            className="h-10 w-10 flex items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition">
-                            <FiPlus />
-                          </button>
-                        </div>
-                        <label className="inline-flex items-center gap-2 text-xs text-slate-600">
-                          <input type="checkbox" className="rounded" /> Highlight Top 5 Skills
-                        </label>
-                      </div>
-                    )}
-
-                    {/* ── Experience ── */}
-                    {key === "experience" && (
-                      <div className="space-y-3">
-                        {arr(data.experience).map((ex, idx) => (
-                          <div key={idx} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-                            <div className="flex justify-between items-center mb-2">
-                              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Experience {idx + 1}</span>
-                              <button type="button" onClick={() => removeExp(idx)}
-                                className="text-red-400 hover:text-red-600 text-xs font-semibold">Remove</button>
-                            </div>
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                              <Input value={ex.company}  onChange={(e) => setExp(idx,"company",e.target.value)}  placeholder="Company" />
-                              <Input value={ex.role}     onChange={(e) => setExp(idx,"role",e.target.value)}     placeholder="Role / Title" />
-                              <Input value={ex.duration} onChange={(e) => setExp(idx,"duration",e.target.value)} placeholder="Duration (Jan 2025 – Jun 2025)" className="sm:col-span-2" />
-                            </div>
-                            <div className="mt-3 space-y-1.5">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Achievement Bullets</p>
-                              {arr(ex.bullets).map((b, bi) => (
-                                <Input key={bi} value={b} onChange={(e) => setExpBullet(idx, bi, e.target.value)}
-                                  placeholder={`Bullet ${bi + 1}`} />
-                              ))}
-                              <SmallBtn variant="orange" onClick={() => addExpBullet(idx)}>
-                                <FiPlus size={12} /> Add Bullet
-                              </SmallBtn>
-                            </div>
-                          </div>
-                        ))}
-                        <SmallBtn onClick={addExp}><FiPlus size={12} /> Add Experience</SmallBtn>
-                      </div>
-                    )}
-
-                    {/* ── Projects ── */}
-                    {key === "projects" && (
-                      <div className="space-y-3">
-                        {arr(data.projects).map((pr, idx) => (
-                          <div key={idx} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-                            <div className="flex justify-between items-center mb-2">
-                              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Project {idx + 1}</span>
-                              <button type="button" onClick={() => removeProj(idx)}
-                                className="text-red-400 hover:text-red-600 text-xs font-semibold">Remove</button>
-                            </div>
-                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                              <Input value={pr.name}  onChange={(e) => setProj(idx,"name",e.target.value)}  placeholder="Project Name" />
-                              <Input value={pr.stack} onChange={(e) => setProj(idx,"stack",e.target.value)} placeholder="Tech Stack (React, Node...)" />
-                              <Input value={pr.link}  onChange={(e) => setProj(idx,"link",e.target.value)}  placeholder="Live / GitHub Link" className="sm:col-span-2" />
-                            </div>
-                            <div className="mt-3 space-y-1.5">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Highlights</p>
-                              {arr(pr.bullets).map((b, bi) => (
-                                <Input key={bi} value={b} onChange={(e) => setProjBullet(idx, bi, e.target.value)}
-                                  placeholder={`Highlight ${bi + 1}`} />
-                              ))}
-                              <SmallBtn onClick={() => addProjBullet(idx)}>
-                                <FiPlus size={12} /> Add Bullet
-                              </SmallBtn>
-                            </div>
-                          </div>
-                        ))}
-                        <SmallBtn onClick={addProject}><FiPlus size={12} /> Add Project</SmallBtn>
-                      </div>
-                    )}
-
-                    {/* ── Certifications ── */}
-                    {key === "certs" && (
-                      <div className="space-y-2">
-                        <Input
-                          value={arr(data.certs).join(", ")}
-                          onChange={(e) => setCerts(e.target.value)}
-                          placeholder="Cert 1, Award 2, ..."
-                        />
-                        <p className="text-xs text-slate-400">Separate multiple entries with commas</p>
-                      </div>
-                    )}
-
-                    {/* ── Settings ── */}
-                    {key === "settings" && (
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        <select value={data.settings.template}
-                          onChange={(e) => setData((p) => ({ ...p, settings: { ...p.settings, template: e.target.value } }))}
-                          className="h-10 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-400">
-                          {templates.map((t) => <option key={t}>{t}</option>)}
-                        </select>
-                        <select value={data.settings.fontSize}
-                          onChange={(e) => setData((p) => ({ ...p, settings: { ...p.settings, fontSize: e.target.value } }))}
-                          className="h-10 rounded-lg border border-slate-200 px-3 text-sm text-slate-700 outline-none focus:border-blue-400">
-                          {["Small","Medium","Large"].map((s) => <option key={s}>{s}</option>)}
-                        </select>
-                        <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                          <input type="checkbox" checked={!!data.settings.atsMode}
-                            onChange={(e) => setData((p) => ({ ...p, settings: { ...p.settings, atsMode: e.target.checked } }))} />
-                          ATS Mode
-                        </label>
-                        <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                          <input type="checkbox" checked={!!data.settings.onePage}
-                            onChange={(e) => setData((p) => ({ ...p, settings: { ...p.settings, onePage: e.target.checked } }))} />
-                          One-page
-                        </label>
-                        <button type="button" onClick={() => setTemplateModal(true)}
-                          className="sm:col-span-2 rounded-lg border border-blue-200 px-3 py-2 text-sm font-semibold text-blue-600 hover:bg-blue-50 transition">
-                          Choose Template
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
+        )}
+      </div>
+      {/* BODY */}
+      <div style={{ display:"flex" }}>
+        {/* LEFT */}
+        <div style={{ width:"36%", padding:"4px 6px", borderRight:`0.75px solid ${D.rule}` }}>
+          {arr(data.education).length>0 && (<>
+            <Sec title="Education"/>
+            {arr(data.education).map((ed,i)=>(
+              <div key={i} style={{ marginBottom:"5px" }}>
+                <div style={{ fontWeight:700, fontSize:"7px", color:D.dark }}>{ed.institution}</div>
+                <div style={{ fontSize:"6.5px", color:D.mid, fontStyle:"italic" }}>{ed.degree}</div>
+                <div style={{ fontSize:"6px", color:D.muted }}>{ed.date}{ed.location&&` | ${ed.location}`}</div>
+                {ed.notes && <div style={{ fontSize:"6px", color:D.muted }}>{ed.notes}</div>}
               </div>
             ))}
-          </main>
+          </>)}
 
-          {/* ════════════ RIGHT — PREVIEW & TOOLS ════════════ */}
-          <aside className="space-y-3 lg:sticky lg:top-6 lg:h-fit">
-
-            {/* Action buttons */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="flex flex-wrap gap-2 mb-4">
-                <button type="button" onClick={downloadPDF}
-                  className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition">
-                  <FiDownload size={14} /> Download PDF
-                </button>
-                <button type="button" onClick={saveDraft}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
-                  <FiSave size={14} /> Save Draft
-                </button>
-                <button type="button" onClick={downloadPDF}
-                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
-                  <FiPrinter size={14} /> Print
-                </button>
+          {arr(data.links).some(l=>l.value) && (<>
+            <Sec title="Links"/>
+            {arr(data.links).filter(l=>l.value).map((l,i)=>(
+              <div key={i} style={{ fontSize:"6.5px", color:D.mid, marginBottom:"2px" }}>
+                <span style={{ fontWeight:700, color:D.dark }}>{l.label}:</span> {l.value}
               </div>
+            ))}
+          </>)}
 
-              {/* Resume preview card */}
-              <ResumePreview data={data} />
+          {(arr(data.coursework?.col1).length>0 || arr(data.coursework?.col2).length>0) && (<>
+            <Sec title="Coursework"/>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 4px" }}>
+              {[...arr(data.coursework?.col1), ...arr(data.coursework?.col2)].map((c,i)=>(
+                <div key={i} style={{ fontSize:"6.5px", color:D.mid, padding:"0.75px 0" }}>{c}</div>
+              ))}
             </div>
+          </>)}
 
-            {/* ATS Tips panel */}
-            <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 shadow-sm">
-              <h3 className="font-semibold text-slate-800 mb-2">ATS Tips</h3>
-              <ul className="space-y-1 text-xs text-slate-600">
-                <li>• Use role-specific keywords naturally</li>
-                <li>• Keep headings consistent (e.g. "Experience")</li>
-                <li>• Write achievement-focused bullet points</li>
-                <li>• Export as PDF for stable layout</li>
-                <li>• Avoid tables, columns, graphics in ATS mode</li>
-              </ul>
-              <button type="button" onClick={atsScan}
-                className="mt-3 w-full rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 transition">
-                🔍 Scan for ATS Issues
-              </button>
-            </div>
+          {arr(data.skills?.groups).length>0 && (<>
+            <Sec title="Skills"/>
+            {arr(data.skills.groups).map((g,i)=>(
+              <div key={i} style={{ marginBottom:"3px" }}>
+                <span style={{ fontWeight:700, fontSize:"6.5px", color:D.dark, textTransform:"uppercase", letterSpacing:"0.5px" }}>{g.label}: </span>
+                <span style={{ fontSize:"6.5px", color:D.mid }}>{g.items}</span>
+              </div>
+            ))}
+          </>)}
+        </div>
 
-            {/* Completion tracker */}
-            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <h3 className="font-semibold text-slate-800 mb-3 text-sm">Section Completion</h3>
-              <div className="space-y-1.5">
-                {sectionMeta.map(([key, title]) => (
-                  <div key={key} className="flex items-center justify-between">
-                    <span className="text-xs text-slate-600">{title}</span>
-                    {completed[key]
-                      ? <FiCheckCircle size={13} className="text-emerald-500" />
-                      : <span className="h-3 w-3 rounded-full border-2 border-slate-300" />}
+        {/* RIGHT */}
+        <div style={{ flex:1, padding:"4px 6px" }}>
+          {arr(data.experience).length>0 && (<>
+            <Sec title="Experience"/>
+            {arr(data.experience).map((ex,i)=>(
+              <div key={i} style={{ marginBottom:"6px" }}>
+                <div style={{ display:"flex", justifyContent:"space-between" }}>
+                  <span style={{ fontWeight:700, fontSize:"7px", color:D.dark, textTransform:"uppercase" }}>{ex.org}</span>
+                  <span style={{ fontSize:"6px", color:D.muted }}>{ex.date}</span>
+                </div>
+                <div style={{ fontSize:"6.5px", color:D.muted, fontStyle:"italic", marginBottom:"2px" }}>{ex.role}{ex.location&&` | ${ex.location}`}</div>
+                {arr(ex.bullets).filter(Boolean).map((b,j)=>(
+                  <div key={j} style={{ fontSize:"6.5px", color:D.mid, paddingLeft:"8px", marginBottom:"1.5px", display:"flex", gap:"3px" }}>
+                    <span>•</span><span>{b}</span>
                   </div>
                 ))}
               </div>
-              <div className="mt-3">
-                <div className="h-1.5 w-full rounded-full bg-slate-100">
-                  <div
-                    className="h-1.5 rounded-full bg-blue-500 transition-all duration-500"
-                    style={{ width: `${(Object.values(completed).filter(Boolean).length / sectionMeta.length) * 100}%` }}
-                  />
+            ))}
+          </>)}
+
+          {arr(data.research).length>0 && (<>
+            <Sec title="Projects"/>
+            {arr(data.research).map((r,i)=>(
+              <div key={i} style={{ marginBottom:"6px" }}>
+                <div style={{ display:"flex", justifyContent:"space-between" }}>
+                  <span style={{ fontWeight:700, fontSize:"7px", color:D.dark }}>{r.org}</span>
+                  <span style={{ fontSize:"6px", color:D.muted }}>{r.date}</span>
                 </div>
-                <p className="mt-1 text-xs text-slate-400 text-right">
-                  {Object.values(completed).filter(Boolean).length}/{sectionMeta.length} complete
-                </p>
+                <div style={{ fontSize:"6.5px", color:D.muted, fontStyle:"italic" }}>{r.role}</div>
+                {r.location && <div style={{ fontSize:"6px", color:D.accent }}>{r.location}</div>}
+                <div style={{ fontSize:"6.5px", color:D.mid, marginTop:"1px" }}>{r.desc}</div>
               </div>
+            ))}
+          </>)}
+
+          {arr(data.awards).length>0 && (<>
+            <Sec title="Certifications & Awards"/>
+            {arr(data.awards).map((a,i)=>(
+              <div key={i} style={{ fontSize:"6.5px", color:D.mid, paddingLeft:"8px", marginBottom:"1.5px", display:"flex", gap:"3px" }}>
+                <span>•</span><span>{a}</span>
+              </div>
+            ))}
+          </>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Full A4 version for PDF export
+function DeedyA4({ data }) {
+  const p = data.personal;
+
+  const SecLabel = ({ title }) => (
+    <div style={{ marginTop:"14px", marginBottom:"5px" }}>
+      <div style={{
+        fontSize:"9px", fontWeight:700, textTransform:"uppercase",
+        letterSpacing:"2px", color:D.dark,
+        borderBottom:`1px solid ${D.dark}`, paddingBottom:"2px",
+      }}>{title}</div>
+    </div>
+  );
+
+  return (
+    <div style={{
+      background: D.bg,
+      fontFamily: "'Georgia','Times New Roman',serif",
+      fontSize:   "9.5px",
+      color:      D.mid,
+      width:      "794px",
+      minHeight:  "1123px",
+      boxSizing:  "border-box",
+    }}>
+      {/* HEADER — compact, centered, white bg */}
+      <div style={{ textAlign:"center", padding:"22px 40px 14px", borderBottom:`1px solid ${D.rule}` }}>
+        <div style={{
+          fontSize:"30px", fontWeight:700, color:D.dark,
+          fontFamily:"'Georgia',serif", letterSpacing:"1px", lineHeight:1.1,
+        }}>{p.name || "Your Name"}</div>
+
+        <div style={{ fontSize:"9px", color:D.muted, marginTop:"5px", letterSpacing:"0.3px" }}>
+          {[p.site, p.email, p.phone, p.location].filter(Boolean).join("  |  ")}
+        </div>
+
+        {arr(data.links).some(l=>l.value) && (
+          <div style={{ fontSize:"8.5px", color:D.muted, marginTop:"3px" }}>
+            {arr(data.links).filter(l=>l.value).map((l,i)=>(
+              <span key={i} style={{ marginRight:"16px" }}>
+                <span style={{ fontWeight:700, color:D.dark }}>{l.label}:</span> {l.value}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* BODY: two columns, no outer margins */}
+      <div style={{ display:"flex", minHeight:"900px" }}>
+
+        {/* LEFT SIDEBAR */}
+        <div style={{ width:"34%", borderRight:`1px solid ${D.rule}`, padding:"0 16px 20px 20px", boxSizing:"border-box" }}>
+
+          {arr(data.education).length>0 && (<>
+            <SecLabel title="Education"/>
+            {arr(data.education).map((ed,i)=>(
+              <div key={i} style={{ marginBottom:"12px" }}>
+                <div style={{ fontWeight:700, fontSize:"10px", color:D.dark }}>{ed.institution}</div>
+                <div style={{ fontSize:"9px", color:D.mid, fontStyle:"italic", marginTop:"1px" }}>{ed.degree}</div>
+                <div style={{ fontSize:"8.5px", color:D.muted, marginTop:"2px" }}>{ed.date}{ed.location&&` | ${ed.location}`}</div>
+                {ed.notes && <div style={{ fontSize:"8.5px", color:D.muted }}>{ed.notes}</div>}
+              </div>
+            ))}
+          </>)}
+
+          {(arr(data.coursework?.col1).length>0 || arr(data.coursework?.col2).length>0) && (<>
+            <SecLabel title="Coursework"/>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"1px 8px" }}>
+              {[...arr(data.coursework?.col1), ...arr(data.coursework?.col2)].map((c,i)=>(
+                <div key={i} style={{ fontSize:"9px", color:D.mid, padding:"2px 0" }}>{c}</div>
+              ))}
             </div>
-          </aside>
+          </>)}
+
+          {arr(data.skills?.groups).length>0 && (<>
+            <SecLabel title="Skills"/>
+            {arr(data.skills.groups).map((g,i)=>(
+              <div key={i} style={{ marginBottom:"8px" }}>
+                <div style={{ fontSize:"8.5px", fontWeight:700, color:D.dark, textTransform:"uppercase", letterSpacing:"1px", marginBottom:"2px" }}>{g.label}</div>
+                <div style={{ fontSize:"9px", color:D.mid, lineHeight:"1.6" }}>{g.items}</div>
+              </div>
+            ))}
+          </>)}
+        </div>
+
+        {/* RIGHT MAIN */}
+        <div style={{ flex:1, padding:"0 20px 20px 16px", boxSizing:"border-box" }}>
+
+          {arr(data.experience).length>0 && (<>
+            <SecLabel title="Experience"/>
+            {arr(data.experience).map((ex,i)=>(
+              <div key={i} style={{ marginBottom:"14px" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+                  <span style={{ fontWeight:700, fontSize:"10.5px", color:D.dark, textTransform:"uppercase", letterSpacing:"0.3px" }}>{ex.org}</span>
+                  <span style={{ fontSize:"8.5px", color:D.muted, flexShrink:0, marginLeft:"8px" }}>{ex.date}{ex.location&&` | ${ex.location}`}</span>
+                </div>
+                <div style={{ fontSize:"9px", color:D.muted, fontStyle:"italic", marginBottom:"4px" }}>{ex.role}</div>
+                {arr(ex.bullets).filter(Boolean).map((b,j)=>(
+                  <div key={j} style={{ fontSize:"9.5px", color:D.mid, paddingLeft:"12px", marginBottom:"3px", display:"flex", gap:"6px", lineHeight:"1.55" }}>
+                    <span style={{ flexShrink:0 }}>•</span><span>{b}</span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </>)}
+
+          {arr(data.research).length>0 && (<>
+            <SecLabel title="Projects"/>
+            {arr(data.research).map((r,i)=>(
+              <div key={i} style={{ marginBottom:"14px" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"baseline" }}>
+                  <span style={{ fontWeight:700, fontSize:"10.5px", color:D.dark }}>{r.org}</span>
+                  <span style={{ fontSize:"8.5px", color:D.muted, flexShrink:0, marginLeft:"8px" }}>{r.date}</span>
+                </div>
+                <div style={{ fontSize:"9px", color:D.muted, fontStyle:"italic", marginBottom:"2px" }}>{r.role}</div>
+                {r.location && <div style={{ fontSize:"8.5px", color:D.accent, marginBottom:"3px" }}>{r.location}</div>}
+                <div style={{ fontSize:"9.5px", color:D.mid, lineHeight:"1.55" }}>{r.desc}</div>
+              </div>
+            ))}
+          </>)}
+
+          {arr(data.awards).length>0 && (<>
+            <SecLabel title="Certifications & Awards"/>
+            {arr(data.awards).map((a,i)=>(
+              <div key={i} style={{ fontSize:"9.5px", color:D.mid, paddingLeft:"12px", marginBottom:"4px", display:"flex", gap:"6px" }}>
+                <span style={{ flexShrink:0 }}>•</span><span>{a}</span>
+              </div>
+            ))}
+          </>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  Section config, form UI, state, handlers, layout — unchanged
+// ─────────────────────────────────────────────────────────────────
+
+const SECTIONS = [
+  ["personal",   "Personal Info",         FiUser],
+  ["education",  "Education",             FiBookOpen],
+  ["links",      "Links",                 FiLink],
+  ["coursework", "Coursework",            FiFileText],
+  ["skills",     "Skills",               FiTool],
+  ["experience", "Experience",            FiLayers],
+  ["research",   "Projects",             FiLayers],
+  ["awards",     "Certifications/Awards", FiAward],
+];
+
+export default function ResumeBuilder() {
+  const [data, setData]       = useState(INITIAL);
+  const [open, setOpen]       = useState("personal");
+  const [saved, setSaved]     = useState(false);
+  const [toast, setToast]     = useState("");
+  const [dl, setDl]           = useState(false);
+  const [nsg, setNsg]         = useState({ label:"", items:"" });
+  const [nl, setNl]           = useState({ label:"", value:"" });
+  const [created, setCreated] = useState(null);
+  const previewRef            = useRef(null);
+  const a4Ref                 = useRef(null);
+
+  const toggle = k => setOpen(p => p === k ? "" : k);
+
+  const done = useMemo(() => ({
+    personal:   !!(data.personal.name && data.personal.email),
+    education:  arr(data.education).length > 0,
+    links:      arr(data.links).some(l => l.value),
+    coursework: arr(data.coursework?.col1).length > 0,
+    skills:     arr(data.skills?.groups).length > 0,
+    experience: arr(data.experience).length > 0,
+    research:   arr(data.research).length > 0,
+    awards:     arr(data.awards).length > 0,
+  }), [data]);
+
+  const setP = (f, v) => setData(p => ({ ...p, personal: { ...p.personal, [f]: v } }));
+
+  const addEdu = () => setData(p => ({ ...p, education: [...arr(p.education), { institution:"", degree:"", date:"", location:"", notes:"" }] }));
+  const setEdu = (i, f, v) => setData(p => ({ ...p, education: arr(p.education).map((x, j) => j === i ? { ...x, [f]: v } : x) }));
+  const remEdu = (i) => setData(p => ({ ...p, education: arr(p.education).filter((_, j) => j !== i) }));
+
+  const addLink = () => { if (!nl.label) return; setData(p => ({ ...p, links: [...arr(p.links), { ...nl }] })); setNl({ label:"", value:"" }); };
+  const remLink = (i) => setData(p => ({ ...p, links: arr(p.links).filter((_, j) => j !== i) }));
+  const setLink = (i, f, v) => setData(p => ({ ...p, links: arr(p.links).map((x, j) => j === i ? { ...x, [f]: v } : x) }));
+
+  const setCW  = (col, v) => setData(p => ({ ...p, coursework: { ...p.coursework, [col]: v.split("\n").map(s => s.trim()).filter(Boolean) } }));
+  const setCWL = (col, v) => setData(p => ({ ...p, coursework: { ...p.coursework, [col]: v } }));
+
+  const addSG = () => { if (!nsg.label) return; setData(p => ({ ...p, skills: { ...p.skills, groups: [...arr(p.skills?.groups), { ...nsg }] } })); setNsg({ label:"", items:"" }); };
+  const remSG = (i) => setData(p => ({ ...p, skills: { ...p.skills, groups: arr(p.skills?.groups).filter((_, j) => j !== i) } }));
+  const setSG = (i, f, v) => setData(p => ({ ...p, skills: { ...p.skills, groups: arr(p.skills?.groups).map((x, j) => j === i ? { ...x, [f]: v } : x) } }));
+
+  const addExp    = () => setData(p => ({ ...p, experience: [...arr(p.experience), { org:"", role:"", date:"", location:"", bullets:[""] }] }));
+  const setExp    = (i, f, v) => setData(p => ({ ...p, experience: arr(p.experience).map((x, j) => j === i ? { ...x, [f]: v } : x) }));
+  const setBullet = (i, bi, v) => setData(p => ({ ...p, experience: arr(p.experience).map((x, j) => j === i ? { ...x, bullets: arr(x.bullets).map((b, k) => k === bi ? v : b) } : x) }));
+  const addBullet = (i) => setData(p => ({ ...p, experience: arr(p.experience).map((x, j) => j === i ? { ...x, bullets: [...arr(x.bullets), ""] } : x) }));
+  const remBullet = (i, bi) => setData(p => ({ ...p, experience: arr(p.experience).map((x, j) => j === i ? { ...x, bullets: arr(x.bullets).filter((_, k) => k !== bi) } : x) }));
+  const remExp    = (i) => setData(p => ({ ...p, experience: arr(p.experience).filter((_, j) => j !== i) }));
+
+  const addRes = () => setData(p => ({ ...p, research: [...arr(p.research), { org:"", role:"", date:"", location:"", desc:"" }] }));
+  const setRes = (i, f, v) => setData(p => ({ ...p, research: arr(p.research).map((x, j) => j === i ? { ...x, [f]: v } : x) }));
+  const remRes = (i) => setData(p => ({ ...p, research: arr(p.research).filter((_, j) => j !== i) }));
+
+  const setAwards = (v) => setData(p => ({ ...p, awards: v.split("\n").map(s => s.trim()).filter(Boolean) }));
+
+  const saveDraft = () => {
+    try { localStorage.setItem("deedyResume", JSON.stringify(data)); } catch(e) {}
+    setSaved(true); setTimeout(() => setSaved(false), 1600);
+  };
+
+  const handleCreate = () => {
+    setCreated(JSON.parse(JSON.stringify(data)));
+    setToast("✅ Resume created!"); setTimeout(() => setToast(""), 2000);
+  };
+
+  const downloadPDF = async () => {
+    if (!a4Ref.current) { setToast("Click Create Resume first!"); setTimeout(() => setToast(""), 2000); return; }
+    setDl(true); setToast("Generating PDF…");
+    try {
+      const load = (src) => new Promise((res, rej) => {
+        if (document.querySelector(`script[src="${src}"]`)) { res(); return; }
+        const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s);
+      });
+      await load("https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js");
+      await load("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
+      const node   = a4Ref.current;
+      const canvas = await window.html2canvas(node, { scale:3, useCORS:true, backgroundColor:"#ffffff", width:794, height:node.scrollHeight, windowWidth:794 });
+      const img    = canvas.toDataURL("image/png");
+      const { jsPDF } = window.jspdf;
+      const pdf    = new jsPDF({ orientation:"portrait", unit:"mm", format:"a4" });
+      const pageH  = (canvas.height * 210) / canvas.width;
+      pdf.addImage(img, "PNG", 0, 0, 210, pageH);
+      pdf.save(`${(created || data).personal.name || "Resume"}.pdf`);
+      setToast("✅ Downloaded!"); setTimeout(() => setToast(""), 2000);
+    } catch(err) { console.error(err); setToast("❌ Failed"); setTimeout(() => setToast(""), 2500); }
+    finally { setDl(false); }
+  };
+
+  const openTab = () => {
+    if (!a4Ref.current) { setToast("Click Create Resume first!"); setTimeout(() => setToast(""), 2000); return; }
+    const name = (created || data).personal.name;
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${name} Resume</title><style>*{margin:0;padding:0;box-sizing:border-box;}body{background:#e8e8e8;display:flex;justify-content:center;padding:30px;}</style></head><body>${a4Ref.current.outerHTML}</body></html>`;
+    window.open(URL.createObjectURL(new Blob([html], { type:"text/html" })), "_blank");
+  };
+
+  return (
+    <div className="min-h-screen bg-slate-50 pb-12">
+      <div className="mx-auto max-w-[1280px] px-4 py-6 sm:px-6">
+        <div className="mb-6">
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Resume Builder</h1>
+          <p className="text-sm text-slate-500 mt-1">Classic academic CV style — dark text, clean layout</p>
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_460px]">
+
+          {/* ── LEFT FORM ── */}
+          <div className="space-y-2">
+            {SECTIONS.map(([key, title, Icon]) => (
+              <div key={key}>
+                <AccHead title={title} icon={createElement(Icon, { size:14 })} open={open === key} done={done[key]} onToggle={() => toggle(key)}/>
+                {open === key && (
+                  <div className="mt-1.5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+
+                    {key === "personal" && (
+                      <div className="grid grid-cols-2 gap-2">
+                        {[["name","Full Name"],["site","Website"],["email","Email"],["phone","Phone"],["location","Location"]].map(([f, ph]) => (
+                          <Input key={f} value={data.personal[f]||""} onChange={e => setP(f, e.target.value)} placeholder={ph} className={f === "name" ? "col-span-2" : ""}/>
+                        ))}
+                      </div>
+                    )}
+
+                    {key === "education" && (
+                      <div className="space-y-3">
+                        {arr(data.education).map((ed, i) => (
+                          <div key={i} className="rounded-lg border border-slate-100 bg-slate-50 p-3 space-y-2">
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Entry {i+1}</span>
+                              <Btn variant="red" onClick={() => remEdu(i)}>Remove</Btn>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Input value={ed.institution} onChange={e => setEdu(i,"institution",e.target.value)} placeholder="Institution" className="col-span-2"/>
+                              <Input value={ed.degree}      onChange={e => setEdu(i,"degree",e.target.value)}      placeholder="Degree / Certificate" className="col-span-2"/>
+                              <Input value={ed.date}        onChange={e => setEdu(i,"date",e.target.value)}        placeholder="Year / Date"/>
+                              <Input value={ed.location}    onChange={e => setEdu(i,"location",e.target.value)}    placeholder="Location"/>
+                              <Input value={ed.notes}       onChange={e => setEdu(i,"notes",e.target.value)}       placeholder="GPA / Notes" className="col-span-2"/>
+                            </div>
+                          </div>
+                        ))}
+                        <Btn onClick={addEdu}><FiPlus size={11}/> Add Education</Btn>
+                      </div>
+                    )}
+
+                    {key === "links" && (
+                      <div className="space-y-2">
+                        {arr(data.links).map((l, i) => (
+                          <div key={i} className="flex gap-2 items-center">
+                            <Input value={l.label} onChange={e => setLink(i,"label",e.target.value)} placeholder="Label" className="w-28 shrink-0"/>
+                            <Input value={l.value} onChange={e => setLink(i,"value",e.target.value)} placeholder="URL or handle" className="flex-1"/>
+                            <button type="button" onClick={() => remLink(i)} className="text-red-400 hover:text-red-600"><FiX size={14}/></button>
+                          </div>
+                        ))}
+                        <div className="flex gap-2 items-center pt-1 border-t border-slate-100">
+                          <Input value={nl.label} onChange={e => setNl(p => ({ ...p, label:e.target.value }))} placeholder="Label" className="w-28 shrink-0"/>
+                          <Input value={nl.value} onChange={e => setNl(p => ({ ...p, value:e.target.value }))} placeholder="URL or handle" className="flex-1"/>
+                          <button type="button" onClick={addLink} className="h-9 w-9 flex items-center justify-center rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition shrink-0"><FiPlus size={14}/></button>
+                        </div>
+                      </div>
+                    )}
+
+                    {key === "coursework" && (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Input value={data.coursework?.col1label||""} onChange={e => setCWL("col1label",e.target.value)} placeholder="Column 1 label"/>
+                            <Input multiline rows={5} value={arr(data.coursework?.col1).join("\n")} onChange={e => setCW("col1",e.target.value)} placeholder={"Course 1\nCourse 2\n..."}/>
+                          </div>
+                          <div className="space-y-1">
+                            <Input value={data.coursework?.col2label||""} onChange={e => setCWL("col2label",e.target.value)} placeholder="Column 2 label"/>
+                            <Input multiline rows={5} value={arr(data.coursework?.col2).join("\n")} onChange={e => setCW("col2",e.target.value)} placeholder={"Course 1\nCourse 2\n..."}/>
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-400">One course per line</p>
+                      </div>
+                    )}
+
+                    {key === "skills" && (
+                      <div className="space-y-3">
+                        {arr(data.skills?.groups).map((g, i) => (
+                          <div key={i} className="rounded-lg border border-slate-100 bg-slate-50 p-3 space-y-2">
+                            <div className="flex justify-between">
+                              <Input value={g.label} onChange={e => setSG(i,"label",e.target.value)} placeholder="Group label" className="flex-1 mr-2"/>
+                              <Btn variant="red" onClick={() => remSG(i)}>Remove</Btn>
+                            </div>
+                            <Input value={g.items} onChange={e => setSG(i,"items",e.target.value)} placeholder="Skill1, Skill2, ..."/>
+                          </div>
+                        ))}
+                        <div className="rounded-lg border border-dashed border-slate-300 p-3 space-y-2">
+                          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Add Group</p>
+                          <Input value={nsg.label} onChange={e => setNsg(p => ({ ...p, label:e.target.value }))} placeholder="Label (Proficient / Familiar)"/>
+                          <Input value={nsg.items} onChange={e => setNsg(p => ({ ...p, items:e.target.value }))} placeholder="Comma-separated skills"/>
+                          <Btn onClick={addSG}><FiPlus size={11}/> Add Group</Btn>
+                        </div>
+                      </div>
+                    )}
+
+                    {key === "experience" && (
+                      <div className="space-y-3">
+                        {arr(data.experience).map((ex, i) => (
+                          <div key={i} className="rounded-lg border border-slate-100 bg-slate-50 p-3 space-y-2">
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs font-bold text-slate-400 uppercase">Experience {i+1}</span>
+                              <Btn variant="red" onClick={() => remExp(i)}>Remove</Btn>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Input value={ex.org}      onChange={e => setExp(i,"org",e.target.value)}      placeholder="Organisation" className="col-span-2"/>
+                              <Input value={ex.role}     onChange={e => setExp(i,"role",e.target.value)}     placeholder="Role / Title" className="col-span-2"/>
+                              <Input value={ex.date}     onChange={e => setExp(i,"date",e.target.value)}     placeholder="Date range"/>
+                              <Input value={ex.location} onChange={e => setExp(i,"location",e.target.value)} placeholder="Location"/>
+                            </div>
+                            <div className="space-y-1.5">
+                              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Bullets</p>
+                              {arr(ex.bullets).map((b, bi) => (
+                                <div key={bi} className="flex gap-2 items-center">
+                                  <Input value={b} onChange={e => setBullet(i, bi, e.target.value)} placeholder={`Bullet ${bi+1}`} className="flex-1"/>
+                                  <button type="button" onClick={() => remBullet(i, bi)} className="text-red-400 hover:text-red-600"><FiX size={14}/></button>
+                                </div>
+                              ))}
+                              <Btn onClick={() => addBullet(i)}><FiPlus size={11}/> Add Bullet</Btn>
+                            </div>
+                          </div>
+                        ))}
+                        <Btn onClick={addExp}><FiPlus size={11}/> Add Experience</Btn>
+                      </div>
+                    )}
+
+                    {key === "research" && (
+                      <div className="space-y-3">
+                        {arr(data.research).map((r, i) => (
+                          <div key={i} className="rounded-lg border border-slate-100 bg-slate-50 p-3 space-y-2">
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs font-bold text-slate-400 uppercase">Project {i+1}</span>
+                              <Btn variant="red" onClick={() => remRes(i)}>Remove</Btn>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Input value={r.org}      onChange={e => setRes(i,"org",e.target.value)}      placeholder="Project Name" className="col-span-2"/>
+                              <Input value={r.role}     onChange={e => setRes(i,"role",e.target.value)}     placeholder="Tech Stack" className="col-span-2"/>
+                              <Input value={r.date}     onChange={e => setRes(i,"date",e.target.value)}     placeholder="Year"/>
+                              <Input value={r.location} onChange={e => setRes(i,"location",e.target.value)} placeholder="Live / GitHub link"/>
+                              <Input multiline rows={3} value={r.desc} onChange={e => setRes(i,"desc",e.target.value)} placeholder="Description…" className="col-span-2"/>
+                            </div>
+                          </div>
+                        ))}
+                        <Btn onClick={addRes}><FiPlus size={11}/> Add Project</Btn>
+                      </div>
+                    )}
+
+                    {key === "awards" && (
+                      <div className="space-y-1">
+                        <Input multiline rows={5} value={arr(data.awards).join("\n")} onChange={e => setAwards(e.target.value)} placeholder={"Award or Certification 1\nAward or Certification 2\n..."}/>
+                        <p className="text-xs text-slate-400">One entry per line</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            <div className="pt-2">
+              <button
+                type="button"
+                onClick={handleCreate}
+                className="w-full rounded-xl py-3.5 text-sm font-bold text-white tracking-wide shadow-lg transition hover:opacity-90 active:scale-[0.99]"
+                style={{ background:"#1e293b" }}
+              >
+                ✦ Create Resume
+              </button>
+              {created && (
+                <p className="text-center text-xs text-emerald-500 font-semibold mt-2">
+                  ✓ Resume generated — see the preview panel →
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* ── RIGHT PREVIEW PANEL ── */}
+          <div className="space-y-3 lg:sticky lg:top-6 lg:h-fit">
+            <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="flex flex-wrap gap-2 mb-3">
+                <button type="button" onClick={downloadPDF} disabled={dl}
+                  className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-bold text-white hover:opacity-90 transition disabled:opacity-60"
+                  style={{ background:"#1e293b" }}>
+                  <FiDownload size={13}/> {dl ? "Generating…" : "Download PDF"}
+                </button>
+                <button type="button" onClick={openTab}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition">
+                  Open in New Tab
+                </button>
+                <button type="button" onClick={saveDraft}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition">
+                  <FiSave size={13}/> Save Draft
+                </button>
+                {created && (
+                  <button type="button" onClick={handleCreate}
+                    className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold hover:bg-slate-50 transition ml-auto"
+                    style={{ borderColor:"#1e293b", color:"#1e293b" }}>
+                    ↺ Refresh
+                  </button>
+                )}
+              </div>
+
+              {created ? (
+                <div className="border border-slate-200 rounded-lg overflow-hidden bg-gray-100">
+                  <div style={{ width:"794px", transform:"scale(0.557)", transformOrigin:"top left", height:"442px", overflow:"hidden" }}>
+                    <DeedyA4 data={created}/>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-slate-400 mb-2 text-center">Live preview · fill the form then click <strong>Create Resume</strong></p>
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <div ref={previewRef}><DeedyPreview data={data}/></div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <h3 className="text-sm font-bold text-slate-800 mb-3">Completion</h3>
+              <div className="space-y-1.5">
+                {SECTIONS.map(([k, t]) => (
+                  <div key={k} className="flex items-center justify-between">
+                    <span className="text-xs text-slate-600">{t}</span>
+                    {done[k] ? <FiCheckCircle size={13} className="text-emerald-500"/> : <span className="h-3 w-3 rounded-full border-2 border-slate-300"/>}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 h-1.5 w-full rounded-full bg-slate-100">
+                <div className="h-1.5 rounded-full transition-all duration-500"
+                  style={{ width:`${(Object.values(done).filter(Boolean).length / SECTIONS.length) * 100}%`, background:"#1e293b" }}/>
+              </div>
+              <p className="mt-1 text-xs text-slate-400 text-right">
+                {Object.values(done).filter(Boolean).length}/{SECTIONS.length} complete
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Template modal */}
-      <Modal open={templateModal} onClose={() => setTemplateModal(false)} title="Select Resume Template">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {templates.map((t) => (
-            <button key={t} type="button"
-              onClick={() => { setData((p) => ({ ...p, settings: { ...p.settings, template: t } })); setTemplateModal(false); }}
-              className={`rounded-xl border p-4 text-left transition hover:shadow-sm ${
-                data.settings.template === t ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white hover:bg-slate-50"
-              }`}>
-              <p className="font-semibold text-slate-800 text-sm">{t}</p>
-              <p className="mt-0.5 text-xs text-slate-400">ATS-friendly layout</p>
-            </button>
-          ))}
+      {/* Hidden A4 for PDF generation */}
+      {created && (
+        <div style={{ position:"fixed", left:"-9999px", top:0, width:"794px", pointerEvents:"none", opacity:0, zIndex:-1 }}>
+          <div ref={a4Ref}>
+            <DeedyA4 data={created}/>
+          </div>
         </div>
-      </Modal>
+      )}
 
-      {/* Toasts */}
-      {savedToast && (
-        <div className="fixed bottom-6 right-6 z-50 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-xl animate-fade-in">
-          ✓ Draft saved to local storage
-        </div>
-      )}
-      {infoToast && (
-        <div className="fixed bottom-16 right-6 z-50 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-xl">
-          {infoToast}
-        </div>
-      )}
+      {saved && <div className="fixed bottom-6 right-6 z-50 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-xl">✓ Draft saved</div>}
+      {toast && <div className="fixed bottom-16 right-6 z-50 rounded-xl px-4 py-2.5 text-sm font-semibold text-white shadow-xl" style={{ background:"#1e293b" }}>{toast}</div>}
     </div>
   );
 }

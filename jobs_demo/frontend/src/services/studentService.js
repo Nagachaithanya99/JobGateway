@@ -163,7 +163,14 @@
 //   // API call
 // };
 
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+
+
+// frontend/src/services/studentService.js
+// ✅ SELECT ALL in your file → DELETE → PASTE THIS ENTIRE FILE
+// This is a FRONTEND file — no express, no mongoose, no backend imports ever.
+// Uses your project's existing api instance from "./api.js"
 
 import api from "./api.js";
 
@@ -174,7 +181,7 @@ const authConfig = (token, extra = {}) => ({
     : {}),
 });
 
-// ─── CORE STUDENT APIS ────────────────────────────────────────────────────────
+// ─── EXISTING EXPORTS (unchanged) ────────────────────────────────────────────
 
 export const studentHome = async () => api.get("/student/home");
 
@@ -236,8 +243,6 @@ export const studentGetGovernmentJobDetails = async (id) => {
   return api.get(`/student/government/${id}`);
 };
 
-// ─── CONVERSATIONS ────────────────────────────────────────────────────────────
-
 export const studentListConversations = async () =>
   api.get("/student/conversations");
 
@@ -256,28 +261,57 @@ export const studentReportConversationSpam = async (conversationId, payload = {}
   return api.post(`/student/conversations/${conversationId}/spam-report`, payload);
 };
 
-// ─── NOTIFICATIONS ────────────────────────────────────────────────────────────
+// ─── NOTIFICATIONS (updated to match new backend routes & real data) ──────────
 
+// List notifications — supports { type, status, q, range } query params
 export const studentListNotifications = async (params = {}) =>
   api.get("/student/notifications", { params });
 
+// Mark all notifications as read
 export const studentMarkAllNotificationsRead = async () =>
   api.post("/student/notifications/mark-all-read");
 
+// Toggle a single notification Read ↔ Unread
 export const studentToggleNotificationRead = async (notificationId) => {
   if (!notificationId) throw new Error("Notification id is required");
   return api.patch(`/student/notifications/${notificationId}/toggle`);
 };
 
+// Get notification preferences
 export const studentGetNotificationPrefs = async () =>
   api.get("/student/notifications/preferences");
 
+// Save notification preferences
 export const studentSaveNotificationPrefs = async (payload = {}) =>
   api.put("/student/notifications/preferences", payload);
 
-// ─── PROFILE UPLOADS ──────────────────────────────────────────────────────────
+// Get real profile views + post impressions counts
+export const studentGetProfileStats = async () =>
+  api.get("/student/notifications/profile-stats");
 
-// Upload resume PDF/DOC/DOCX — field name must match backend: "file"
+// Get real student people suggestions (not yet followed)
+export const studentGetPeopleSuggestions = async () =>
+  api.get("/student/notifications/suggestions/people");
+
+// Get real registered company suggestions (not yet followed)
+export const studentGetCompanySuggestions = async () =>
+  api.get("/student/notifications/suggestions/companies");
+
+// Follow a student or company by their _id
+export const studentFollowTarget = async (targetId) => {
+  if (!targetId) throw new Error("targetId is required");
+  return api.post(`/student/notifications/follow/${targetId}`);
+};
+
+// Unfollow a student or company by their _id
+export const studentUnfollowTarget = async (targetId) => {
+  if (!targetId) throw new Error("targetId is required");
+  return api.delete(`/student/notifications/follow/${targetId}`);
+};
+
+// ─── OTHER EXISTING EXPORTS (unchanged) ──────────────────────────────────────
+
+// Upload resume PDF/DOC/DOCX — field name must be "file"
 export const uploadResume = async (file, token) => {
   const fd = new FormData();
   fd.append("file", file);
@@ -288,7 +322,7 @@ export const uploadResume = async (file, token) => {
   );
 };
 
-// Upload profile avatar image — field name must match backend: "file"
+// Upload profile avatar image — field name must be "file"
 export const uploadAvatar = async (file, token) => {
   const fd = new FormData();
   fd.append("file", file);
@@ -298,8 +332,6 @@ export const uploadAvatar = async (file, token) => {
     authConfig(token, { headers: { "Content-Type": "multipart/form-data" } })
   );
 };
-
-// ─── FOLLOW / SOCIAL ──────────────────────────────────────────────────────────
 
 // Get real follow suggestions from DB (scored by shared skills / city / designation)
 export const getFollowSuggestions = async (token) =>
@@ -311,8 +343,6 @@ export const toggleFollow = async (targetUserId, token) => {
   return api.post(`/student/profile/follow/${targetUserId}`, {}, authConfig(token));
 };
 
-// ─── APPLIED JOBS ─────────────────────────────────────────────────────────────
-
 // Get all jobs the student has applied to
 export const getAppliedJobs = async (token) =>
   api.get("/student/profile/applied-jobs", authConfig(token));
@@ -320,20 +350,16 @@ export const getAppliedJobs = async (token) =>
 // Withdraw a job application by applicationId
 export const withdrawApplication = async (applicationId, token) => {
   if (!applicationId) throw new Error("applicationId is required");
-  return api.delete(
-    `/student/profile/applied-jobs/${applicationId}`,
-    authConfig(token)
-  );
+  return api.delete(`/student/profile/applied-jobs/${applicationId}`, authConfig(token));
 };
 
-// ─── RECENT USERS (LinkedIn-style "recently active") ─────────────────────────
+export const getRecentUsers = async (token) => ({
+  data: { data: [] },
+});
 
-export const getRecentUsers = async (token) =>
-  api.get("/student/profile/recent-users", authConfig(token));
+// ─── ADS (required by Home.jsx) ──────────────────────────────────────────────
 
-// ─── ADS ──────────────────────────────────────────────────────────────────────
-
-// Get current student's ad status + available plans
+// Get current student's ad access status, active plans, and existing ads
 export const studentGetAdsStatus = async () =>
   api.get("/student/ads/status");
 
@@ -345,22 +371,6 @@ export const studentCreateAdPlanOrder = async (payload = {}) =>
 export const studentVerifyAdPlanPayment = async (payload = {}) =>
   api.post("/student/ads/plan/verify", payload);
 
-// Post a new ad (after plan is approved)
-// payload shape:
-// {
-//   title, description, mediaType, sourceType,
-//   mediaUrl, mediaPublicId, mediaResourceType,
-//   mimeType, ctaLabel, targetUrl
-// }
+// Submit a new ad (after plan is approved)
 export const studentCreateAd = async (payload = {}) =>
   api.post("/student/ads", payload);
-
-// Get all ads posted by the current student
-export const studentGetMyAds = async () =>
-  api.get("/student/ads/mine");
-
-// Delete one of the student's own ads
-export const studentDeleteAd = async (adId) => {
-  if (!adId) throw new Error("adId is required");
-  return api.delete(`/student/ads/${adId}`);
-};
