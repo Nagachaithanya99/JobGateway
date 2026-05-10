@@ -29,13 +29,20 @@ const STAGES = ["HR Round", "Technical Round", "Manager Round", "Final Round"];
 const EXTRA_STATUS = ["Interview Completed", "Offer Sent", "Hired"];
 
 /**
- * Helper: ensure Application has meta object (without breaking schema)
- * Mongo allows adding new fields even if not declared in mongoose schema.
- * Later you can formalize it in schema if you want.
+ * Helper: merge shortlist pipeline metadata without dropping existing values.
  */
 function buildMetaUpdate(existingMeta, patch) {
   const meta = { ...(existingMeta || {}) };
   return { ...meta, ...patch };
+}
+
+function buildPipelineMeta(existingMeta, status, patch = {}) {
+  const meta = buildMetaUpdate(existingMeta, { ...patch, pipelineStatus: status });
+  if (status === "Shortlisted" || status === "Interview Scheduled") {
+    if (!meta.shortlistedDate) meta.shortlistedDate = new Date().toISOString();
+    if (!meta.stage) meta.stage = "HR Round";
+  }
+  return meta;
 }
 
 async function ensureThreadForApplication(app) {
@@ -103,6 +110,20 @@ function ensureMeetingLink(link, roomId) {
   return "";
 }
 
+function studentAvatar(student = {}) {
+  const personal = student?.studentProfile?.personal || {};
+  return (
+    student?.avatarUrl ||
+    student?.avatar ||
+    student?.profilePhoto ||
+    student?.profileImageUrl ||
+    student?.imageUrl ||
+    personal?.avatarUrl ||
+    personal?.profileImageUrl ||
+    ""
+  );
+}
+
 /**
  * GET /api/company/shortlisted
  * Query params (optional):
@@ -132,7 +153,7 @@ export async function listCompanyShortlisted(req, res, next) {
     // We'll fetch relevant apps and filter in-memory for flexible UI filters.
     const apps = await Application.find(findFilter)
       .sort({ createdAt: -1 })
-      .populate("student", "name email phone resumeUrl location")
+      .populate("student", "name email phone resumeUrl location studentProfile avatarUrl avatar profilePhoto profileImageUrl imageUrl")
       .populate("job", "title location")
       .lean();
 
@@ -154,6 +175,8 @@ export async function listCompanyShortlisted(req, res, next) {
           email: a.student?.email || "",
           phone: a.student?.phone || "",
           resumeUrl: a.student?.resumeUrl || "",
+          avatar: studentAvatar(a.student),
+          avatarUrl: studentAvatar(a.student),
 
           job: a.job?.title || "-",
           jobTitle: a.job?.title || "-",
@@ -172,6 +195,8 @@ export async function listCompanyShortlisted(req, res, next) {
           resume: a?.meta?.resume || "",
           aiMatch: a?.meta?.aiMatch || "Moderate",
           notes: a?.meta?.notes || [],
+          interview: a?.meta?.interview || null,
+          offer: a?.meta?.offer || null,
         };
       })
       // default shortlist scope:
@@ -225,7 +250,7 @@ export async function updateShortlistedStatus(req, res, next) {
 
     // If status is within allowed enum, update Application.status and mirror meta.pipelineStatus too
     if (APP_ALLOWED.includes(status)) {
-      const meta = buildMetaUpdate(app.meta, { pipelineStatus: status });
+      const meta = buildPipelineMeta(app.meta, status);
 
       await Application.updateOne(
         { _id: id, company: companyId },
@@ -237,7 +262,7 @@ export async function updateShortlistedStatus(req, res, next) {
 
     // If status is extra (Offer/Hired/etc), store in meta
     if (EXTRA_STATUS.includes(status)) {
-      const meta = buildMetaUpdate(app.meta, { pipelineStatus: status });
+      const meta = buildPipelineMeta(app.meta, status);
 
       await Application.updateOne(
         { _id: id, company: companyId },
@@ -272,7 +297,7 @@ export async function updateShortlistedStage(req, res, next) {
     const app = await Application.findOne({ _id: id, company: companyId }).lean();
     if (!app) return res.status(404).json({ message: "Application not found" });
 
-    const meta = buildMetaUpdate(app.meta, { stage });
+    const meta = buildPipelineMeta(app.meta, app?.meta?.pipelineStatus || app.status || "Shortlisted", { stage });
 
     await Application.updateOne(
       { _id: id, company: companyId },
@@ -306,8 +331,7 @@ export async function sendOfferToCandidate(req, res, next) {
 
     if (!app) return res.status(404).json({ message: "Application not found" });
 
-    const meta = buildMetaUpdate(app.meta, {
-      pipelineStatus: "Offer Sent",
+    const meta = buildPipelineMeta(app.meta, "Offer Sent", {
       offer: {
         salary,
         joining,
@@ -420,8 +444,7 @@ export async function scheduleInterviewFromShortlisted(req, res, next) {
       status: "Scheduled",
     });
 
-    const meta = buildMetaUpdate(app.meta, {
-      pipelineStatus: "Interview Scheduled",
+    const meta = buildPipelineMeta(app.meta, "Interview Scheduled", {
       interview: { date, time, mode, link: effectiveMeetingLink, message, interviewId: interview._id, roomId: createdRoomId },
     });
 

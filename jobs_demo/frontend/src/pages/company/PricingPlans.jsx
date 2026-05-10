@@ -91,8 +91,8 @@ export default function PricingPlans() {
   const activePlan = planCards.find((p) => String(p.name) === String(currentPlanName));
   const selectedPrice = activePlan ? priceOf(activePlan) : 0;
   const selectedLimits = activePlan ? limitsOf(activePlan) : null;
-  const jobsLimit = selectedLimits?.jobsLimit || sub?.jobsLimit || 1;
-  const appsLimit = selectedLimits?.appsLimit || sub?.applicationsLimit || 100;
+  const jobsLimit = selectedLimits?.jobsLimit ?? sub?.jobsLimit ?? 0;
+  const appsLimit = selectedLimits?.appsLimit ?? sub?.applicationsLimit ?? 0;
 
   const onSubscribe = async (planId) => {
     try {
@@ -255,8 +255,8 @@ export default function PricingPlans() {
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <UsageBar label="Jobs Used" used={sub?.jobsUsed || 0} limit={sub?.jobsLimit || 1} />
-          <UsageBar label="Applications Used" used={sub?.applicationsUsed || 0} limit={sub?.applicationsLimit || 100} />
+          <UsageBar label="Jobs Used" used={sub?.jobsUsed ?? 0} limit={sub?.jobsLimit ?? 0} />
+          <UsageBar label="Applications Used" used={sub?.applicationsUsed ?? 0} limit={sub?.applicationsLimit ?? 0} />
         </div>
       </Card>
 

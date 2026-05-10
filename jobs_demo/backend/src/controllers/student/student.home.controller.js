@@ -6,6 +6,7 @@ import Application from "../../models/Application.js";
 import ContentItem from "../../models/ContentItem.js";
 import GovernmentUpdate from "../../models/GovernmentUpdate.js";
 import Advertisement from "../../models/Advertisement.js";
+import Company from "../../models/Company.js";
 
 function safeStr(x) {
   return typeof x === "string" ? x : "";
@@ -60,13 +61,16 @@ function companyIdOf(jobDoc) {
 
 function mapJob(jobDoc, companyMap) {
   const cid = companyIdOf(jobDoc);
-  const companyName = companyMap.get(cid) || jobDoc.companyName || "Company";
+  const companyInfo = companyMap.get(cid) || {};
+  const companyName = companyInfo.name || jobDoc.companyName || "Company";
 
   return {
     _id: jobDoc._id,
     title: jobDoc.title || "Job",
     company: cid || jobDoc.company,
     companyName,
+    companyLogo: companyInfo.logoUrl || "",
+    logoUrl: companyInfo.logoUrl || "",
     experience: jobDoc.experience || jobDoc.experienceText || "",
     experienceText: jobDoc.experienceText || jobDoc.experience || "",
     salaryMin: jobDoc.salaryMin || 0,
@@ -89,13 +93,16 @@ function mapJob(jobDoc, companyMap) {
 
 function mapInternship(jobDoc, companyMap) {
   const cid = companyIdOf(jobDoc);
-  const companyName = companyMap.get(cid) || jobDoc.companyName || "Company";
+  const companyInfo = companyMap.get(cid) || {};
+  const companyName = companyInfo.name || jobDoc.companyName || "Company";
 
   return {
     _id: jobDoc._id,
     title: jobDoc.title || "Internship",
     company: cid || jobDoc.company,
     companyName,
+    companyLogo: companyInfo.logoUrl || "",
+    logoUrl: companyInfo.logoUrl || "",
     location: jobDoc.location || jobDoc.city || "",
     city: jobDoc.city || "",
     stipendMin: jobDoc.stipendMin || jobDoc.salaryMin || 0,
@@ -117,12 +124,20 @@ async function loadCompanyMap(...lists) {
   const unique = Array.from(new Set(ids));
   if (!unique.length) return new Map();
 
-  const users = await User.find({ _id: { $in: unique } })
-    .select("name")
-    .lean();
+  const [users, companies] = await Promise.all([
+    User.find({ _id: { $in: unique } }).select("name").lean(),
+    Company.find({ ownerUserId: { $in: unique } }).select("ownerUserId name logoUrl").lean(),
+  ]);
 
   const map = new Map();
-  for (const u of users) map.set(String(u._id), u.name || "Company");
+  const companyMap = new Map(companies.map((company) => [String(company.ownerUserId), company]));
+  for (const u of users) {
+    const company = companyMap.get(String(u._id));
+    map.set(String(u._id), {
+      name: company?.name || u.name || "Company",
+      logoUrl: company?.logoUrl || "",
+    });
+  }
   return map;
 }
 

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { FiBriefcase, FiCheckCircle, FiLock, FiTrendingUp, FiX } from "react-icons/fi";
+import { FiBriefcase, FiCheckCircle, FiGrid, FiList, FiLock, FiTrendingUp, FiX } from "react-icons/fi";
 
 import Modal from "../../components/common/Modal";
 import JobFilters from "../../components/admin/jobs/JobFilters";
 import { getJobTaxonomy } from "../../data/jobTaxonomy";
+import JobCardGrid from "../../components/admin/jobs/JobCardGrid";
 import JobsTable from "../../components/admin/jobs/JobsTable";
-import { showSweetConfirm } from "../../utils/sweetAlert.js";
+import { showSweetConfirm, showSweetToast } from "../../utils/sweetAlert.js";
 import {
   adminCreateJob,
   adminDeleteJob,
@@ -14,6 +14,7 @@ import {
   adminGetJobDetails,
   adminListJobs,
   adminToggleJobStatus,
+  adminUpdateJob,
 } from "../../services/adminService";
 
 function StatCard({ title, value, trend, icon }) {
@@ -33,8 +34,8 @@ function StatCard({ title, value, trend, icon }) {
   );
 }
 
-export default function Jobs() {
-  const nav = useNavigate();
+export default function Jobs({ workspace = "company" }) {
+  const isMyJobs = workspace === "my";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -58,17 +59,19 @@ export default function Jobs() {
   const [selectedIds, setSelectedIds] = useState([]);
   const [bulkAction, setBulkAction] = useState("disable");
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [viewMode, setViewMode] = useState("table");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerLoading, setDrawerLoading] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
   const [companyOptions, setCompanyOptions] = useState([]);
   const [addOpen, setAddOpen] = useState(false);
   const [addingJob, setAddingJob] = useState(false);
+  const [editingJobId, setEditingJobId] = useState("");
   const taxonomy = useMemo(() => getJobTaxonomy(), []);
   const taxonomyStreams = useMemo(() => Object.keys(taxonomy || {}), [taxonomy]);
   const knownStreams = useMemo(() => new Set(taxonomyStreams.map((s) => String(s).trim())), [taxonomyStreams]);
-  const [jobForm, setJobForm] = useState({
-    companyId: "",
+  const createEmptyJobForm = (companyId = "") => ({
+    companyId,
     title: "",
     stream: taxonomyStreams[0] || "",
     category: "",
@@ -83,6 +86,7 @@ export default function Jobs() {
     requirements: "",
     status: "active",
   });
+  const [jobForm, setJobForm] = useState(() => createEmptyJobForm());
 
   useEffect(() => {
     let mounted = true;
@@ -100,6 +104,7 @@ export default function Jobs() {
           location: filters.location,
           minApplications: filters.minApplications || undefined,
           postedAfter: filters.postedAfter || undefined,
+          source: isMyJobs ? "admin" : "company",
           page,
           limit: perPage,
         };
@@ -126,7 +131,7 @@ export default function Jobs() {
     return () => {
       mounted = false;
     };
-  }, [filters, page, knownStreams]);
+  }, [filters, page, knownStreams, isMyJobs]);
 
   useEffect(() => {
     let mounted = true;
@@ -174,6 +179,62 @@ export default function Jobs() {
 
   const totalPages = Math.max(1, Math.ceil(total / perPage));
   const currentPage = Math.min(page, totalPages);
+  const pageTitle = isMyJobs ? "My Jobs" : "Company Jobs";
+  const pageSubtitle = isMyJobs
+    ? "Post jobs for companies and manage every job operation from one workspace"
+    : "Monitor jobs posted across all registered companies";
+  const breadcrumbLabel = isMyJobs ? "My Jobs" : "Company Jobs";
+
+  const resolveCompanyId = (job = {}) => {
+    const company = job.company;
+    if (typeof company === "string") return company;
+    if (company?._id) return String(company._id);
+    if (job.companyId) return String(job.companyId);
+    const byName = companyOptions.find((c) => c.name === job.companyName || c.companyName === job.companyName);
+    return byName?.id || companyOptions[0]?.id || "";
+  };
+
+  const normalizeFormStatus = (status = "active") => {
+    const s = String(status || "active").toLowerCase();
+    if (s === "disabled") return "disabled";
+    if (s === "closed") return "closed";
+    if (s === "draft") return "draft";
+    return "active";
+  };
+
+  const toJobForm = (job = {}) => ({
+    ...createEmptyJobForm(resolveCompanyId(job)),
+    title: job.title || "",
+    stream: job.stream || job.mainStream || taxonomyStreams[0] || "",
+    category: job.category || "",
+    subCategory: job.subCategory || "",
+    city: job.city || "",
+    state: job.state || "",
+    workMode: job.workMode || job.mode || "Hybrid",
+    experience: job.experience || "",
+    salaryMin: job.salaryMin ? String(job.salaryMin) : "",
+    salaryMax: job.salaryMax ? String(job.salaryMax) : "",
+    overview: job.overview || "",
+    requirements: job.requirements || "",
+    status: normalizeFormStatus(job.status),
+  });
+
+  const buildJobPayload = () => ({
+    companyId: jobForm.companyId,
+    title: jobForm.title,
+    stream: jobForm.stream,
+    category: jobForm.category,
+    subCategory: jobForm.subCategory,
+    city: jobForm.city,
+    state: jobForm.state,
+    workMode: jobForm.workMode,
+    experience: jobForm.experience,
+    salaryMin: Number(jobForm.salaryMin || 0),
+    salaryMax: Number(jobForm.salaryMax || 0),
+    overview: jobForm.overview,
+    requirements: jobForm.requirements,
+    status: jobForm.status,
+  });
 
   const handleFilterChange = (key, value) => {
     setFilters((prev) => {
@@ -245,19 +306,86 @@ export default function Jobs() {
       setDrawerLoading(false);
     }
   };
-  const handleEdit = (job) => nav(`/admin/jobs/${job.id}`);
+  const openCreateJob = () => {
+    if (!isMyJobs) return;
+    setEditingJobId("");
+    setJobForm(createEmptyJobForm(companyOptions[0]?.id || ""));
+    setAddOpen(true);
+  };
+
+  const closeJobModal = () => {
+    setAddOpen(false);
+    setEditingJobId("");
+  };
+
+  const handleEdit = async (job) => {
+    if (!isMyJobs) return;
+    const id = job?.id || job?._id;
+    if (!id) return;
+
+    setEditingJobId(id);
+    setAddOpen(true);
+    setAddingJob(true);
+    setError("");
+    try {
+      const res = await adminGetJobDetails(id);
+      setJobForm(toJobForm(res?.raw || res?.job || job));
+    } catch (e) {
+      setJobForm(toJobForm(job));
+      setError(e?.response?.data?.message || e?.message || "Failed to load job for editing.");
+    } finally {
+      setAddingJob(false);
+    }
+  };
 
   const handleToggleStatus = async (job, nextStatus) => {
     const id = job?.id || job?._id;
     if (!id) return;
+
+    const jobTitle = job?.title || "this job";
+    const actionCopy =
+      nextStatus === "disabled"
+        ? {
+            title: "Suspend Job?",
+            text: `Suspend "${jobTitle}"? Students will not be able to apply until it is activated again.`,
+            confirmButtonText: "Suspend",
+            success: `"${jobTitle}" suspended successfully.`,
+          }
+        : nextStatus === "active"
+        ? {
+            title: "Activate Job?",
+            text: `Activate "${jobTitle}"? Students will be able to apply again.`,
+            confirmButtonText: "Activate",
+            success: `"${jobTitle}" activated successfully.`,
+          }
+        : {
+            title: "Close Job?",
+            text: `Close "${jobTitle}"? Students will no longer be able to apply for this job.`,
+            confirmButtonText: "Close",
+            success: `"${jobTitle}" closed successfully.`,
+          };
+
+    const ok = await showSweetConfirm({
+      title: actionCopy.title,
+      text: actionCopy.text,
+      confirmButtonText: actionCopy.confirmButtonText,
+      cancelButtonText: "Cancel",
+      tone: "warning",
+      focusCancel: true,
+    });
+    if (!ok) return;
+
     try {
       await adminToggleJobStatus(id, nextStatus);
       setJobs((prev) => prev.map((x) => (x.id === id ? { ...x, status: nextStatus } : x)));
       setSelectedJob((prev) =>
         prev && (String(prev.id || prev._id) === String(id)) ? { ...prev, status: nextStatus } : prev,
       );
+      void showSweetToast(actionCopy.success, "success", { timer: 1600 });
     } catch (e) {
-      setError(e?.response?.data?.message || e?.message || "Failed to update status.");
+      const message = e?.response?.data?.message || e?.message || "Failed to update status.";
+      setError(message);
+      void showSweetToast(message, "error", { timer: 1800 });
     }
   };
 
@@ -279,13 +407,48 @@ export default function Jobs() {
         setSelectedJob(null);
         setDrawerOpen(false);
       }
+      void showSweetToast(`"${job.title}" deleted successfully.`, "success", { timer: 1600 });
     } catch (e) {
-      setError(e?.response?.data?.message || e?.message || "Failed to delete job.");
+      const message = e?.response?.data?.message || e?.message || "Failed to delete job.";
+      setError(message);
+      void showSweetToast(message, "error", { timer: 1800 });
     }
   };
 
   const applyBulkAction = async () => {
     if (!selectedIds.length) return;
+
+    const actionCopy =
+      bulkAction === "delete"
+        ? {
+            title: "Delete Selected Jobs?",
+            text: `Delete ${selectedIds.length} selected jobs? This cannot be undone.`,
+            confirmButtonText: "Delete selected",
+            success: `${selectedIds.length} jobs deleted successfully.`,
+          }
+        : bulkAction === "close"
+        ? {
+            title: "Close Selected Jobs?",
+            text: `Close ${selectedIds.length} selected jobs? Students will no longer be able to apply.`,
+            confirmButtonText: "Close selected",
+            success: `${selectedIds.length} jobs closed successfully.`,
+          }
+        : {
+            title: "Suspend Selected Jobs?",
+            text: `Suspend ${selectedIds.length} selected jobs? Students will not be able to apply until they are activated again.`,
+            confirmButtonText: "Suspend selected",
+            success: `${selectedIds.length} jobs suspended successfully.`,
+          };
+
+    const ok = await showSweetConfirm({
+      title: actionCopy.title,
+      text: actionCopy.text,
+      confirmButtonText: actionCopy.confirmButtonText,
+      cancelButtonText: "Cancel",
+      tone: "warning",
+      focusCancel: true,
+    });
+    if (!ok) return;
 
     try {
       if (bulkAction === "delete") {
@@ -300,8 +463,11 @@ export default function Jobs() {
         );
       }
       setSelectedIds([]);
+      void showSweetToast(actionCopy.success, "success", { timer: 1600 });
     } catch (e) {
-      setError(e?.response?.data?.message || e?.message || "Bulk action failed.");
+      const message = e?.response?.data?.message || e?.message || "Bulk action failed.";
+      setError(message);
+      void showSweetToast(message, "error", { timer: 1800 });
     }
   };
 
@@ -345,7 +511,7 @@ export default function Jobs() {
     URL.revokeObjectURL(url);
   };
 
-  const onCreateJob = async () => {
+  const onSaveJob = async () => {
     if (!jobForm.companyId || !jobForm.title.trim()) {
       setError("Company and job title are required.");
       return;
@@ -353,39 +519,23 @@ export default function Jobs() {
     setAddingJob(true);
     setError("");
     try {
-      await adminCreateJob({
-        companyId: jobForm.companyId,
-        title: jobForm.title,
-        stream: jobForm.stream,
-        category: jobForm.category,
-        subCategory: jobForm.subCategory,
-        city: jobForm.city,
-        state: jobForm.state,
-        workMode: jobForm.workMode,
-        experience: jobForm.experience,
-        salaryMin: Number(jobForm.salaryMin || 0),
-        salaryMax: Number(jobForm.salaryMax || 0),
-        overview: jobForm.overview,
-        requirements: jobForm.requirements,
-        status: jobForm.status,
-      });
-      setAddOpen(false);
-      setJobForm((prev) => ({
-        ...prev,
-        title: "",
-        city: "",
-        state: "",
-        experience: "Fresher",
-        salaryMin: "",
-        salaryMax: "",
-        overview: "",
-        requirements: "",
-      }));
+      const payload = buildJobPayload();
+      if (editingJobId) {
+        const res = await adminUpdateJob(editingJobId, payload);
+        const updated = res?.job;
+        if (updated?.id) {
+          setJobs((prev) => prev.map((job) => (job.id === updated.id ? updated : job)));
+        }
+      } else {
+        await adminCreateJob(payload);
+      }
+      closeJobModal();
+      setJobForm(createEmptyJobForm(companyOptions[0]?.id || ""));
       setPage(1);
       // trigger reload
       setFilters((prev) => ({ ...prev }));
     } catch (e) {
-      setError(e?.response?.data?.message || e?.message || "Failed to add job.");
+      setError(e?.response?.data?.message || e?.message || "Failed to save job.");
     } finally {
       setAddingJob(false);
     }
@@ -394,9 +544,9 @@ export default function Jobs() {
   return (
     <div className="space-y-6">
       <section>
-        <h1 className="text-2xl font-bold text-[#0F172A] sm:text-3xl">Jobs Management</h1>
-        <p className="mt-1 text-sm text-slate-500">Monitor and manage all job postings across companies</p>
-        <p className="mt-2 text-xs font-medium text-slate-400">Dashboard &gt; Jobs</p>
+        <h1 className="text-2xl font-bold text-[#0F172A] sm:text-3xl">{pageTitle}</h1>
+        <p className="mt-1 text-sm text-slate-500">{pageSubtitle}</p>
+        <p className="mt-2 text-xs font-medium text-slate-400">Dashboard &gt; {breadcrumbLabel}</p>
       </section>
 
       {error ? (
@@ -411,7 +561,7 @@ export default function Jobs() {
         onChange={handleFilterChange}
         onReset={handleReset}
         onExport={handleExport}
-        onAdd={() => setAddOpen(true)}
+        onAdd={isMyJobs ? openCreateJob : undefined}
         onOpenAdvanced={() => setAdvancedOpen(true)}
       />
 
@@ -420,6 +570,33 @@ export default function Jobs() {
         <StatCard title="Active Jobs" value={stats.active} trend="Live backend data" icon={<FiCheckCircle />} />
         <StatCard title="Closed Jobs" value={stats.closed} trend="Live backend data" icon={<FiTrendingUp />} />
         <StatCard title="Jobs Disabled by Admin" value={stats.disabled} trend="Live backend data" icon={<FiLock />} />
+      </section>
+
+      <section className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-[#0F172A]">Choose View</p>
+          <p className="text-xs text-slate-500">Switch between the compact table and a friendly card layout.</p>
+        </div>
+        <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+          <button
+            type="button"
+            onClick={() => setViewMode("table")}
+            className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+              viewMode === "table" ? "bg-white text-[#2563EB] shadow-sm" : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <FiList /> Table
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("cards")}
+            className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold transition ${
+              viewMode === "cards" ? "bg-white text-[#2563EB] shadow-sm" : "text-slate-500 hover:text-slate-800"
+            }`}
+          >
+            <FiGrid /> Cards
+          </button>
+        </div>
       </section>
 
       {selectedIds.length ? (
@@ -454,16 +631,26 @@ export default function Jobs() {
         </div>
       ) : (
         <>
-          <JobsTable
-            rows={jobs}
-            selectedIds={selectedIds}
-            onToggleSelect={handleRowSelect}
-            onToggleSelectAll={handleTogglePageSelect}
-            onOpen={handleOpen}
-            onEdit={handleEdit}
-            onToggle={handleToggleStatus}
-            onDelete={handleDelete}
-          />
+          {viewMode === "table" ? (
+            <JobsTable
+              rows={jobs}
+              selectedIds={selectedIds}
+              onToggleSelect={handleRowSelect}
+              onToggleSelectAll={handleTogglePageSelect}
+              onOpen={handleOpen}
+              onEdit={isMyJobs ? handleEdit : undefined}
+              onToggle={handleToggleStatus}
+              onDelete={handleDelete}
+            />
+          ) : (
+            <JobCardGrid
+              rows={jobs}
+              onOpen={handleOpen}
+              onEdit={isMyJobs ? handleEdit : undefined}
+              onToggle={handleToggleStatus}
+              onDelete={handleDelete}
+            />
+          )}
 
           <div className="flex items-center justify-between">
             <div className="text-sm text-slate-500">
@@ -547,15 +734,15 @@ export default function Jobs() {
       </Modal>
 
       <Modal
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        title="Add Job"
+        open={isMyJobs && addOpen}
+        onClose={closeJobModal}
+        title={editingJobId ? "Edit Job" : "Add Job"}
         widthClass="max-w-3xl"
         footer={
           <>
             <button
               type="button"
-              onClick={() => setAddOpen(false)}
+              onClick={closeJobModal}
               className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
               Cancel
@@ -563,10 +750,10 @@ export default function Jobs() {
             <button
               type="button"
               disabled={addingJob}
-              onClick={onCreateJob}
+              onClick={onSaveJob}
               className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
             >
-              {addingJob ? "Saving..." : "Create Job"}
+              {addingJob ? "Saving..." : editingJobId ? "Update Job" : "Create Job"}
             </button>
           </>
         }
@@ -696,6 +883,19 @@ export default function Jobs() {
               onChange={(e) => setJobForm((p) => ({ ...p, salaryMax: e.target.value }))}
               className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3"
             />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Job Status
+            <select
+              value={jobForm.status}
+              onChange={(e) => setJobForm((p) => ({ ...p, status: e.target.value }))}
+              className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-3"
+            >
+              <option value="active">Active</option>
+              <option value="disabled">Disabled</option>
+              <option value="closed">Closed</option>
+              <option value="draft">Draft</option>
+            </select>
           </label>
           <label className="text-sm font-medium text-slate-700 md:col-span-2">
             Overview

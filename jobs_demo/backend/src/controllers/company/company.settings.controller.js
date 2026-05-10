@@ -105,6 +105,7 @@ export async function companyGetSettingsMe(req, res) {
         size: company.size,
         founded: company.founded,
         logoUrl: company.logoUrl,
+        profileAudience: company.profileAudience,
 
         email: company.email,
         phone: company.phone,
@@ -117,6 +118,10 @@ export async function companyGetSettingsMe(req, res) {
 
         about: company.about,
         mission: company.mission,
+        culture: company.culture,
+        perks: company.perks,
+        hiringProcess: company.hiringProcess,
+        studentMessage: company.studentMessage,
 
         preferences: company.preferences || {},
         teamMembers: company.teamMembers || [],
@@ -152,6 +157,7 @@ export async function companyUpdateProfile(req, res) {
       "size",
       "founded",
       "logoUrl",
+      "profileAudience",
       "email",
       "phone",
       "hrEmail",
@@ -162,6 +168,10 @@ export async function companyUpdateProfile(req, res) {
       "location",
       "about",
       "mission",
+      "culture",
+      "perks",
+      "hiringProcess",
+      "studentMessage",
       "category",
     ];
 
@@ -171,6 +181,9 @@ export async function companyUpdateProfile(req, res) {
     if (typeof update.name === "string") update.name = update.name.trim();
     if (typeof update.website === "string") update.website = update.website.trim();
     if (typeof update.hrEmail === "string") update.hrEmail = update.hrEmail.trim();
+    if (update.profileAudience && !["company", "student", "both"].includes(update.profileAudience)) {
+      update.profileAudience = "both";
+    }
 
     Object.assign(company, update);
     await company.save();

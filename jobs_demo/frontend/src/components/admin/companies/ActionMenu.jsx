@@ -1,4 +1,4 @@
-import { FiEdit2, FiEye, FiPower, FiTrash2 } from "react-icons/fi";
+import { FiEye, FiPower, FiTrash2 } from "react-icons/fi";
 
 function IconButton({ label, onClick, tone = "default", icon }) {
   const tones = {
@@ -19,13 +19,12 @@ function IconButton({ label, onClick, tone = "default", icon }) {
   );
 }
 
-export default function ActionMenu({ row, onView, onEdit, onToggleStatus, onDelete }) {
-  const active = String(row?.status || "").toLowerCase() === "active";
+export default function ActionMenu({ row, onView, onToggleStatus, onDelete }) {
+  const active = row?.isActive === true || (row?.isActive !== false && String(row?.status || "").toLowerCase() === "active");
 
   return (
     <div className="flex items-center justify-end gap-2">
       <IconButton label="View" onClick={onView} icon={<FiEye />} />
-      <IconButton label="Edit" onClick={onEdit} icon={<FiEdit2 />} />
       <IconButton
         label={active ? "Suspend" : "Activate"}
         onClick={onToggleStatus}

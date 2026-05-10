@@ -11,6 +11,7 @@ import {
   FiStar,
   FiMapPin,
 } from "react-icons/fi";
+import { toAbsoluteMediaUrl } from "../../../utils/media.js";
 
 function initials(name = "") {
   return name
@@ -24,8 +25,9 @@ function initials(name = "") {
 
 function Avatar({ name, logoUrl, size = 36 }) {
   const cls = "rounded-xl object-cover ring-1 ring-black/5";
-  if (logoUrl) {
-    return <img src={logoUrl} alt={name || "Company"} style={{ width: size, height: size }} className={cls} />;
+  const src = toAbsoluteMediaUrl(logoUrl || "");
+  if (src) {
+    return <img src={src} alt={name || "Company"} style={{ width: size, height: size }} className={cls} />;
   }
   return (
     <div

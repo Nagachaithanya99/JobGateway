@@ -12,6 +12,7 @@ const applicationSchema = new mongoose.Schema(
     },
     topSkills: [{ type: String }],
     experienceText: { type: String, default: "" },
+    meta: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
   { timestamps: true }
 );

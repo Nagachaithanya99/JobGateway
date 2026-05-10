@@ -2,9 +2,9 @@
 import Application from "../../models/Application.js";
 import Job from "../../models/Job.js";
 import Interview from "../../models/Interview.js";
-import Subscription from "../../models/Subscription.js";
 import Company from "../../models/Company.js";
 import MessageThread from "../../models/MessageThread.js";
+import { ensureSubscription } from "../../services/paymentActivation.js";
 
 function dateOnly(value) {
   if (!value) return "-";
@@ -34,7 +34,6 @@ export const getCompanyDashboard = async (req, res, next) => {
       shortlisted,
       interviewsScheduled,
       newToday,
-      subscriptionDoc,
       unreadAgg,
     ] = await Promise.all([
       Company.findOne({ ownerUserId: companyId }).lean(),
@@ -43,12 +42,12 @@ export const getCompanyDashboard = async (req, res, next) => {
       Application.countDocuments({ company: companyId, status: "Shortlisted" }),
       Application.countDocuments({ company: companyId, status: "Interview Scheduled" }),
       Application.countDocuments({ company: companyId, createdAt: { $gte: today } }),
-      Subscription.findOne({ company: companyId }).lean(),
       MessageThread.aggregate([
         { $match: { company: companyId } },
         { $group: { _id: null, total: { $sum: "$companyUnread" } } },
       ]),
     ]);
+    const subscriptionDoc = await ensureSubscription(companyId);
 
     const unreadMessages = Number(unreadAgg?.[0]?.total || 0);
 
@@ -165,10 +164,10 @@ export const getCompanyDashboard = async (req, res, next) => {
       status: subscriptionDoc?.status === "active" ? "Active" : "Inactive",
       startDate: dateOnly(subscriptionDoc?.start),
       endDate: dateOnly(subscriptionDoc?.end),
-      jobsLimit: Number(subscriptionDoc?.jobsLimit || 1),
-      jobsUsed: Number(subscriptionDoc?.jobsUsed || activeJobs),
-      applicationsLimit: Number(subscriptionDoc?.appsLimit || 100),
-      applicationsUsed: Number(subscriptionDoc?.appsUsed || totalApplications),
+      jobsLimit: Number(subscriptionDoc?.jobsLimit ?? 0),
+      jobsUsed: Number(subscriptionDoc?.jobsUsed ?? activeJobs),
+      applicationsLimit: Number(subscriptionDoc?.appsLimit ?? 0),
+      applicationsUsed: Number(subscriptionDoc?.appsUsed ?? totalApplications),
     };
 
     return res.json({

@@ -10,6 +10,17 @@ import SpamReport from "../../models/SpamReport.js";
    Helpers
 ========================= */
 function mapThreadToUI(t) {
+  const personal = t.student?.studentProfile?.personal || {};
+  const avatar =
+    t.student?.avatarUrl ||
+    t.student?.avatar ||
+    t.student?.profilePhoto ||
+    t.student?.profileImageUrl ||
+    t.student?.imageUrl ||
+    personal?.avatarUrl ||
+    personal?.profileImageUrl ||
+    "";
+
   return {
     id: t._id,
     applicationId: t.application || "",
@@ -17,6 +28,8 @@ function mapThreadToUI(t) {
     email: t.student?.email || "",
     candidateEmail: t.student?.email || "",
     candidate: t.student?.name || "Candidate",
+    avatar,
+    avatarUrl: avatar,
     job: t.job?.title || t.subject || "-",
     status: t.status || "Applied",
     unread: t.companyUnread || 0,
@@ -65,7 +78,7 @@ export async function listCompanyThreads(req, res) {
       .sort({ lastMessageAt: -1, updatedAt: -1 })
       .skip(skip)
       .limit(Number(limit))
-      .populate("student", "name email")
+      .populate("student", "name email studentProfile avatarUrl avatar profilePhoto profileImageUrl imageUrl")
       .populate("job", "title"),
     MessageThread.countDocuments(query),
   ]);
@@ -94,7 +107,7 @@ export async function getCompanyThread(req, res) {
   }
 
   const thread = await MessageThread.findOne({ _id: id, company: companyId, source: "application" })
-    .populate("student", "name email")
+    .populate("student", "name email studentProfile avatarUrl avatar profilePhoto profileImageUrl imageUrl")
     .populate("job", "title");
 
   if (!thread) return res.status(404).json({ message: "Thread not found" });
@@ -122,13 +135,13 @@ export async function createCompanyThread(req, res) {
 
   const app = await Application.findOne({ _id: applicationId, company: companyId })
     .populate("job", "title")
-    .populate("student", "name email");
+    .populate("student", "name email studentProfile avatarUrl avatar profilePhoto profileImageUrl imageUrl");
 
   if (!app) return res.status(404).json({ message: "Application not found" });
 
   // find existing
   let thread = await MessageThread.findOne({ application: app._id, source: "application" })
-    .populate("student", "name email")
+    .populate("student", "name email studentProfile avatarUrl avatar profilePhoto profileImageUrl imageUrl")
     .populate("job", "title");
 
   if (!thread) {
@@ -154,7 +167,7 @@ export async function createCompanyThread(req, res) {
     });
 
     thread = await MessageThread.findById(thread._id)
-      .populate("student", "name email")
+      .populate("student", "name email studentProfile avatarUrl avatar profilePhoto profileImageUrl imageUrl")
       .populate("job", "title");
   }
 
@@ -348,7 +361,7 @@ export async function reportCompanyThreadSpam(req, res) {
   }
 
   const thread = await MessageThread.findOne({ _id: id, company: companyId, source: "application" })
-    .populate("student", "name")
+    .populate("student", "name studentProfile avatarUrl avatar profilePhoto profileImageUrl imageUrl")
     .populate("job", "title")
     .lean();
   if (!thread) return res.status(404).json({ message: "Thread not found" });

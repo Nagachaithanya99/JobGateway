@@ -47,7 +47,10 @@ function normalizeRow(jobDoc) {
     stream: jobDoc.stream || jobDoc.mainStream || "-",
     category: jobDoc.category || "-",
     location: jobDoc.location || "-",
-    salary: jobDoc.salary || "-",
+    salary:
+      jobDoc.salary ||
+      jobDoc.salaryText ||
+      (jobDoc.salaryMin || jobDoc.salaryMax ? `${jobDoc.salaryMin || 0} - ${jobDoc.salaryMax || 0}` : "-"),
     experience: jobDoc.experience || "-",
     applications,
     status: normalizeStatusOut(jobDoc.status),
@@ -62,6 +65,14 @@ function buildMode(workMode = "") {
   if (raw === "remote") return "Remote";
   if (raw === "on-site" || raw === "onsite") return "Onsite";
   return "Hybrid";
+}
+
+function hasOwn(data, key) {
+  return Object.prototype.hasOwnProperty.call(data, key);
+}
+
+function cleanText(value = "") {
+  return String(value || "").trim();
 }
 
 export const adminCreateJob = async (req, res, next) => {
@@ -116,6 +127,8 @@ export const adminCreateJob = async (req, res, next) => {
       overview,
       requirements,
       status: status === "all" ? "Active" : status,
+      createdByRole: "admin",
+      createdByAdmin: true,
       oneClickApply: true,
       requireResume: true,
     });
@@ -145,6 +158,7 @@ export const adminListJobs = async (req, res, next) => {
       location = "all",
       minApplications = "",
       postedAfter = "",
+      source = "all",
       page = "1",
       limit = "50",
     } = req.query;
@@ -154,6 +168,18 @@ export const adminListJobs = async (req, res, next) => {
     const skip = (pg - 1) * lim;
 
     const filter = {};
+    const sourceKey = String(source || "all").toLowerCase();
+    if (sourceKey === "admin") {
+      filter.$and = filter.$and || [];
+      filter.$and.push({
+        $or: [{ createdByRole: "admin" }, { createdByAdmin: true }],
+      });
+    } else if (sourceKey === "company") {
+      filter.$and = filter.$and || [];
+      filter.$and.push({
+        $or: [{ createdByRole: { $exists: false } }, { createdByRole: "company" }, { createdByAdmin: false }],
+      });
+    }
 
     const normStatus = normalizeStatusIn(status);
     if (normStatus !== "all") filter.status = normStatus;
@@ -234,6 +260,107 @@ export const adminGetJobById = async (req, res, next) => {
     if (!job) return res.status(404).json({ message: "Job not found" });
 
     return res.json({ job: normalizeRow(job), raw: job });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const adminUpdateJob = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const data = req.body || {};
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Valid job id is required" });
+    }
+
+    const existing = await Job.findById(id).lean();
+    if (!existing) return res.status(404).json({ message: "Job not found" });
+
+    const update = {};
+
+    if (hasOwn(data, "companyId")) {
+      const companyId = cleanText(data.companyId);
+      if (!mongoose.Types.ObjectId.isValid(companyId)) {
+        return res.status(400).json({ message: "Valid company is required" });
+      }
+
+      const company = await User.findOne({ _id: companyId, role: "company", deletedAt: null }).lean();
+      if (!company) {
+        return res.status(404).json({ message: "Company not found" });
+      }
+      update.company = company._id;
+    }
+
+    if (hasOwn(data, "title")) {
+      const title = cleanText(data.title);
+      if (!title) return res.status(400).json({ message: "Job title is required" });
+      update.title = title;
+    }
+
+    [
+      "stream",
+      "category",
+      "subCategory",
+      "city",
+      "state",
+      "experience",
+      "overview",
+      "requirements",
+    ].forEach((key) => {
+      if (hasOwn(data, key)) update[key] = cleanText(data[key]);
+    });
+
+    if (hasOwn(data, "workMode")) {
+      update.workMode = cleanText(data.workMode || "Hybrid");
+      update.mode = buildMode(update.workMode);
+    }
+
+    if (hasOwn(data, "status")) {
+      const status = normalizeStatusIn(data.status || "active");
+      const allowed = ["Active", "Disabled", "Closed", "Draft"];
+      if (!allowed.includes(status)) {
+        return res.status(400).json({ message: `Invalid status. Allowed: ${allowed.join(", ")}` });
+      }
+      update.status = status;
+    }
+
+    if (hasOwn(data, "salaryMin")) {
+      update.salaryMin = Number(data.salaryMin || 0);
+    }
+    if (hasOwn(data, "salaryMax")) {
+      update.salaryMax = Number(data.salaryMax || 0);
+    }
+
+    const nextCity = hasOwn(update, "city") ? update.city : existing.city || "";
+    const nextState = hasOwn(update, "state") ? update.state : existing.state || "";
+    if (hasOwn(data, "location")) {
+      update.location = cleanText(data.location);
+    } else if (hasOwn(update, "city") || hasOwn(update, "state")) {
+      update.location = [nextCity, nextState].filter(Boolean).join(", ");
+    }
+
+    const nextSalaryMin = hasOwn(update, "salaryMin") ? update.salaryMin : Number(existing.salaryMin || 0);
+    const nextSalaryMax = hasOwn(update, "salaryMax") ? update.salaryMax : Number(existing.salaryMax || 0);
+    if (hasOwn(data, "salaryText")) {
+      update.salaryText = cleanText(data.salaryText);
+    } else if (hasOwn(update, "salaryMin") || hasOwn(update, "salaryMax")) {
+      update.salaryText = nextSalaryMin || nextSalaryMax ? `${nextSalaryMin || 0} - ${nextSalaryMax || 0}` : "";
+    }
+
+    if (Array.isArray(data.skills)) {
+      update.skills = data.skills.map((skill) => cleanText(skill)).filter(Boolean);
+    }
+
+    const job = await Job.findByIdAndUpdate(id, { $set: update }, { returnDocument: "after", runValidators: true })
+      .populate("company", "name companyName email phone website")
+      .lean();
+
+    return res.json({
+      ok: true,
+      job: normalizeRow(job),
+      raw: job,
+    });
   } catch (err) {
     next(err);
   }

@@ -70,7 +70,7 @@ function normalizeStudents(rows = []) {
   return rows.map((row) => ({
     ...row,
     registrationDate: row.registrationDate || row.createdAt || "",
-    avatar: row.avatar || row.profilePhoto || "",
+    avatar: row.avatar || row.avatarUrl || row.profilePhoto || row.profileImageUrl || row.imageUrl || "",
   }));
 }
 
@@ -492,7 +492,7 @@ export default function Students() {
                   <div className="rounded-2xl border border-slate-200 bg-white p-4">
                     <div className="flex items-start gap-3">
                       <img
-                        src={`https://ui-avatars.com/api/?name=${encodeURIComponent(selectedStudent.name || "Student")}&background=DBEAFE&color=2563EB&bold=true`}
+                        src={selectedStudent.avatar || selectedStudent.avatarUrl || selectedStudent.profilePhoto || selectedStudent.profileImageUrl || selectedStudent.imageUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedStudent.name || "Student")}&background=DBEAFE&color=2563EB&bold=true`}
                         alt={selectedStudent.name}
                         className="h-14 w-14 rounded-full border border-slate-200 object-cover"
                       />

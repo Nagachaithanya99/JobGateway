@@ -1,7 +1,6 @@
 // backend/src/app.js
 import express from "express";
 import cors from "cors";
-import path from "path";
 
 import requireAuth from "./middleware/requireAuth.js";
 import errorHandler from "./middleware/errorHandler.js";
@@ -41,6 +40,7 @@ import studentAdsRoutes from "./routes/student/student.ads.routes.js";
 
 // Admin
 import adminDashboardRoutes from "./routes/admin/admin.dashboard.routes.js";
+import adminAuthRoutes from "./routes/admin/admin.auth.routes.js";
 import adminCompaniesRoutes from "./routes/admin/admin.companies.routes.js";
 import adminJobsRoutes from "./routes/admin/admin.jobs.routes.js";
 import adminApplicantsRoutes from "./routes/admin/admin.applicants.routes.js";
@@ -60,8 +60,15 @@ import contentRoutes from "./routes/content.routes.js";
 import uploadsRoutes from "./routes/uploads.routes.js";
 import preferencesRoutes from "./routes/preferences.routes.js";
 import socialRoutes from "./routes/social.routes.js";
+import { resolveUploadedFilePath } from "./utils/uploadPaths.js";
 
 const app = express();
+
+function isAllowedOrigin(origin = "") {
+  if (!origin) return true;
+  if (allowedOrigins.includes(origin)) return true;
+  return /^https:\/\/job-gateway(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(String(origin).trim());
+}
 
 const allowedOrigins = [
   ...new Set([
@@ -76,7 +83,7 @@ const allowedOrigins = [
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
+      if (isAllowedOrigin(origin)) {
         return callback(null, true);
       }
       return callback(new Error("Not allowed by CORS"));
@@ -86,12 +93,26 @@ app.use(
 );
 app.use(express.json());
 
-// ✅ Serve uploaded files publicly
-app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
+// Serve uploaded files publicly from stable and legacy upload directories.
+app.use("/uploads", (req, res, next) => {
+  if (!["GET", "HEAD"].includes(req.method)) {
+    return res.sendStatus(405);
+  }
+
+  const filePath = resolveUploadedFilePath(req.path);
+  if (!filePath) {
+    return res.status(404).type("text/plain").send(`Upload not found: ${req.path}`);
+  }
+
+  return res.sendFile(filePath, (err) => {
+    if (err) next(err);
+  });
+});
 
 // Public content endpoints (About/Contact/Home sections) must be accessible without auth
 app.use("/api/content", contentRoutes);
 app.get("/api/health", (req, res) => res.json({ ok: true }));
+app.use("/api/admin", adminAuthRoutes);
 
 // ✅ Clerk middleware (global) — must be BEFORE routes
 app.use(requireAuth);

@@ -12,6 +12,63 @@ function toId(x) {
   }
 }
 
+function safeStr(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function safeObj(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+}
+
+function safeArr(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function firstNonEmpty(...values) {
+  for (const value of values) {
+    const next = safeStr(value);
+    if (next) return next;
+  }
+  return "";
+}
+
+function getStudentAvatar(user = {}) {
+  const personal = safeObj(safeObj(user.studentProfile).personal);
+  return firstNonEmpty(
+    user.avatarUrl,
+    user.avatar,
+    user.profilePhoto,
+    user.profileImageUrl,
+    user.imageUrl,
+    personal.avatarUrl,
+    personal.profileImageUrl,
+  );
+}
+
+function hasStructuredResume(resume = {}) {
+  const doc = safeObj(resume);
+  const personal = safeObj(doc.personal);
+
+  return Boolean(
+    firstNonEmpty(personal.name, personal.email, personal.phone, doc.summary) ||
+      safeArr(doc.education).length ||
+      safeArr(doc.skills).length ||
+      safeArr(doc.experience).length ||
+      safeArr(doc.projects).length ||
+      safeArr(doc.certs).length,
+  );
+}
+
+function buildCompanyName(companyUser = {}) {
+  return companyUser?.companyName || companyUser?.name || companyUser?.email || "";
+}
+
+function getJobSource(jobDoc = {}) {
+  const createdByRole = String(jobDoc?.createdByRole || "").toLowerCase();
+  if (jobDoc?.createdByAdmin === true || createdByRole === "admin") return "admin";
+  return "company";
+}
+
 /**
  * Compute a simple completion score (0-100)
  * Based on studentProfile sections + resumeUrl
@@ -86,12 +143,14 @@ function normalizeStudent(user, applications = []) {
   // map applications for details page
   const apps = (applications || []).map((a) => ({
     id: toId(a),
-    status: a.status, // will be "Applied" | "Shortlisted" | ...
+    status: a.status,
     date: a.createdAt ? new Date(a.createdAt).toISOString().slice(0, 10) : "",
     jobTitle: a.job?.title || a.jobTitle || "",
-    company: a.job?.companyName || a.companyName || "",
+    company: buildCompanyName(safeObj(a.job?.company)) || a.companyName || "",
     category: a.job?.category || "",
     stream: a.job?.stream || "",
+    source: getJobSource(a.job),
+    sourceLabel: getJobSource(a.job) === "admin" ? "Admin Job" : "Company Job",
   }));
 
   return {
@@ -105,6 +164,9 @@ function normalizeStudent(user, applications = []) {
     linkedin: user.linkedin || "",
     portfolio: user.portfolio || "",
     resumeUrl: user.resumeUrl || "",
+    resumeData: hasStructuredResume(user.resume) ? user.resume : null,
+    avatar: getStudentAvatar(user),
+    avatarUrl: getStudentAvatar(user),
 
     status,
     isActive: !!user.isActive,
@@ -243,7 +305,11 @@ export async function adminGetStudent(req, res) {
   // applications list
   const applications = await Application.find({ student: id })
     .sort({ createdAt: -1 })
-    .populate("job", "title companyName location stream category")
+    .populate({
+      path: "job",
+      select: "title location stream category company createdByRole createdByAdmin",
+      populate: { path: "company", select: "name companyName email" },
+    })
     .lean();
 
   return res.json(normalizeStudent(student, applications));

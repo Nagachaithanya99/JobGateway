@@ -1,5 +1,7 @@
 import Subscription from "../models/Subscription.js";
 import User from "../models/User.js";
+import Job from "../models/Job.js";
+import Plan from "../models/Plan.js";
 
 const DAYS_30 = 30 * 24 * 60 * 60 * 1000;
 const DAYS_365 = 365 * 24 * 60 * 60 * 1000;
@@ -41,6 +43,31 @@ export function mapCompanyPlanForUi(planDoc) {
   };
 }
 
+function resolvePlanLimitsForCycle(planDoc, cycle = "monthly") {
+  const mapped = mapCompanyPlanForUi(planDoc);
+  return cycle === "yearly" ? mapped.yearly : mapped.monthly;
+}
+
+export async function syncSubscriptionPlanLimits(sub) {
+  if (!sub?.planName) return sub;
+
+  const planDoc = await Plan.findOne({ name: sub.planName }).lean();
+  if (!planDoc) return sub;
+
+  const limits = resolvePlanLimitsForCycle(planDoc, sub.billingCycle);
+  const nextJobsLimit = Number(limits.jobsLimit ?? sub.jobsLimit ?? 0);
+  const nextAppsLimit = Number(limits.appsLimit ?? sub.appsLimit ?? 0);
+  const jobsChanged = Number(sub.jobsLimit ?? 0) !== nextJobsLimit;
+  const appsChanged = Number(sub.appsLimit ?? 0) !== nextAppsLimit;
+
+  if (!jobsChanged && !appsChanged) return sub;
+
+  sub.jobsLimit = nextJobsLimit;
+  sub.appsLimit = nextAppsLimit;
+  await sub.save();
+  return sub;
+}
+
 export async function ensureSubscription(userId) {
   let sub = await Subscription.findOne({ company: userId });
   if (!sub) {
@@ -52,12 +79,13 @@ export async function ensureSubscription(userId) {
       start: null,
       end: null,
       status: "inactive",
-      jobsLimit: 1,
+      jobsLimit: 0,
       jobsUsed: 0,
-      appsLimit: 100,
+      appsLimit: 0,
       appsUsed: 0,
     });
   }
+  await syncSubscriptionPlanLimits(sub);
   return sub;
 }
 
@@ -69,8 +97,9 @@ export async function activateCompanySubscription({
   const billingCycle = cycle === "yearly" ? "yearly" : "monthly";
   const duration = billingCycle === "yearly" ? DAYS_365 : DAYS_30;
   const mapped = mapCompanyPlanForUi(plan);
-  const limits = billingCycle === "yearly" ? mapped.yearly : mapped.monthly;
+  const limits = resolvePlanLimitsForCycle(plan, billingCycle);
   const price = billingCycle === "yearly" ? mapped.yearlyPrice : mapped.monthlyPrice;
+  const activeJobs = await Job.countDocuments({ company: companyId, status: "Active" });
 
   const sub = await ensureSubscription(companyId);
   sub.planName = mapped.name;
@@ -81,7 +110,7 @@ export async function activateCompanySubscription({
   sub.end = new Date(Date.now() + duration);
   sub.jobsLimit = limits.jobsLimit;
   sub.appsLimit = limits.appsLimit;
-  sub.jobsUsed = 0;
+  sub.jobsUsed = activeJobs;
   sub.appsUsed = 0;
   await sub.save();
   return sub;

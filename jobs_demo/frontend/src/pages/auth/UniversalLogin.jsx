@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Card from "../../components/common/Card.jsx";
 import Input from "../../components/common/Input.jsx";
@@ -18,43 +18,31 @@ export default function UniversalLogin() {
 
   const role = useMemo(() => getRole(loc.search), [loc.search]);
 
+  useEffect(() => {
+    if (role === "admin") {
+      nav("/admin/login", { replace: true });
+    }
+  }, [nav, role]);
+
   const redirect = useMemo(() => {
     const p = new URLSearchParams(loc.search);
     const r = p.get("redirect");
     if (r) return r;
 
-    if (role === "admin") return "/admin/dashboard";
     if (role === "company") return "/company/dashboard";
     return "/student/home";
   }, [loc.search, role]);
 
-  const [email, setEmail] = useState(
-    role === "admin"
-      ? "admin@jobgateway.com"
-      : role === "company"
-      ? "company@test.com"
-      : "student@test.com"
-  );
-  const [password, setPassword] = useState(role === "admin" ? "admin123" : "123456");
+  const [email, setEmail] = useState(role === "company" ? "company@test.com" : "student@test.com");
+  const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
 
   const onSubmit = (e) => {
     e.preventDefault();
     setErr("");
 
-    // ✅ Admin demo credentials
     if (role === "admin") {
-      if (email !== "admin@jobgateway.com" || password !== "admin123") {
-        setErr("Invalid admin credentials");
-        return;
-      }
-
-      login({
-        token: "demo-admin-token",
-        user: { role: "admin", name: "Super Admin", email },
-      });
-
-      nav(redirect, { replace: true });
+      nav("/admin/login", { replace: true });
       return;
     }
 
@@ -88,11 +76,6 @@ export default function UniversalLogin() {
             Login
           </Button>
 
-          {role === "admin" && (
-            <p className="text-xs text-slate-500 pt-2">
-              Demo Admin: <b>admin@jobgateway.com</b> / <b>admin123</b>
-            </p>
-          )}
         </form>
       </Card>
     </div>

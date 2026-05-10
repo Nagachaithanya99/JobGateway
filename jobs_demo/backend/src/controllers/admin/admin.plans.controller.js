@@ -4,6 +4,7 @@ import Payment from "../../models/Payment.js";
 import PlanRequest from "../../models/PlanRequest.js";
 import Subscription from "../../models/Subscription.js";
 import User from "../../models/User.js";
+import { mapCompanyPlanForUi } from "../../services/paymentActivation.js";
 import { makeBillingAmounts } from "../../utils/billing.js";
 
 function toId(x) {
@@ -21,6 +22,151 @@ function addDays(dateLike, days) {
   const d = new Date(dateLike || Date.now());
   d.setDate(d.getDate() + Number(days || 0));
   return d;
+}
+
+function normalizeBillingCycle(cycle) {
+  return String(cycle || "").toLowerCase() === "yearly" ? "yearly" : "monthly";
+}
+
+function mapManualReviewStatus(status, subscriptionStatus) {
+  const raw = String(status || "pending").toLowerCase();
+  if (raw === "approved" && String(subscriptionStatus || "active").toLowerCase() === "inactive") {
+    return "inactive";
+  }
+  return raw;
+}
+
+function mapPaymentReviewStatus(status, subscriptionStatus) {
+  const raw = String(status || "created").toLowerCase();
+  if (raw === "paid") {
+    return String(subscriptionStatus || "active").toLowerCase() === "inactive" ? "inactive" : "approved";
+  }
+  if (raw === "failed") return "failed";
+  return "created";
+}
+
+function mapSubscriptionReviewStatus(status) {
+  return String(status || "").toLowerCase() === "active" ? "approved" : "inactive";
+}
+
+function getPlanBilling(plan, billingCycle = "monthly") {
+  const cycle = normalizeBillingCycle(billingCycle);
+  if (!plan) {
+    return {
+      billingCycle: cycle,
+      price: 0,
+      jobsLimit: 1,
+      appsLimit: 100,
+      durationDays: cycle === "yearly" ? 365 : 30,
+    };
+  }
+
+  const mapped = mapCompanyPlanForUi(plan);
+  const limits = cycle === "yearly" ? mapped.yearly : mapped.monthly;
+  return {
+    billingCycle: cycle,
+    price: cycle === "yearly" ? mapped.yearlyPrice : mapped.monthlyPrice,
+    jobsLimit: Number(limits.jobsLimit ?? 1),
+    appsLimit: Number(limits.appsLimit ?? 100),
+    durationDays: cycle === "yearly" ? 365 : Number(plan.durationDays || 30),
+  };
+}
+
+async function syncPlanLimitsToSubscriptions(plan) {
+  if (!plan?.name) return;
+
+  const subscriptions = await Subscription.find({ planName: plan.name })
+    .select("_id billingCycle jobsLimit appsLimit")
+    .lean();
+
+  if (!subscriptions.length) return;
+
+  const mapped = mapCompanyPlanForUi(plan);
+  const operations = subscriptions.map((subscription) => {
+    const cycle = normalizeBillingCycle(subscription.billingCycle);
+    const limits = cycle === "yearly" ? mapped.yearly : mapped.monthly;
+    return {
+      updateOne: {
+        filter: { _id: subscription._id },
+        update: {
+          $set: {
+            jobsLimit: Number(limits.jobsLimit ?? subscription.jobsLimit ?? 1),
+            appsLimit: Number(limits.appsLimit ?? subscription.appsLimit ?? 100),
+          },
+        },
+      },
+    };
+  });
+
+  if (operations.length) {
+    await Subscription.bulkWrite(operations);
+  }
+}
+
+async function activateSubscriptionForCompany({
+  companyId,
+  plan,
+  planName = "",
+  billingCycle = "monthly",
+  fallbackPrice = 0,
+  fallbackJobsLimit = 1,
+  fallbackAppsLimit = 100,
+}) {
+  const billing = getPlanBilling(plan, billingCycle);
+  const start = new Date();
+  const end = addDays(start, billing.durationDays);
+
+  await Subscription.findOneAndUpdate(
+    { company: companyId },
+    {
+      $set: {
+        planName: planName || plan?.name || "Plan",
+        billingCycle: billing.billingCycle,
+        price: Number(plan ? billing.price : fallbackPrice || 0),
+        start,
+        end,
+        status: "active",
+        jobsLimit: Number(plan ? billing.jobsLimit : fallbackJobsLimit),
+        appsLimit: Number(plan ? billing.appsLimit : fallbackAppsLimit),
+      },
+      $setOnInsert: {
+        jobsUsed: 0,
+        appsUsed: 0,
+      },
+    },
+    { upsert: true, returnDocument: "after" },
+  );
+
+  return {
+    activationDate: formatDate(start),
+    expiryDate: formatDate(end),
+  };
+}
+
+async function deactivateSubscriptionForCompany({ companyId, subscriptionId, planName = "" }) {
+  const filter = subscriptionId && mongoose.isValidObjectId(subscriptionId)
+    ? { _id: subscriptionId }
+    : {
+        company: companyId,
+        ...(planName ? { planName } : {}),
+      };
+
+  await Subscription.findOneAndUpdate(
+    filter,
+    { $set: { status: "inactive" } },
+    { returnDocument: "after" },
+  );
+}
+
+async function deleteSubscriptionForCompany({ companyId, subscriptionId, planName = "" }) {
+  const filter = subscriptionId && mongoose.isValidObjectId(subscriptionId)
+    ? { _id: subscriptionId }
+    : {
+        company: companyId,
+        ...(planName ? { planName } : {}),
+      };
+
+  await Subscription.findOneAndDelete(filter);
 }
 
 function normalizePlan(plan) {
@@ -95,6 +241,8 @@ export async function adminSavePlan(req, res, next) {
       }
     }
 
+    await syncPlanLimitsToSubscriptions(plan);
+
     return res.json({ ok: true, plan: normalizePlan(plan) });
   } catch (e) {
     next(e);
@@ -165,6 +313,8 @@ export async function adminListPlanRequests(req, res, next) {
         return {
           id: toId(r),
           companyId,
+          requestId: toId(r),
+          subscriptionId: toId(sub),
           companyName: r.company?.name || "Company",
           planId: toId(r.planId) || "",
           planName,
@@ -175,7 +325,7 @@ export async function adminListPlanRequests(req, res, next) {
           paymentMethod: "Manual",
           source: "manual",
           createdAt: formatDate(r.requestedAt || r.createdAt),
-          status: r.status || "pending",
+          status: mapManualReviewStatus(r.status, sub?.status),
           activationDate: sub && sub.status === "active" ? formatDate(sub.start) : "",
           expiryDate: sub && sub.status === "active" ? formatDate(sub.end) : "",
         };
@@ -184,14 +334,12 @@ export async function adminListPlanRequests(req, res, next) {
     const paymentRows = payments.map((p) => {
       const companyId = toId(p.user);
       const sub = subMap.get(companyId);
-      const statusMap = {
-        created: "pending",
-        paid: "approved",
-        failed: "rejected",
-      };
+      const rawPaymentStatus = String(p.status || "created").toLowerCase();
       return {
         id: toId(p),
         companyId,
+        paymentId: toId(p),
+        subscriptionId: toId(sub),
         companyName: p.user?.name || "Company",
         planId: toId(p.planId) || "",
         planName: p.planName || "",
@@ -203,7 +351,8 @@ export async function adminListPlanRequests(req, res, next) {
         paymentMethod: "Razorpay",
         source: "razorpay",
         createdAt: formatDate(p.paidAt || p.createdAt),
-        status: statusMap[String(p.status || "created").toLowerCase()] || "pending",
+        status: mapPaymentReviewStatus(rawPaymentStatus, sub?.status),
+        paymentStatus: rawPaymentStatus,
         activationDate: sub && sub.status === "active" ? formatDate(sub.start) : "",
         expiryDate: sub && sub.status === "active" ? formatDate(sub.end) : "",
       };
@@ -217,6 +366,7 @@ export async function adminListPlanRequests(req, res, next) {
         return {
           id: `legacy-${toId(sub)}`,
           companyId,
+          subscriptionId: toId(sub),
           companyName: company?.name || "Company",
           planId: "",
           planName: sub.planName || "Plan",
@@ -228,7 +378,8 @@ export async function adminListPlanRequests(req, res, next) {
           paymentMethod: "Legacy / Manual",
           source: "legacy-subscription",
           createdAt: formatDate(sub.createdAt || sub.start),
-          status: sub.status === "active" ? "approved" : "pending",
+          status: mapSubscriptionReviewStatus(sub.status),
+          subscriptionStatus: String(sub.status || "inactive").toLowerCase(),
           activationDate: formatDate(sub.start),
           expiryDate: formatDate(sub.end),
         };
@@ -242,6 +393,170 @@ export async function adminListPlanRequests(req, res, next) {
       .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
 
     return res.json({ rows });
+  } catch (e) {
+    next(e);
+  }
+}
+
+export async function adminRunPlanRequestAction(req, res, next) {
+  try {
+    const me = extractAdmin(req);
+    if (!me) return res.status(403).json({ message: "Forbidden" });
+
+    const rawId = String(req.params.id || "");
+    const source = String(req.body?.source || "manual").toLowerCase();
+    const action = String(req.body?.action || "").toLowerCase();
+
+    if (!["manual", "razorpay", "legacy-subscription"].includes(source)) {
+      return res.status(400).json({ message: "Invalid source" });
+    }
+    if (!["approve", "reject", "active", "inactive", "delete"].includes(action)) {
+      return res.status(400).json({ message: "Invalid action" });
+    }
+
+    if (source === "manual") {
+      if (!mongoose.isValidObjectId(rawId)) {
+        return res.status(400).json({ message: "Invalid request id" });
+      }
+
+      const request = await PlanRequest.findById(rawId)
+        .populate("planId", "name price durationDays jobsLimit appsLimit")
+        .lean();
+      if (!request) return res.status(404).json({ message: "Plan request not found" });
+
+      const companyId = toId(request.company);
+      const plan = request.planId || (request.planName ? await Plan.findOne({ name: request.planName }).lean() : null);
+      const planName = request.planName || plan?.name || "Plan";
+
+      if (action === "approve" || action === "active") {
+        await PlanRequest.findByIdAndUpdate(rawId, {
+          $set: {
+            status: "approved",
+            decidedAt: new Date(),
+            decidedBy: me._id,
+          },
+        });
+        await activateSubscriptionForCompany({
+          companyId,
+          plan,
+          planName,
+          billingCycle: "monthly",
+          fallbackPrice: Number(plan?.price || 0),
+        });
+      }
+
+      if (action === "reject") {
+        await PlanRequest.findByIdAndUpdate(rawId, {
+          $set: {
+            status: "rejected",
+            decidedAt: new Date(),
+            decidedBy: me._id,
+          },
+        });
+        await deactivateSubscriptionForCompany({ companyId, planName });
+      }
+
+      if (action === "inactive") {
+        await deactivateSubscriptionForCompany({ companyId, planName });
+      }
+
+      if (action === "delete") {
+        await Promise.all([
+          PlanRequest.findByIdAndDelete(rawId),
+          deleteSubscriptionForCompany({ companyId, planName }),
+        ]);
+      }
+    }
+
+    if (source === "razorpay") {
+      if (!mongoose.isValidObjectId(rawId)) {
+        return res.status(400).json({ message: "Invalid payment id" });
+      }
+
+      const payment = await Payment.findOne({
+        _id: rawId,
+        purpose: "company_subscription",
+      }).lean();
+      if (!payment) return res.status(404).json({ message: "Payment record not found" });
+
+      const companyId = toId(payment.user);
+      const plan = payment.planId ? await Plan.findById(payment.planId).lean() : null;
+      const planName = payment.planName || plan?.name || "Plan";
+
+      if (action === "approve" || action === "active") {
+        await Payment.findByIdAndUpdate(rawId, {
+          $set: {
+            status: "paid",
+            paidAt: payment.paidAt || new Date(),
+          },
+        });
+        await activateSubscriptionForCompany({
+          companyId,
+          plan,
+          planName,
+          billingCycle: normalizeBillingCycle(payment.billingCycle),
+          fallbackPrice: Number(payment.amount || 0),
+        });
+      }
+
+      if (action === "inactive") {
+        await deactivateSubscriptionForCompany({ companyId, planName });
+      }
+
+      if (action === "delete") {
+        await Promise.all([
+          Payment.findByIdAndDelete(rawId),
+          deleteSubscriptionForCompany({ companyId, planName }),
+        ]);
+      }
+    }
+
+    if (source === "legacy-subscription") {
+      const subscriptionId = rawId.startsWith("legacy-") ? rawId.slice(7) : rawId;
+      if (!mongoose.isValidObjectId(subscriptionId)) {
+        return res.status(400).json({ message: "Invalid subscription id" });
+      }
+
+      const subscription = await Subscription.findById(subscriptionId).lean();
+      if (!subscription) return res.status(404).json({ message: "Subscription not found" });
+
+      const plan = subscription.planName ? await Plan.findOne({ name: subscription.planName }).lean() : null;
+      const planName = subscription.planName || plan?.name || "Plan";
+
+      if (action === "approve" || action === "active") {
+        await activateSubscriptionForCompany({
+          companyId: toId(subscription.company),
+          plan,
+          planName,
+          billingCycle: normalizeBillingCycle(subscription.billingCycle),
+          fallbackPrice: Number(subscription.price || 0),
+          fallbackJobsLimit: Number(subscription.jobsLimit ?? 1),
+          fallbackAppsLimit: Number(subscription.appsLimit ?? 100),
+        });
+      }
+
+      if (action === "inactive") {
+        await deactivateSubscriptionForCompany({
+          subscriptionId,
+          companyId: toId(subscription.company),
+          planName,
+        });
+      }
+
+      if (action === "delete") {
+        await deleteSubscriptionForCompany({
+          subscriptionId,
+          companyId: toId(subscription.company),
+          planName,
+        });
+      }
+
+      if (action === "reject") {
+        return res.status(400).json({ message: "Legacy subscriptions cannot be rejected." });
+      }
+    }
+
+    return res.json({ ok: true, action, id: rawId, source });
   } catch (e) {
     next(e);
   }
@@ -324,6 +639,7 @@ export async function adminUpdatePlanRequest(req, res, next) {
       utr: pr.utr || "",
       transactionId: pr.utr || "",
       paymentMethod: "Manual",
+      source: "manual",
       createdAt: formatDate(pr.requestedAt || pr.createdAt),
       status: pr.status || "pending",
       activationDate,

@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { createInterviewWebrtcState } from "../utils/interviewWebrtc.js";
 
 const interviewSchema = new mongoose.Schema(
   {
@@ -113,8 +114,12 @@ const interviewSchema = new mongoose.Schema(
         content: { type: String, default: "" },
         note: { type: String, default: "" },
         lastUpdatedBy: { type: String, enum: ["company", "student", ""], default: "" },
+        outputMode: { type: String, enum: ["console", "server"], default: "console" },
         output: { type: String, default: "" },
         error: { type: String, default: "" },
+        serverOutput: { type: String, default: "" },
+        serverError: { type: String, default: "" },
+        previewHtml: { type: String, default: "" },
         updatedAt: { type: Date },
       },
       screenShare: {
@@ -129,14 +134,7 @@ const interviewSchema = new mongoose.Schema(
       },
       webrtc: {
         type: mongoose.Schema.Types.Mixed,
-        default: () => ({
-          active: false,
-          sessionId: "",
-          offer: { type: "", sdp: "", by: "", createdAt: null },
-          answer: { type: "", sdp: "", by: "", createdAt: null },
-          companyCandidates: [],
-          studentCandidates: [],
-        }),
+        default: () => createInterviewWebrtcState(),
       },
     },
 

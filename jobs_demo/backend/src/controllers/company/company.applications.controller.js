@@ -5,6 +5,21 @@ import MessageThread from "../../models/MessageThread.js";
 import Message from "../../models/Message.js";
 
 const ALLOWED = ["Applied", "Shortlisted", "Hold", "Rejected", "Interview Scheduled"];
+const EXTRA_PIPELINE_STATUS = ["Interview Completed", "Offer Sent", "Hired"];
+const SHORTLIST_STAGES = {
+  HR: "HR Round",
+  Technical: "Technical Round",
+  Final: "Final Round",
+};
+
+function buildApplicationMeta(existingMeta, status, patch = {}) {
+  const meta = { ...(existingMeta || {}), ...patch, pipelineStatus: status };
+  if (status === "Shortlisted" || status === "Interview Scheduled") {
+    if (!meta.shortlistedDate) meta.shortlistedDate = new Date().toISOString();
+    if (!meta.stage) meta.stage = "HR Round";
+  }
+  return meta;
+}
 
 async function notifyStudent({ studentId, type, title, description, icon, actions = [], meta = {} }) {
   if (!studentId) return;
@@ -73,6 +88,20 @@ function ensureMeetingLink(link, roomId) {
   return "";
 }
 
+function studentAvatar(student = {}) {
+  const personal = student?.studentProfile?.personal || {};
+  return (
+    student?.avatarUrl ||
+    student?.avatar ||
+    student?.profilePhoto ||
+    student?.profileImageUrl ||
+    student?.imageUrl ||
+    personal?.avatarUrl ||
+    personal?.profileImageUrl ||
+    ""
+  );
+}
+
 export const listCompanyApplications = async (req, res, next) => {
   try {
     const companyId = req.user._id;
@@ -87,12 +116,12 @@ export const listCompanyApplications = async (req, res, next) => {
     } = req.query;
 
     const match = { company: companyId };
-    if (status && status !== "All") match.status = status;
+    if (status && status !== "All" && ALLOWED.includes(status)) match.status = status;
     if (jobId) match.job = jobId;
 
     let apps = await Application.find(match)
       .sort({ createdAt: -1 })
-      .populate("student", "name email phone resumeUrl location")
+      .populate("student", "name email phone resumeUrl location studentProfile avatarUrl avatar profilePhoto profileImageUrl imageUrl")
       .populate("job", "title location")
       .lean();
 
@@ -102,12 +131,18 @@ export const listCompanyApplications = async (req, res, next) => {
     const locLower = String(location || "").toLowerCase().trim();
 
     apps = apps.filter((a) => {
+      const pipelineStatus = a?.meta?.pipelineStatus || a.status || "Applied";
       const studentName = (a.student?.name || "").toLowerCase();
       const studentEmail = (a.student?.email || "").toLowerCase();
       const studentLoc = (a.student?.location || "").toLowerCase();
       const jobTitle = (a.job?.title || "").toLowerCase();
       const jobLoc = (a.job?.location || "").toLowerCase();
       const topSkills = (a.topSkills || []).join(" ").toLowerCase();
+
+      if (status && status !== "All" && !ALLOWED.includes(status) && !EXTRA_PIPELINE_STATUS.includes(status)) {
+        return false;
+      }
+      if (status && status !== "All" && pipelineStatus !== status) return false;
 
       if (qLower) {
         const hay = `${studentName} ${studentEmail} ${jobTitle} ${jobLoc} ${studentLoc} ${topSkills}`;
@@ -136,10 +171,18 @@ export const listCompanyApplications = async (req, res, next) => {
         topSkills: a.topSkills || [],
         appliedDate: a.createdAt ? new Date(a.createdAt).toISOString().slice(0, 10) : "-",
         date: a.createdAt ? new Date(a.createdAt).toISOString().slice(0, 10) : "-",
-        status: a.status || "Applied",
+        status: a?.meta?.pipelineStatus || a.status || "Applied",
+        stage: a?.meta?.stage || "HR Round",
+        shortlistedDate: a?.meta?.shortlistedDate ? String(a.meta.shortlistedDate).slice(0, 10) : "",
+        interview: a?.meta?.interview || null,
+        offer: a?.meta?.offer || null,
+        notes: Array.isArray(a?.meta?.notes) ? a.meta.notes : [],
+        aiMatch: a?.meta?.aiMatch || "Moderate",
         phone: a.student?.phone || "",
         email: a.student?.email || "",
         resumeUrl: a.student?.resumeUrl || "",
+        avatar: studentAvatar(a.student),
+        avatarUrl: studentAvatar(a.student),
       })),
       total: apps.length,
     });
@@ -158,17 +201,19 @@ export const updateCompanyApplicationStatus = async (req, res, next) => {
       return res.status(400).json({ message: "Invalid status" });
     }
 
+    const existing = await Application.findOne({ _id: id, company: companyId }).lean();
+    if (!existing) {
+      return res.status(404).json({ message: "Application not found" });
+    }
+
+    const meta = buildApplicationMeta(existing.meta, status);
     const app = await Application.findOneAndUpdate(
       { _id: id, company: companyId },
-      { $set: { status } },
+      { $set: { status, meta } },
       { returnDocument: "after" }
     )
       .populate("job", "title")
       .lean();
-
-    if (!app) {
-      return res.status(404).json({ message: "Application not found" });
-    }
 
     await notifyStudent({
       studentId: app.student,
@@ -205,15 +250,20 @@ export const bulkUpdateCompanyApplicationStatus = async (req, res, next) => {
       return res.status(400).json({ message: "ids required" });
     }
 
-    const r = await Application.updateMany(
-      { _id: { $in: ids }, company: companyId },
-      { $set: { status } }
+    const apps = await Application.find({ _id: { $in: ids }, company: companyId }).select("_id meta").lean();
+    await Promise.all(
+      apps.map((app) =>
+        Application.updateOne(
+          { _id: app._id, company: companyId },
+          { $set: { status, meta: buildApplicationMeta(app.meta, status) } }
+        )
+      )
     );
 
     res.json({
       ok: true,
-      matched: r.matchedCount ?? r.n,
-      modified: r.modifiedCount ?? r.nModified,
+      matched: apps.length,
+      modified: apps.length,
     });
   } catch (err) {
     next(err);
@@ -326,9 +376,23 @@ export const scheduleCompanyInterview = async (req, res, next) => {
       status: "Scheduled",
     });
 
+    const stage = SHORTLIST_STAGES[round] || "HR Round";
+    const meta = buildApplicationMeta(app.meta, "Interview Scheduled", {
+      stage,
+      interview: {
+        date,
+        time,
+        mode: type,
+        link: effectiveMeetingLink,
+        message,
+        interviewId: interview._id,
+        roomId: createdRoomId,
+      },
+    });
+
     await Application.updateOne(
       { _id: id, company: companyId },
-      { $set: { status: "Interview Scheduled" } }
+      { $set: { status: "Interview Scheduled", meta } }
     );
 
     const whenText = toDateTimeText(dt);

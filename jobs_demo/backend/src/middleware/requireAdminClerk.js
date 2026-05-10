@@ -1,5 +1,6 @@
 import { clerkClient } from "@clerk/express";
 import User from "../models/User.js";
+import { LOCAL_ADMIN_AUTH, verifyLocalAdminToken } from "../config/adminLocalAuth.js";
 
 function pickRole(clerkUser) {
   const raw = clerkUser?.publicMetadata?.role ?? clerkUser?.unsafeMetadata?.role;
@@ -8,6 +9,29 @@ function pickRole(clerkUser) {
 
 export default async function requireAdminClerk(req, res, next) {
   try {
+    const explicitAdminToken = String(req.headers["x-admin-token"] || "").trim();
+    const authHeader = String(req.headers.authorization || "");
+    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+    const localAdmin = verifyLocalAdminToken(explicitAdminToken || token);
+    if (localAdmin) {
+      const clerkId = `local_admin_${LOCAL_ADMIN_AUTH.username}`;
+      let user = await User.findOne({ clerkId });
+      if (!user) {
+        user = await User.create({
+          clerkId,
+          role: "admin",
+          email: LOCAL_ADMIN_AUTH.email,
+          name: LOCAL_ADMIN_AUTH.name,
+          isActive: true,
+        });
+      }
+      if (user.isActive === false) return res.status(403).json({ message: "Account suspended" });
+      req.user = user;
+      req.dbUser = user;
+      req.localAdmin = localAdmin;
+      return next();
+    }
+
     const clerkId = req.auth()?.userId;
     if (!clerkId) return res.status(401).json({ message: "Unauthorized" });
 

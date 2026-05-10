@@ -1829,6 +1829,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@clerk/clerk-react";
+import { toAbsoluteMediaUrl } from "../../utils/media.js";
 import Swal from "sweetalert2";
 import {
   FiBook, FiBriefcase, FiMapPin, FiSave, FiUploadCloud,
@@ -1846,6 +1847,7 @@ import {
   studentMe,
   studentUpdateProfile,
   uploadResume as uploadResumeAPI,
+  studentViewResumeFile,
   uploadAvatar as uploadAvatarAPI,
   getFollowSuggestions,
   toggleFollow,
@@ -1966,7 +1968,7 @@ const EMPTY={personal:{fullName:"",email:"",phone:"",dob:"",gender:"Male",addres
 function mapProfileToForm(me={}) {
   const p=safeObj(me.studentProfile); const preferred=safeObj(p.preferred);
   return {
-    personal:{ fullName:p.personal?.fullName||me.name||"", email:p.personal?.email||me.email||"", phone:p.personal?.phone||me.phone||"", dob:p.personal?.dob||"", gender:p.personal?.gender||"Male", address:p.personal?.address||"", city:p.personal?.city||"", state:p.personal?.state||"", location:p.personal?.location||me.location||"", linkedin:p.personal?.linkedin||me.linkedin||"", portfolio:p.personal?.portfolio||me.portfolio||"", github:p.personal?.github||"", twitter:p.personal?.twitter||"", instagram:p.personal?.instagram||"", youtube:p.personal?.youtube||"", website:p.personal?.website||"", designation:p.personal?.designation||"Student", about:p.personal?.about||"", coverPhoto:p.personal?.coverPhoto||"", avatarUrl:p.personal?.avatarUrl||"" },
+    personal:{ fullName:p.personal?.fullName||me.name||"", email:p.personal?.email||me.email||"", phone:p.personal?.phone||me.phone||"", dob:p.personal?.dob||"", gender:p.personal?.gender||"Male", address:p.personal?.address||"", city:p.personal?.city||"", state:p.personal?.state||"", location:p.personal?.location||me.location||"", linkedin:p.personal?.linkedin||me.linkedin||"", portfolio:p.personal?.portfolio||me.portfolio||"", github:p.personal?.github||"", twitter:p.personal?.twitter||"", instagram:p.personal?.instagram||"", youtube:p.personal?.youtube||"", website:p.personal?.website||"", designation:p.personal?.designation||"Student", about:p.personal?.about||"", coverPhoto:p.personal?.coverPhoto||"", avatarUrl:p.personal?.avatarUrl||p.personal?.profileImageUrl||me.avatarUrl||me.avatar||me.profilePhoto||me.profileImageUrl||me.imageUrl||"" },
     education:safeArr(p.education).map((e,i)=>({id:e.id||`ed_${i}`,degree:e.degree||"",college:e.college||"",year:e.year||"",branch:e.branch||"",score:e.score||"",board:e.board||"",universityRollNo:e.universityRollNo||"",achievements:e.achievements||""})),
     skills:safeArr(p.skills).map((s,i)=>typeof s==="string"?{id:`sk_${i}`,name:s}:{id:s.id||`sk_${i}`,name:s.name||s.skill||""}),
     fresher:p.fresher!==undefined?!!p.fresher:true,
@@ -2195,10 +2197,11 @@ function ComboInput({ label, value, onChange, options=[], placeholder }) {
 
 // ─── AVATAR ───────────────────────────────────────────────────────────────────
 function AvatarComp({ src, name, id, size=96, editable, onEdit, showOnline }) {
+  const srcUrl = toAbsoluteMediaUrl(src);
   return (
     <div className="relative inline-block" style={{width:size,height:size}}>
-      {src
-        ? <img src={src} alt={name} className="rounded-full object-cover shadow-md" style={{width:size,height:size,border:"3px solid white"}}/>
+      {srcUrl
+        ? <img src={srcUrl} alt={name} className="rounded-full object-cover shadow-md" style={{width:size,height:size,border:"3px solid white"}}/>
         : <div className="rounded-full flex items-center justify-center text-white font-bold shadow-md" style={{width:size,height:size,fontSize:size*0.33,border:"3px solid white",background:avatarGradient(id||name)}}>{initials(name)}</div>}
       {showOnline && <span className="online-dot absolute bottom-1 right-1 h-3.5 w-3.5 rounded-full bg-emerald-400 border-2 border-white"/>}
       {editable && (
@@ -2242,13 +2245,18 @@ function ColorBadge({name,color="#3b82f6",onRemove}){
 }
 
 // ─── VIEW RESUME — opens in new browser tab ───────────────────────────────────
-// For Cloudinary PDFs, we just window.open the URL directly.
-// This is the most reliable cross-browser approach — no iframe needed.
-function openResumeInNewTab(url) {
-  if (!url) return;
-  // Cloudinary: strip any fragment, force fl_attachment=false to inline
-  const clean = url.split("#")[0];
-  window.open(clean, "_blank", "noopener,noreferrer");
+// Fetch through the backend so protected Cloudinary/local resumes open reliably.
+async function openResumeInNewTab(fetchResumeFile, targetWindow = null) {
+  const res = await fetchResumeFile();
+  const contentType = res?.headers?.["content-type"] || "application/pdf";
+  const blob = new Blob([res.data], { type: contentType });
+  const blobUrl = URL.createObjectURL(blob);
+  if (targetWindow && !targetWindow.closed) {
+    targetWindow.location.href = blobUrl;
+  } else {
+    window.open(blobUrl, "_blank", "noopener,noreferrer");
+  }
+  window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
 }
 
 // ─── AVATAR MODAL ─────────────────────────────────────────────────────────────
@@ -2596,15 +2604,21 @@ export default function Profile() {
   };
 
   // ── View Resume — opens directly in new browser tab ──────────────────────────
-  const viewResume=()=>{
+  const viewResume=async()=>{
     if(!form.resume.url&&!form.resume.fileName){
       sweet.warning("No Resume","Please upload your resume first.");return;
     }
-    if(!form.resume.url){
-      sweet.info("Not Available Yet","Save your profile first, then try viewing the resume.");return;
+    const resumeWindow=window.open("", "_blank");
+    if(resumeWindow) resumeWindow.opener=null;
+    try{
+      const t=token||await getToken();
+      await openResumeInNewTab(()=>studentViewResumeFile(t),resumeWindow);
+    }catch(err){
+      if(resumeWindow&&!resumeWindow.closed) resumeWindow.close();
+      const msg=err?.response?.data?.message||"Resume file is not available. Please upload it again.";
+      toast(msg,"error");
+      sweet.error("Resume Not Available",msg);
     }
-    // Open Cloudinary URL directly in new tab — no iframe, no routing
-    openResumeInNewTab(form.resume.url);
   };
 
   // ── Save profile to MongoDB ──────────────────────────────────────────────────
@@ -2616,6 +2630,7 @@ export default function Profile() {
       const payload={
         name:form.personal.fullName,phone:form.personal.phone,
         location:form.personal.location,linkedin:form.personal.linkedin,portfolio:form.personal.portfolio,
+        avatarUrl:form.personal.avatarUrl,profileImageUrl:form.personal.avatarUrl,imageUrl:form.personal.avatarUrl,
         studentProfile:{
           personal:form.personal,
           education:safeArr(form.education).map(({id,...r})=>r),

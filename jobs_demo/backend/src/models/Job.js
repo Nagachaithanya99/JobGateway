@@ -9,6 +9,13 @@ const jobSchema = new mongoose.Schema(
       required: true,
     },
 
+    createdByRole: {
+      type: String,
+      enum: ["company", "admin"],
+      default: "company",
+    },
+    createdByAdmin: { type: Boolean, default: false },
+
     // ================= BASIC INFO =================
     title: { type: String, required: true, trim: true },
     stream: { type: String, default: "" },
@@ -47,6 +54,11 @@ const jobSchema = new mongoose.Schema(
     // ================= APPLY SETTINGS =================
     requireResume: { type: Boolean, default: true },
     requireProfile100: { type: Boolean, default: false },
+    applicantProfileRequirement: {
+      type: String,
+      enum: ["resume", "student_profile", "both"],
+      default: "both",
+    },
     oneClickApply: { type: Boolean, default: true },
     allowWhatsapp: { type: Boolean, default: false },
     allowCall: { type: Boolean, default: false },

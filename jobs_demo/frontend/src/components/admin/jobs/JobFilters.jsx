@@ -127,13 +127,15 @@ export default function JobFilters({
             <FiDownload /> Export
           </button>
 
-          <button
-            type="button"
-            onClick={onAdd}
-            className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#2563EB] px-3 text-sm font-semibold text-white hover:bg-blue-700"
-          >
-            <FiPlus /> Add Job
-          </button>
+          {onAdd ? (
+            <button
+              type="button"
+              onClick={onAdd}
+              className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#2563EB] px-3 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              <FiPlus /> Add Job
+            </button>
+          ) : null}
         </div>
       </div>
     </section>

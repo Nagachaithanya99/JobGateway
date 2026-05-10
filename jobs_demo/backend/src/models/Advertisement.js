@@ -27,13 +27,24 @@ const advertisementSchema = new mongoose.Schema(
     placement: { type: String, default: "student-home", trim: true },
     status: {
       type: String,
-      enum: ["pending", "active", "rejected", "archived"],
+      enum: ["pending", "active", "inactive", "rejected", "archived"],
       default: "active",
       index: true,
     },
     rejectedReason: { type: String, default: "", trim: true },
     approvedAt: { type: Date, default: null },
     approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    metrics: {
+      impressions: { type: Number, default: 0 },
+      clicks: { type: Number, default: 0 },
+      fullscreenViews: { type: Number, default: 0 },
+      pauses: { type: Number, default: 0 },
+      resumes: { type: Number, default: 0 },
+      cancels: { type: Number, default: 0 },
+      skips: { type: Number, default: 0 },
+      replays: { type: Number, default: 0 },
+      lastInteractionAt: { type: Date, default: null },
+    },
   },
   { timestamps: true }
 );

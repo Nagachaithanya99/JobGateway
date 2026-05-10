@@ -58,6 +58,7 @@ const PersonalSchema = new mongoose.Schema({
   about:       String,
   coverPhoto:  String,
   avatarUrl:   String,
+  profileImageUrl: String,
 }, { _id: false });
 
 const PreferredSchema = new mongoose.Schema({
@@ -99,6 +100,20 @@ const AppliedJobSchema = new mongoose.Schema({
   },
 });
 
+const AdAccessSchema = new mongoose.Schema({
+  canPost: { type: Boolean, default: false },
+  planStatus: {
+    type: String,
+    enum: ["none", "pending", "approved", "rejected", "expired"],
+    default: "none",
+  },
+  planName: { type: String, default: "Ads Starter Plan" },
+  requestedAt: { type: Date, default: null },
+  approvedAt: { type: Date, default: null },
+  expiresAt: { type: Date, default: null },
+  note: { type: String, default: "" },
+}, { _id: false });
+
 const UserSchema = new mongoose.Schema(
   {
     clerkId:   { type: String, required: true, unique: true, index: true },
@@ -109,9 +124,18 @@ const UserSchema = new mongoose.Schema(
     linkedin:  String,
     portfolio: String,
     resumeUrl: String,
-    role:      { type: String, enum: ["student", "recruiter", "admin"], default: "student" },
+    avatarUrl: String,
+    avatar: String,
+    profilePhoto: String,
+    profileImageUrl: String,
+    imageUrl: String,
+    role:      { type: String, enum: ["student", "company", "recruiter", "admin"], default: "student" },
+    isActive:  { type: Boolean, default: true },
+    deletedAt: { type: Date, default: null },
 
     studentProfile: StudentProfileSchema,
+    resume: { type: mongoose.Schema.Types.Mixed, default: {} },
+    savedJobs: [{ type: mongoose.Schema.Types.ObjectId, ref: "Job" }],
 
     followers:  [{ type: String }],
     following:  [{ type: String }],
@@ -120,6 +144,7 @@ const UserSchema = new mongoose.Schema(
 
     profileViews: { type: Number, default: 0 },
     projectViews: { type: Number, default: 0 },
+    adAccess: { type: AdAccessSchema, default: () => ({}) },
   },
   { timestamps: true }
 );

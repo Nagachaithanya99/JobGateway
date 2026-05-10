@@ -9,6 +9,12 @@ function companyAvatar(company) {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(company?.name || "Company")}&background=DBEAFE&color=2563EB&bold=true`;
 }
 
+function accountStatus(company) {
+  if (company?.isActive === true) return "active";
+  if (company?.isActive === false) return "suspended";
+  return String(company?.status || "").toLowerCase() === "active" ? "active" : "suspended";
+}
+
 export default function CompanyDetailsDrawer({
   open,
   company,
@@ -20,7 +26,8 @@ export default function CompanyDetailsDrawer({
   onResetPlan,
   onUpgradePlan,
 }) {
-  const isActive = String(company?.status || "").toLowerCase() === "active";
+  const currentStatus = accountStatus(company);
+  const isActive = currentStatus === "active";
 
   return (
     <AnimatePresence>
@@ -53,7 +60,7 @@ export default function CompanyDetailsDrawer({
                     <h3 className="text-lg font-semibold text-[#1F2937]">{company?.name || "Company"}</h3>
                     <p className="text-sm text-slate-500">{company?.category || "-"}</p>
                     <div className="mt-1 flex gap-2">
-                      <StatusBadge value={company?.status || "active"} type="account" />
+                      <StatusBadge value={currentStatus} type="account" />
                       <StatusBadge value={company?.plan?.status || "active"} type="planStatus" />
                     </div>
                   </div>

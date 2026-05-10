@@ -31,6 +31,24 @@ export const uploadContentImage = async (file) => {
   });
 };
 
+export const uploadCompanyLogo = async (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return api.post("/upload/company-logo", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+};
+
+export const uploadStudentAvatar = async (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  return api.post("/upload/student-avatar", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+};
+
 export const uploadAdMedia = async (file) => {
   const formData = new FormData();
   formData.append("file", file);
@@ -57,6 +75,8 @@ const uploadService = {
   uploadResume,
   uploadMessageAttachment,
   uploadContentImage,
+  uploadCompanyLogo,
+  uploadStudentAvatar,
   uploadAdMedia,
   uploadAdMediaFromUrl,
   uploadSocialMedia,

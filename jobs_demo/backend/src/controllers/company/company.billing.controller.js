@@ -3,6 +3,7 @@ import Subscription from "../../models/Subscription.js";
 import Plan from "../../models/Plan.js";
 import Company from "../../models/Company.js";
 import Payment from "../../models/Payment.js";
+import Job from "../../models/Job.js";
 import {
   createRazorpayOrder,
   getRazorpayConfig,
@@ -99,14 +100,25 @@ export async function listPlans(req, res, next) {
 export async function getMyBilling(req, res, next) {
   try {
     const userId = req.user._id;
-    const [sub, company, history] = await Promise.all([
+    const [sub, company, history, activeJobs] = await Promise.all([
       ensureSubscription(userId),
       Company.findOne({ ownerUserId: userId }).select("billing name email hrEmail").lean(),
       buildCompanyBillingHistory(userId),
+      Job.countDocuments({ company: userId, status: "Active" }),
     ]);
 
+    let shouldSaveSubscription = false;
     if (sub.status === "active" && sub.end && Date.now() > new Date(sub.end).getTime()) {
       sub.status = "inactive";
+      shouldSaveSubscription = true;
+    }
+
+    if (Number(sub.jobsUsed ?? 0) !== Number(activeJobs || 0)) {
+      sub.jobsUsed = Number(activeJobs || 0);
+      shouldSaveSubscription = true;
+    }
+
+    if (shouldSaveSubscription) {
       await sub.save();
     }
 
@@ -124,9 +136,9 @@ export async function getMyBilling(req, res, next) {
         status: isActive ? "active" : "inactive",
         startDate: toISODate(sub.start),
         endDate: toISODate(sub.end),
-        jobsLimit: sub.jobsLimit,
-        jobsUsed: sub.jobsUsed,
-        applicationsLimit: sub.appsLimit,
+        jobsLimit: Number(sub.jobsLimit ?? 0),
+        jobsUsed: Number(activeJobs || 0),
+        applicationsLimit: Number(sub.appsLimit ?? 0),
         applicationsUsed: sub.appsUsed,
       },
       billingProfile: {

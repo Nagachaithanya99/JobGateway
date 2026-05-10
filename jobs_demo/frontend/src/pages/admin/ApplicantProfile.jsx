@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { FiMail, FiMapPin, FiPhone, FiUser } from "react-icons/fi";
+import ResumePreviewModal from "../../components/common/ResumePreviewModal.jsx";
 import { adminGetApplicant, adminUpdateApplicantStatus } from "../../services/adminService";
 
 function StatusBadge({ value }) {
@@ -42,6 +43,7 @@ export default function ApplicantProfile() {
   const [error, setError] = useState("");
   const [data, setData] = useState(null);
   const [tab, setTab] = useState("overview");
+  const [resumeOpen, setResumeOpen] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -69,15 +71,24 @@ export default function ApplicantProfile() {
 
   const appliedJobs = useMemo(() => {
     if (!data) return [];
-    return [
-      {
-        id: data.job?.id || "job_1",
-        title: data.job?.title || "-",
-        company: data.job?.companyName || "-",
-        date: data.appliedAt || "-",
-        status: data.status || "applied",
-      },
-    ];
+    if (Array.isArray(data.studentApplications) && data.studentApplications.length) {
+      return data.studentApplications.map((item) => ({
+        id: item.id,
+        title: item.jobTitle || "-",
+        company: item.company || "-",
+        date: item.date || "-",
+        status: item.status || "applied",
+        sourceLabel: item.sourceLabel || "Company Job",
+      }));
+    }
+    return [{
+      id: data.job?.id || "job_1",
+      title: data.job?.title || "-",
+      company: data.job?.companyName || "-",
+      date: data.appliedAt || "-",
+      status: data.status || "applied",
+      sourceLabel: data.job?.sourceLabel || "Company Job",
+    }];
   }, [data]);
 
   const changeStatus = async (status) => {
@@ -86,7 +97,11 @@ export default function ApplicantProfile() {
     try {
       const res = await adminUpdateApplicantStatus(id, status);
       if (res?.application) {
-        setData(res.application);
+        setData((prev) => ({
+          ...(prev || {}),
+          ...res.application,
+          studentApplications: prev?.studentApplications || [],
+        }));
       } else {
         setData((prev) => ({ ...prev, status }));
       }
@@ -123,12 +138,19 @@ export default function ApplicantProfile() {
   }
 
   const student = data.student || {};
+  const openStudentProfile = () => {
+    if (student.id) {
+      navigate(`/admin/students/${student.id}`);
+      return;
+    }
+    navigate(-1);
+  };
 
   return (
     <div className="space-y-6">
       <section>
-        <p className="text-xs font-medium text-slate-400">Dashboard &gt; Applicants &gt; Profile</p>
-        <h1 className="mt-1 text-2xl font-bold text-[#0F172A] sm:text-3xl">Applicant Profile</h1>
+        <p className="text-xs font-medium text-slate-400">Dashboard &gt; Applications &gt; Profile</p>
+        <h1 className="mt-1 text-2xl font-bold text-[#0F172A] sm:text-3xl">Student Application Profile</h1>
       </section>
 
       {error ? (
@@ -140,13 +162,22 @@ export default function ApplicantProfile() {
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex items-start gap-4">
-            <img
-              src={student.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(student.name || "Student")}&background=DBEAFE&color=2563EB&bold=true`}
-              alt={student.name || "Student"}
-              className="h-16 w-16 rounded-full border border-slate-200 object-cover"
-            />
+            <button
+              type="button"
+              onClick={openStudentProfile}
+              className="rounded-full transition hover:scale-[1.03]"
+              title={`Open ${student.name || "student"} profile`}
+            >
+              <img
+                src={student.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(student.name || "Student")}&background=DBEAFE&color=2563EB&bold=true`}
+                alt={student.name || "Student"}
+                className="h-16 w-16 rounded-full border border-slate-200 object-cover"
+              />
+            </button>
             <div>
-              <h2 className="text-xl font-semibold text-[#0F172A]">{student.name || "Student"}</h2>
+              <button type="button" onClick={openStudentProfile} className="text-left text-xl font-semibold text-[#0F172A] hover:text-[#2563EB]">
+                {student.name || "Student"}
+              </button>
               <p className="mt-1 text-sm text-slate-600">
                 {student.education || "-"} | {student.experience || "-"}
               </p>
@@ -223,9 +254,13 @@ export default function ApplicantProfile() {
                 ))}
               </div>
               {student.resumeUrl ? (
-                <a href={student.resumeUrl} target="_blank" rel="noreferrer" className="inline-flex rounded-lg border border-blue-200 px-3 py-2 text-sm font-semibold text-[#2563EB] hover:bg-blue-50">
-                  Download Resume
-                </a>
+                <button
+                  type="button"
+                  onClick={() => setResumeOpen(true)}
+                  className="inline-flex rounded-lg border border-blue-200 px-3 py-2 text-sm font-semibold text-[#2563EB] hover:bg-blue-50"
+                >
+                  View Resume
+                </button>
               ) : (
                 <p className="text-xs text-slate-500">Resume not available</p>
               )}
@@ -273,7 +308,14 @@ export default function ApplicantProfile() {
                       <td className="py-2 text-slate-700">{job.title}</td>
                       <td className="py-2 text-slate-700">{job.company}</td>
                       <td className="py-2 text-slate-600">{job.date}</td>
-                      <td className="py-2"><StatusBadge value={job.status} /></td>
+                      <td className="py-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <StatusBadge value={job.status} />
+                          <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                            {job.sourceLabel}
+                          </span>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -282,6 +324,14 @@ export default function ApplicantProfile() {
           ) : null}
         </div>
       </section>
+
+      <ResumePreviewModal
+        open={resumeOpen}
+        resumeUrl={student.resumeUrl || ""}
+        resumeData={student.resumeData || null}
+        applicantName={student.name || "Candidate"}
+        onClose={() => setResumeOpen(false)}
+      />
     </div>
   );
 }

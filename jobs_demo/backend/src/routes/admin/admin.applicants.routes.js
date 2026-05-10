@@ -6,8 +6,10 @@ import {
   adminUpdateApplicationStatus,
   adminDeleteApplication,
 } from "../../controllers/admin/admin.applicants.controller.js";
+import requireAdminClerk from "../../middleware/requireAdminClerk.js";
 
 const router = Router();
+router.use(requireAdminClerk);
 
 // GET /api/admin/applications
 router.get("/applications", adminListApplications);

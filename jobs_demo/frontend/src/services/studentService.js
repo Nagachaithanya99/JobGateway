@@ -215,7 +215,7 @@ export const studentUpdateProfile = async (payload = {}, token) =>
   api.put("/student/profile/me", payload, authConfig(token));
 
 export const studentMyApplications = async (params = {}) =>
-  api.get("/student/me/applications", { params });
+  api.get("/student/profile/applied-jobs", { params });
 
 export const studentGetResume = async () =>
   api.get("/student/me/resume");
@@ -322,7 +322,7 @@ export const uploadResume = async (file, token) => {
   );
 };
 
-// Upload profile avatar image — field name must be "file"
+// Upload profile avatar image — field name must match backend: "file"
 export const uploadAvatar = async (file, token) => {
   const fd = new FormData();
   fd.append("file", file);
@@ -365,12 +365,27 @@ export const studentGetAdsStatus = async () =>
 
 // Create a Razorpay order for an ad plan purchase
 export const studentCreateAdPlanOrder = async (payload = {}) =>
-  api.post("/student/ads/plan/order", payload);
+  api.post("/student/ads/plans/create-order", payload);
 
-// Verify Razorpay payment after checkout completes
 export const studentVerifyAdPlanPayment = async (payload = {}) =>
   api.post("/student/ads/plan/verify", payload);
 
-// Submit a new ad (after plan is approved)
+// Post a new ad (after plan is approved)
+// payload shape:
+// {
+//   title, description, mediaType, sourceType,
+//   mediaUrl, mediaPublicId, mediaResourceType,
+//   mimeType, ctaLabel, targetUrl
+// }
 export const studentCreateAd = async (payload = {}) =>
   api.post("/student/ads", payload);
+
+// Get all ads posted by the current student
+export const studentGetMyAds = async () =>
+  api.get("/student/ads/mine");
+
+// Delete one of the student's own ads
+export const studentDeleteAd = async (adId) => {
+  if (!adId) throw new Error("adId is required");
+  return api.delete(`/student/ads/${adId}`);
+};

@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FiLoader, FiMessageCircle, FiSend, FiX } from "react-icons/fi";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { sendChatbotMessage } from "../../services/chatbotService.js";
 
 const STORAGE_KEY = "jobgateway_chatbot_conversation_id";
+const POSITION_KEY = "jobgateway_chatbot_position";
 
 function initialConversationId() {
   try {
@@ -11,6 +12,17 @@ function initialConversationId() {
   } catch {
     return "";
   }
+}
+
+function initialPosition() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(POSITION_KEY) || "null");
+    if (Number.isFinite(parsed?.x) && Number.isFinite(parsed?.y)) return parsed;
+  } catch {
+    // ignore storage failures
+  }
+
+  return { x: 20, y: 20 };
 }
 
 function quickPromptsByRole(role = "") {
@@ -43,6 +55,8 @@ function mapPromptText(chip, role = "") {
 export default function AppChatbot() {
   const { role } = useAuth();
   const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState(initialPosition);
+  const dragRef = useRef(null);
   const [loading, setLoading] = useState(false);
   const [conversationId, setConversationId] = useState(initialConversationId);
   const [input, setInput] = useState("");
@@ -51,6 +65,50 @@ export default function AppChatbot() {
   ]);
 
   const chips = useMemo(() => quickPromptsByRole(role), [role]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(POSITION_KEY, JSON.stringify(position));
+    } catch {
+      // ignore storage failures
+    }
+  }, [position]);
+
+  const startDrag = (event) => {
+    const pointer = event.touches?.[0] || event;
+    dragRef.current = {
+      startX: pointer.clientX,
+      startY: pointer.clientY,
+      originX: position.x,
+      originY: position.y,
+    };
+
+    const move = (moveEvent) => {
+      if (!dragRef.current) return;
+      const nextPointer = moveEvent.touches?.[0] || moveEvent;
+      const nextX = dragRef.current.originX - (nextPointer.clientX - dragRef.current.startX);
+      const nextY = dragRef.current.originY - (nextPointer.clientY - dragRef.current.startY);
+      const maxX = Math.max(8, window.innerWidth - 72);
+      const maxY = Math.max(8, window.innerHeight - 72);
+      setPosition({
+        x: Math.min(maxX, Math.max(8, nextX)),
+        y: Math.min(maxY, Math.max(8, nextY)),
+      });
+    };
+
+    const stop = () => {
+      dragRef.current = null;
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", stop);
+      window.removeEventListener("touchmove", move);
+      window.removeEventListener("touchend", stop);
+    };
+
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", stop);
+    window.addEventListener("touchmove", move, { passive: true });
+    window.addEventListener("touchend", stop);
+  };
 
   const send = async (text) => {
     const content = String(text || "").trim();
@@ -82,17 +140,24 @@ export default function AppChatbot() {
   };
 
   return (
-    <div className="fixed bottom-5 right-5 z-[70]">
+    <div className="fixed z-[70]" style={{ right: position.x, bottom: position.y }}>
       {open ? (
         <div className="w-[340px] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-orange-100 bg-white shadow-[0_20px_45px_rgba(15,23,42,0.16)] sm:w-[380px]">
-          <div className="flex items-center justify-between rounded-t-2xl bg-gradient-to-r from-[#FDBA74] to-[#F97316] px-4 py-3 text-white">
+          <div
+            className="flex cursor-move items-center justify-between rounded-t-2xl bg-gradient-to-r from-[#FDBA74] to-[#F97316] px-4 py-3 text-white"
+            onMouseDown={startDrag}
+            onTouchStart={startDrag}
+          >
             <div>
               <p className="text-sm font-semibold">JobGateway Assistant</p>
               <p className="text-xs text-orange-50">Support Chat</p>
             </div>
             <button
               type="button"
-              onClick={() => setOpen(false)}
+              onClick={(event) => {
+                event.stopPropagation();
+                setOpen(false);
+              }}
               className="rounded-full bg-white/20 p-1 text-white hover:bg-white/30"
               aria-label="Close assistant"
             >
@@ -164,6 +229,8 @@ export default function AppChatbot() {
       <button
         type="button"
         onClick={() => setOpen((prev) => !prev)}
+        onMouseDown={startDrag}
+        onTouchStart={startDrag}
         className="ml-auto inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#F97316] text-white shadow-[0_10px_24px_rgba(249,115,22,0.35)] hover:bg-orange-600"
         aria-label="Open assistant"
       >
